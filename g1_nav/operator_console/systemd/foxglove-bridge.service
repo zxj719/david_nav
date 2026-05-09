@@ -1,0 +1,19 @@
+[Unit]
+Description=Foxglove Bridge for ROS 2 Humble
+Documentation=https://docs.foxglove.dev/docs/visualization/ros-foxglove-bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=unitree
+Group=unitree
+Environment=ROS_DOMAIN_ID=30
+ExecStart=/bin/bash -lc "source /opt/ros/humble/setup.bash && ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765"
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

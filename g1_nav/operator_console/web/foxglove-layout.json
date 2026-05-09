@@ -1,0 +1,102 @@
+{
+  "configById": {
+    "3D!main": {
+      "cameraState": {
+        "perspective": false,
+        "distance": 30,
+        "phi": 0,
+        "thetaOffset": 0,
+        "targetOffset": [0, 0, 0],
+        "target": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "base_link",
+      "scene": {
+        "backgroundColor": "#1a1d27",
+        "enableStats": false
+      },
+      "transforms": {
+        "showLabel": false,
+        "axisScale": 0
+      },
+      "topics": {
+        "/lightning/grid_map": {
+          "visible": true,
+          "colorMode": "map",
+          "alpha": 0.8
+        },
+        "/global_costmap/costmap": {
+          "visible": true,
+          "colorMode": "costmap",
+          "alpha": 0.4
+        },
+        "/local_costmap/costmap": {
+          "visible": true,
+          "colorMode": "costmap",
+          "alpha": 0.5
+        },
+        "/scan": {
+          "visible": true,
+          "colorField": "intensity",
+          "colorMode": "flat",
+          "flatColor": "#22c55e",
+          "pointSize": 3
+        },
+        "/plan": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 2,
+          "color": "#3b82f6"
+        },
+        "/local_plan": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 1.5,
+          "color": "#eab308"
+        },
+        "/goal_pose": {
+          "visible": true
+        },
+        "/explore/frontiers": {
+          "visible": true
+        },
+        "/tf": {
+          "visible": true
+        },
+        "/tf_static": {
+          "visible": true
+        }
+      },
+      "publish": {
+        "type": "pose_estimate",
+        "poseTopic": "/initialpose",
+        "pointTopic": "/clicked_point",
+        "poseEstimateThetaDeviation": 0.26,
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5
+      }
+    },
+    "RawMessages!status": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/lightning/odometry"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "direction": "column",
+    "first": "3D!main",
+    "second": "RawMessages!status",
+    "splitPercentage": 80
+  }
+}

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ROS/colcon workspace outputs
+build/
+install/
+log/
+
+# Editor and local tooling
+.vscode/
+.idea/
+.worktrees/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*~

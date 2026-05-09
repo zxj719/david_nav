@@ -1,0 +1,44 @@
+# G1 Navigation Launch Manager — Profile whitelist
+#
+# Each profile defines a shell command that launch_manager is allowed to execute.
+# The manager will NOT run any command outside this list.
+#
+# command: the exact shell command to run (via bash -lc)
+# description: shown in the control panel UI
+# env: additional environment variables (merged with system env)
+
+profiles:
+  navigation:
+    command: /home/unitree/ros2_ws/src/g1_nav/start_navigation_headless.sh
+    description: >
+      Full navigation stack: Lightning SLAM + Nav2 + Frontier Exploration +
+      Navigation Executor (WebSocket). Headless mode (no RViz).
+    env:
+      ROS_DOMAIN_ID: "30"
+      ENABLE_CPU_ONLINE: "true"
+
+  navigation_no_explore:
+    command: /home/unitree/ros2_ws/src/g1_nav/start_navigation_headless.sh --no-exploration
+    description: >
+      Navigation without frontier exploration. Use when manually sending
+      goals via WebSocket or Foxglove.
+    env:
+      ROS_DOMAIN_ID: "30"
+      ENABLE_CPU_ONLINE: "true"
+
+  explore_with_rviz:
+    command: /home/unitree/ros2_ws/src/g1_nav/start_g1_auto_explore.sh
+    description: >
+      SLAM + Nav2 + Frontier Exploration with RViz enabled.
+      Requires a display (VNC or physical monitor).
+    env:
+      ROS_DOMAIN_ID: "30"
+      ENABLE_CPU_ONLINE: "true"
+
+  explore_headless:
+    command: /home/unitree/ros2_ws/src/g1_nav/start_g1_auto_explore.sh -r
+    description: >
+      SLAM + Nav2 + Frontier Exploration without RViz. No executor.
+    env:
+      ROS_DOMAIN_ID: "30"
+      ENABLE_CPU_ONLINE: "true"

@@ -1,0 +1,19 @@
+[Unit]
+Description=G1 Navigation Launch Manager
+Documentation=https://github.com/your-org/g1_nav
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=unitree
+Group=unitree
+WorkingDirectory=/home/unitree/ros2_ws/src/g1_nav/operator_console
+ExecStart=/usr/bin/python3 /home/unitree/ros2_ws/src/g1_nav/operator_console/launch_manager.py --port 8080
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

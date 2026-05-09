@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>G1 Navigation Console</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a2d3a;
+  --text: #e4e4e7;
+  --text-dim: #8b8d98;
+  --green: #22c55e;
+  --green-dim: #166534;
+  --red: #ef4444;
+  --red-dim: #7f1d1d;
+  --blue: #3b82f6;
+  --yellow: #eab308;
+  --radius: 8px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 16px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+/* Status indicator */
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.status-dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.status-dot.starting { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+.status-dot.stopping { background: var(--yellow); }
+.status-dot.stopped { background: var(--text-dim); }
+
+.status-text { font-size: 16px; font-weight: 500; }
+.status-detail { font-size: 13px; color: var(--text-dim); }
+
+/* Profile selector */
+.profile-select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 15px;
+  margin-bottom: 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.profile-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+/* Buttons */
+.btn-row {
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn:active { opacity: 0.7; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-start { background: var(--green-dim); color: var(--green); }
+.btn-stop { background: var(--red-dim); color: var(--red); }
+
+/* Logs */
+.log-area {
+  background: #000;
+  border-radius: var(--radius);
+  padding: 10px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 300px;
+  overflow-y: auto;
+  color: #a0a0a0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Links */
+.link-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.link-btn {
+  flex: 1;
+  min-width: 140px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--blue);
+  text-decoration: none;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.link-btn:active { opacity: 0.7; }
+
+/* Health */
+.health-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.health-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 20px;
+  font-size: 14px;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<h1>G1 Navigation Console</h1>
+
+<!-- Status -->
+<div class="card">
+  <div class="card-title">Status</div>
+  <div class="status-row">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-text" id="statusText">--</span>
+  </div>
+  <div class="status-detail" id="statusDetail"></div>
+</div>
+
+<!-- Control -->
+<div class="card">
+  <div class="card-title">Profile</div>
+  <select class="profile-select" id="profileSelect">
+    <option value="">Loading...</option>
+  </select>
+  <div class="profile-desc" id="profileDesc"></div>
+  <div class="btn-row">
+    <button class="btn btn-start" id="btnStart" disabled>Start</button>
+    <button class="btn btn-stop" id="btnStop" disabled>Stop</button>
+  </div>
+</div>
+
+<!-- Logs -->
+<div class="card">
+  <div class="card-title">Logs</div>
+  <div class="log-area" id="logArea">No logs yet.</div>
+</div>
+
+<!-- Quick Links -->
+<div class="card">
+  <div class="card-title">Visualization</div>
+  <div class="link-row">
+    <a class="link-btn" id="foxgloveLink" href="#" target="_blank">Foxglove Web</a>
+  </div>
+</div>
+
+<!-- Health -->
+<div class="card">
+  <div class="card-title">Services</div>
+  <div class="health-grid" id="healthGrid">--</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  "use strict";
+
+  // --- Config ---
+  // API base: same host as this page
+  var API = window.location.origin;
+  // Foxglove bridge port on the robot
+  var FOXGLOVE_PORT = 8765;
+  var POLL_MS = 2000;
+  var LOG_POLL_MS = 3000;
+
+  // --- DOM refs ---
+  var statusDot = document.getElementById("statusDot");
+  var statusText = document.getElementById("statusText");
+  var statusDetail = document.getElementById("statusDetail");
+  var profileSelect = document.getElementById("profileSelect");
+  var profileDesc = document.getElementById("profileDesc");
+  var btnStart = document.getElementById("btnStart");
+  var btnStop = document.getElementById("btnStop");
+  var logArea = document.getElementById("logArea");
+  var foxgloveLink = document.getElementById("foxgloveLink");
+  var healthGrid = document.getElementById("healthGrid");
+  var toast = document.getElementById("toast");
+
+  // --- State ---
+  var profiles = [];
+  var currentProfile = "";
+  var polling = true;
+
+  // --- Foxglove link ---
+  var robotHost = window.location.hostname;
+  var foxgloveUrl = "https://app.foxglove.dev/~/view?ds=foxglove-websocket&ds.url=ws://"
+    + robotHost + ":" + FOXGLOVE_PORT;
+  foxgloveLink.href = foxgloveUrl;
+
+  // --- Toast ---
+  var toastTimer = null;
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function() { toast.classList.remove("show"); }, 3000);
+  }
+
+  // --- API helpers ---
+  function api(method, path, body) {
+    var opts = { method: method, headers: {} };
+    if (body) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(API + path, opts).then(function(r) { return r.json(); });
+  }
+
+  // --- Load profiles ---
+  function loadProfiles() {
+    api("GET", "/api/profiles").then(function(data) {
+      profiles = data.profiles || [];
+      profileSelect.innerHTML = "";
+      profiles.forEach(function(p) {
+        var opt = document.createElement("option");
+        opt.value = p.name;
+        opt.textContent = p.name;
+        profileSelect.appendChild(opt);
+      });
+      if (profiles.length > 0) {
+        currentProfile = profiles[0].name;
+        profileSelect.value = currentProfile;
+        updateProfileDesc();
+        btnStart.disabled = false;
+        btnStop.disabled = false;
+      }
+    }).catch(function() {
+      profileSelect.innerHTML = '<option value="">Connection failed</option>';
+    });
+  }
+
+  function updateProfileDesc() {
+    var p = profiles.find(function(x) { return x.name === currentProfile; });
+    profileDesc.textContent = p ? p.description : "";
+  }
+
+  profileSelect.addEventListener("change", function() {
+    currentProfile = this.value;
+    updateProfileDesc();
+    pollStatus();
+    pollLogs();
+  });
+
+  // --- Start / Stop ---
+  btnStart.addEventListener("click", function() {
+    if (!currentProfile) return;
+    btnStart.disabled = true;
+    api("POST", "/api/profiles/" + currentProfile + "/start").then(function(r) {
+      if (r.ok) {
+        showToast("Started " + currentProfile);
+      } else {
+        showToast(r.error || "Start failed");
+      }
+      pollStatus();
+    }).catch(function() {
+      showToast("Connection failed");
+    }).finally(function() {
+      btnStart.disabled = false;
+    });
+  });
+
+  btnStop.addEventListener("click", function() {
+    if (!currentProfile) return;
+    btnStop.disabled = true;
+    showToast("Stopping " + currentProfile + "...");
+    api("POST", "/api/profiles/" + currentProfile + "/stop").then(function(r) {
+      if (r.ok) {
+        showToast("Stopped " + currentProfile);
+      } else {
+        showToast(r.error || "Stop failed");
+      }
+      pollStatus();
+    }).catch(function() {
+      showToast("Connection failed");
+    }).finally(function() {
+      btnStop.disabled = false;
+    });
+  });
+
+  // --- Status polling ---
+  function pollStatus() {
+    if (!currentProfile) return;
+    api("GET", "/api/profiles/" + currentProfile + "/status").then(function(s) {
+      var state = s.state || "stopped";
+      statusDot.className = "status-dot " + state;
+      statusText.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+
+      var details = [];
+      if (s.pid) details.push("PID " + s.pid);
+      if (s.uptime_seconds != null) details.push(formatUptime(s.uptime_seconds));
+      if (s.exit_code != null && state === "stopped") details.push("exit " + s.exit_code);
+      statusDetail.textContent = details.join("  |  ");
+    }).catch(function() {
+      statusDot.className = "status-dot";
+      statusText.textContent = "Disconnected";
+      statusDetail.textContent = "";
+    });
+  }
+
+  function formatUptime(sec) {
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = Math.floor(sec % 60);
+    if (h > 0) return h + "h " + m + "m";
+    if (m > 0) return m + "m " + s + "s";
+    return s + "s";
+  }
+
+  // --- Log polling ---
+  function pollLogs() {
+    if (!currentProfile) return;
+    api("GET", "/api/profiles/" + currentProfile + "/logs?tail=80").then(function(data) {
+      var lines = data.lines || [];
+      if (lines.length === 0) {
+        logArea.textContent = "No logs yet.";
+        return;
+      }
+      logArea.textContent = lines.join("\n");
+      logArea.scrollTop = logArea.scrollHeight;
+    }).catch(function() {});
+  }
+
+  // --- Health polling ---
+  function pollHealth() {
+    api("GET", "/api/health").then(function(data) {
+      var services = data.services || {};
+      var html = "";
+      for (var name in services) {
+        var state = services[name];
+        var dotClass = state === "running" ? "running" :
+                       state === "starting" ? "starting" :
+                       state === "stopping" ? "stopping" : "stopped";
+        html += '<div class="health-item">'
+          + '<div class="status-dot ' + dotClass + '" style="width:8px;height:8px;"></div>'
+          + '<span>' + name + '</span>'
+          + '</div>';
+      }
+      healthGrid.innerHTML = html || "--";
+    }).catch(function() {
+      healthGrid.innerHTML = '<div class="health-item">Disconnected</div>';
+    });
+  }
+
+  // --- Init ---
+  loadProfiles();
+
+  setInterval(function() {
+    pollStatus();
+    pollHealth();
+  }, POLL_MS);
+
+  setInterval(pollLogs, LOG_POLL_MS);
+
+  // Initial polls
+  setTimeout(function() { pollStatus(); pollHealth(); pollLogs(); }, 500);
+})();
+</script>
+</body>
+</html>
