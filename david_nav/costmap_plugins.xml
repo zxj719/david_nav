@@ -1,0 +1,9 @@
+<class_libraries>
+  <library path="david_nav_scan_priority_layer">
+    <class type="david_nav::ScanPriorityLayer" base_class_type="nav2_costmap_2d::Layer">
+      <description>
+        Front-sector local costmap layer that compares scan beams against a fixed ground baseline.
+      </description>
+    </class>
+  </library>
+</class_libraries>

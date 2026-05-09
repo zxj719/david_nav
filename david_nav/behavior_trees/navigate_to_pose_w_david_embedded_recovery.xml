@@ -1,0 +1,93 @@
+<!--
+  David custom NavigateToPose tree:
+  - Primary trigger: RobotEmbeddedInObstacle (footprint overlaps lethal cells in local costmap)
+  - Auxiliary trigger: IsStuck in the generic recovery branch
+  - Level 1 recovery: cancel control, publish single-axis escape motion, then clear local/global costmaps
+  - Level 2 recovery: wait 0.8s + back up 0.35m + clear local costmap
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <RecoveryNode number_of_retries="2" name="EmbeddedRecoveryGuard">
+          <Inverter>
+            <RobotEmbeddedInObstacle
+              confirmations_required="3"
+              costmap_topic="local_costmap/costmap_raw"
+              footprint_topic="local_costmap/published_footprint"
+              lethal_cost_threshold="254"
+              transform_tolerance="0.2"/>
+          </Inverter>
+          <ReactiveFallback name="EmbeddedRecoveryFallback">
+            <GoalUpdated/>
+            <RoundRobin name="EmbeddedRecoveryStages">
+              <Sequence name="EmbeddedRecoveryLevel1">
+                <CancelControl name="CancelControl-EmbeddedEscape"/>
+                <EscapeObstacle
+                  clear_confirmations="3"
+                  cmd_vel_topic="cmd_vel"
+                  costmap_topic="local_costmap/costmap_raw"
+                  footprint_topic="local_costmap/published_footprint"
+                  robot_base_frame="base"
+                  longitudinal_speed="0.25"
+                  lateral_speed="0.20"
+                  lethal_cost_threshold="254"
+                  transform_tolerance="0.2"/>
+                <ClearEntireCostmap
+                  name="EmbeddedClearLocalCostmap-Level1"
+                  service_name="local_costmap/clear_entirely_local_costmap"/>
+                <ClearEntireCostmap
+                  name="EmbeddedClearGlobalCostmap-Level1"
+                  service_name="global_costmap/clear_entirely_global_costmap"/>
+              </Sequence>
+              <Sequence name="EmbeddedRecoveryLevel2">
+                <Wait wait_duration="0.8"/>
+                <BackUp backup_dist="0.35" backup_speed="0.25" time_allowance="3.0"/>
+                <ClearEntireCostmap
+                  name="EmbeddedClearLocalCostmap-Level2"
+                  service_name="local_costmap/clear_entirely_local_costmap"/>
+              </Sequence>
+            </RoundRobin>
+          </ReactiveFallback>
+        </RecoveryNode>
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+            <ClearEntireCostmap
+              name="ClearGlobalCostmap-Context"
+              service_name="global_costmap/clear_entirely_global_costmap"/>
+          </RecoveryNode>
+        </RateController>
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="FollowPath"/>
+          <ClearEntireCostmap
+            name="ClearLocalCostmap-Context"
+            service_name="local_costmap/clear_entirely_local_costmap"/>
+        </RecoveryNode>
+      </PipelineSequence>
+      <ReactiveFallback name="RecoveryFallback">
+        <GoalUpdated/>
+        <RoundRobin name="RecoveryActions">
+          <Sequence name="NoProgressAssist">
+            <IsStuck/>
+            <Wait wait_duration="1.0"/>
+            <ClearEntireCostmap
+              name="ClearLocalCostmap-IsStuck"
+              service_name="local_costmap/clear_entirely_local_costmap"/>
+          </Sequence>
+          <Sequence name="ClearingActions">
+            <ClearEntireCostmap
+              name="ClearLocalCostmap-Subtree"
+              service_name="local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap
+              name="ClearGlobalCostmap-Subtree"
+              service_name="global_costmap/clear_entirely_global_costmap"/>
+          </Sequence>
+          <Spin spin_dist="1.57"/>
+          <Wait wait_duration="5"/>
+          <BackUp backup_dist="0.30" backup_speed="0.15" time_allowance="4.0"/>
+        </RoundRobin>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>
