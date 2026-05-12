@@ -26,7 +26,7 @@ bt_navigator:
   ros__parameters:
     use_sim_time: false
     global_frame: map
-    robot_base_frame: base
+    robot_base_frame: base_footprint
     # Lightning now publishes odometry directly.
     odom_topic: /lightning/odometry
     # The default 10 ms tree loop (100 Hz) was regularly overrunning while the
@@ -229,13 +229,14 @@ local_costmap:
       publish_frequency: 5.0
       transform_tolerance: 1.0                         # costmap_2d_ros中的TF变化的容忍值
       global_frame: odom
-      robot_base_frame: base
+      robot_base_frame: base_footprint
       use_sim_time: false
       rolling_window: true
       width: 3
       height: 3
       resolution: 0.1
-      robot_radius: 0.2
+      # David 机身 0.95 x 0.75 m, base_footprint 在机身中心地面投影 (URDF 已校正)
+      footprint: "[[0.475, 0.375], [0.475, -0.375], [-0.475, -0.375], [-0.475, 0.375]]"
       footprint_padding: 0.0
       track_unknown_space: true
       # plugins: ["voxel_layer", "inflation_layer"]
@@ -315,10 +316,11 @@ global_costmap:
       update_frequency: 5.0
       publish_frequency: 5.0
       global_frame: map
-      robot_base_frame: base
+      robot_base_frame: base_footprint
       use_sim_time: false
       resolution: 0.1
-      robot_radius: 0.3
+      # David 机身 0.95 x 0.75 m, base_footprint 在机身中心地面投影 (URDF 已校正)
+      footprint: "[[0.475, 0.375], [0.475, -0.375], [-0.475, -0.375], [-0.475, 0.375]]"
       footprint_padding: 0.0
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -466,7 +468,7 @@ behavior_server:
     assisted_teleop:
       plugin: "nav2_behaviors/AssistedTeleop"             # 辅助遥控行为插件
     global_frame: map                                   # 全局坐标系名称
-    robot_base_frame: base                              # 机器人基座坐标系名称
+    robot_base_frame: base_footprint                              # 机器人基座坐标系名称
     transform_tolerance: 1.0                             # 坐标变换容差(秒)
     use_sim_time: false                                    # 是否使用仿真时间
     simulate_ahead_time: 3.0                              # 前向模拟时间(秒)
@@ -488,7 +490,7 @@ recoveries_server:
     wait:
       plugin: "nav2_recoveries/Wait"
     global_frame: map
-    robot_base_frame: base
+    robot_base_frame: base_footprint
     transform_timeout: 0.1
     use_sim_time: false
     simulate_ahead_time: 2.0

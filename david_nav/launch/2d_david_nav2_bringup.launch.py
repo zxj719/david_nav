@@ -8,15 +8,16 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
     pkg_david_nav = get_package_share_directory('david_nav')
     pkg_nav2_bringup = get_package_share_directory('nav2_bringup')
-    pkg_david_sim = get_package_share_directory('david_sim')
+    urdf_file = os.path.join(pkg_david_nav, 'urdf', 'david.urdf')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     use_rviz = LaunchConfiguration('use_rviz')
@@ -63,10 +64,18 @@ def generate_launch_description():
         }.items(),
     )
 
-    robot_state_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_david_sim, 'launch', 'david_urdf2tf.launch.py')
-        ),
+    robot_state_publisher_node = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        output='screen',
+        parameters=[{
+            'robot_description': ParameterValue(
+                Command(['cat ', urdf_file]),
+                value_type=str,
+            ),
+            'use_sim_time': use_sim_time,
+        }],
         condition=IfCondition(publish_robot_state),
     )
 
@@ -260,7 +269,7 @@ def generate_launch_description():
             default_value='0.45',
             description='Angular speed used while warming up the live SLAM map.',
         ),
-        robot_state_launch,
+        robot_state_publisher_node,
         base_alias_tf_node,
         pointcloud_to_scan_node,
         realsense_depth_to_scan_launch,

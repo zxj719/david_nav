@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<!--
+  David (Unitree wheeled humanoid) — minimal URDF for Nav2 TF tree
+  ================================================================
+
+  约定（机器人本体坐标系 body / 地面坐标系 G，二者朝向相同）:
+    x 前 (length 0.95 m)
+    y 左 (width  0.75 m)
+    z 上 (height 0.38 m)
+    body 原点在长方体几何中心
+    地面 z = 0, 故 body 中心在 z = 0.19 m
+
+  传感器物理位置（机身坐标，单位 m）:
+    IMU   : x=-0.175, y=0, z=0.25   (距后边 0.30 m, y 居中, 高 0.25 m)
+    LiDAR : x= 0.175, y=0, z=0.38   (距后边 0.65 m, y 居中, 高 0.38 m)
+
+  朝向关系:
+    LiDAR 与机身对齐
+    IMU   相对机身绕 +z 旋转 +90° CCW
+
+  TF 链路:
+    odom (SLAM)
+      └─> base                       (SLAM 输出, 与 IMU 同位姿)
+            └─> base_link            (launch 中 base→base_link static alias)
+                  ├─> imu_link       (identity)
+                  ├─> livox_frame    (标定外参)
+                  ├─> body           (机身长方体, RViz 可视化)
+                  └─> base_footprint (地面投影, 机身朝向)
+
+  LiDAR↔IMU 标定（已校验）:
+    t_imu_lidar = [0, -0.352, 0.1275]      (LiDAR 原点在 IMU 坐标系下)
+    R_imu_lidar = Rz(-90°) = [[0,1,0],[-1,0,0],[0,0,1]]
+
+  body 在 base_link 下:
+    平移 (0, -0.175, -0.06)   ; Rz(-90°)·(0.175, 0, -0.06)
+    旋转 yaw = -π/2            ; body 朝向 = 机身朝向
+
+  NOTE: 注意确认 LiDAR 点云的 frame_id 是不是 "livox_frame".
+        Unitree David 默认可能是 "utlidar_lidar" 或别的, 用
+        `ros2 topic echo /utlidar/cloud_livox_mid360 --once --field header`
+        验证一次, 名字不一致需要改本文件的 livox_frame, 或在驱动里重映射.
+-->
+<robot name="david">
+
+  <!-- 根节点: 与 IMU 同位姿, SLAM 通过 odom→base 间接发布 -->
+  <link name="base_link"/>
+
+  <!-- IMU link, 与 base_link 重合 -->
+  <link name="imu_link"/>
+  <joint name="base_link_to_imu_link" type="fixed">
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- LiDAR frame: 从 IMU 应用 [t, R] 标定外参 -->
+  <link name="livox_frame"/>
+  <joint name="base_link_to_livox_frame" type="fixed">
+    <parent link="base_link"/>
+    <child  link="livox_frame"/>
+    <origin xyz="0 -0.352 0.1275" rpy="0 0 -1.5707963267948966"/>
+  </joint>
+
+  <!-- body: 机身长方体, 用于 RViz 可视化和 collision footprint -->
+  <link name="body">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.95 0.75 0.38"/>
+      </geometry>
+      <material name="david_gray">
+        <color rgba="0.55 0.55 0.60 0.85"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.95 0.75 0.38"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="base_link_to_body" type="fixed">
+    <parent link="base_link"/>
+    <child  link="body"/>
+    <origin xyz="0 -0.175 -0.06" rpy="0 0 -1.5707963267948966"/>
+  </joint>
+
+  <!-- base_footprint: 机身中心地面投影, 朝向与机身一致 (Nav2 robot_base_frame)
+       和 base_link 的偏移 = 机身中心(在base_link下) 的 xy 同 body 一致 (0, -0.175),
+       z 落到地面 (-0.25). 这样 Nav2 把"机器人位置"放在机身中心,而不是 IMU xy. -->
+  <link name="base_footprint"/>
+  <joint name="base_link_to_base_footprint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="base_footprint"/>
+    <origin xyz="0 -0.175 -0.25" rpy="0 0 -1.5707963267948966"/>
+  </joint>
+
+</robot>
