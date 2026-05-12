@@ -42,6 +42,7 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
+            "david_keyboard = david_cmd.david_keyboard:main",
             "david_move = david_cmd.david_move:main",
             "wheeltec_base_eval = david_cmd.wheeltec_base_eval:main",
             "wheeltec_imu_cmd_probe = david_cmd.wheeltec_imu_cmd_probe:main",

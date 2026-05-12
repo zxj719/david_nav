@@ -7,6 +7,18 @@ david_move:
     max_angular_z: 0.50
     publish_hz: 50.0
 
+david_keyboard:
+  ros__parameters:
+    cmd_vel_topic: cmd_vel_safe
+    linear_speed: 0.20
+    angular_speed: 0.35
+    linear_deadzone: 0.20
+    angular_deadzone: 0.35
+    max_linear_x: 0.20
+    max_angular_z: 0.50
+    publish_hz: 20.0
+    key_timeout: 0.40
+
 wheeltec_base_eval:
   ros__parameters:
     cmd_vel_topic: cmd_vel_safe
