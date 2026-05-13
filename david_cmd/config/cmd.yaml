@@ -2,8 +2,12 @@ david_move:
   ros__parameters:
     input_cmd_vel_topic: cmd_vel_safe
     output_cmd_vel_topic: /cmd_vel
-    cmd_vel_timeout: 0.25
+    cmd_vel_timeout: 2.0
+    min_linear_x: 0.20
     max_linear_x: 0.20
+    min_angular_z: 0.20
+    min_stationary_angular_z: 0.35
+    stationary_angular_threshold: 0.025
     max_angular_z: 0.50
     publish_hz: 50.0
 

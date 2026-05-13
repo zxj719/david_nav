@@ -12,8 +12,12 @@ from rclpy.signals import SignalHandlerOptions
 
 DEFAULT_INPUT_TOPIC = "cmd_vel_safe"
 DEFAULT_OUTPUT_TOPIC = "/cmd_vel"
-DEFAULT_TIMEOUT = 0.25
+DEFAULT_TIMEOUT = 2.0
+DEFAULT_MIN_LINEAR_X = 0.20
 DEFAULT_MAX_LINEAR_X = 0.20
+DEFAULT_MIN_ANGULAR_Z = 0.20
+DEFAULT_MIN_STATIONARY_ANGULAR_Z = 0.35
+DEFAULT_STATIONARY_ANGULAR_THRESHOLD = 0.025
 DEFAULT_MAX_ANGULAR_Z = 0.50
 DEFAULT_PUBLISH_HZ = 50.0
 
@@ -22,6 +26,15 @@ def clamp(value, limit):
     """Clamp a numeric value to +/- limit."""
     limit = abs(float(limit))
     return max(min(float(value), limit), -limit)
+
+
+def lift_deadzone(value, minimum):
+    """Lift a non-zero command to a minimum actionable magnitude."""
+    value = float(value)
+    minimum = abs(float(minimum))
+    if value == 0.0 or minimum <= 0.0 or abs(value) >= minimum:
+        return value
+    return minimum if value > 0.0 else -minimum
 
 
 def zero_twist():
@@ -38,7 +51,15 @@ class DavidMoveNode(Node):
         self.declare_parameter("input_cmd_vel_topic", DEFAULT_INPUT_TOPIC)
         self.declare_parameter("output_cmd_vel_topic", DEFAULT_OUTPUT_TOPIC)
         self.declare_parameter("cmd_vel_timeout", DEFAULT_TIMEOUT)
+        self.declare_parameter("min_linear_x", DEFAULT_MIN_LINEAR_X)
         self.declare_parameter("max_linear_x", DEFAULT_MAX_LINEAR_X)
+        self.declare_parameter("min_angular_z", DEFAULT_MIN_ANGULAR_Z)
+        self.declare_parameter(
+            "min_stationary_angular_z", DEFAULT_MIN_STATIONARY_ANGULAR_Z
+        )
+        self.declare_parameter(
+            "stationary_angular_threshold", DEFAULT_STATIONARY_ANGULAR_THRESHOLD
+        )
         self.declare_parameter("max_angular_z", DEFAULT_MAX_ANGULAR_Z)
         self.declare_parameter("publish_hz", DEFAULT_PUBLISH_HZ)
 
@@ -49,7 +70,15 @@ class DavidMoveNode(Node):
             "output_cmd_vel_topic"
         ).get_parameter_value().string_value
         self.cmd_vel_timeout = float(self.get_parameter("cmd_vel_timeout").value)
+        self.min_linear_x = float(self.get_parameter("min_linear_x").value)
         self.max_linear_x = float(self.get_parameter("max_linear_x").value)
+        self.min_angular_z = float(self.get_parameter("min_angular_z").value)
+        self.min_stationary_angular_z = float(
+            self.get_parameter("min_stationary_angular_z").value
+        )
+        self.stationary_angular_threshold = float(
+            self.get_parameter("stationary_angular_threshold").value
+        )
         self.max_angular_z = float(self.get_parameter("max_angular_z").value)
         self.publish_hz = max(float(self.get_parameter("publish_hz").value), 1.0)
 
@@ -69,7 +98,12 @@ class DavidMoveNode(Node):
             "Wheeltec velocity bridge ready: "
             f"{self.input_topic} -> {self.output_topic}, "
             f"timeout={self.cmd_vel_timeout:.2f}s, "
+            f"min_linear_x={self.min_linear_x:.2f}m/s, "
             f"max_linear_x={self.max_linear_x:.2f}m/s, "
+            f"min_angular_z={self.min_angular_z:.2f}rad/s, "
+            f"min_stationary_angular_z={self.min_stationary_angular_z:.2f}rad/s, "
+            f"stationary_angular_threshold="
+            f"{self.stationary_angular_threshold:.3f}rad/s, "
             f"max_angular_z={self.max_angular_z:.2f}rad/s, "
             f"publish_hz={self.publish_hz:.1f}"
         )
@@ -82,13 +116,34 @@ class DavidMoveNode(Node):
     def sanitize_twist(self, msg):
         """Limit commands for the differential Wheeltec base."""
         twist = Twist()
-        twist.linear.x = clamp(msg.linear.x, self.max_linear_x)
+        twist.linear.x = lift_deadzone(
+            clamp(msg.linear.x, self.max_linear_x),
+            min(self.min_linear_x, self.max_linear_x),
+        )
         twist.linear.y = 0.0
         twist.linear.z = 0.0
         twist.angular.x = 0.0
         twist.angular.y = 0.0
-        twist.angular.z = clamp(msg.angular.z, self.max_angular_z)
+        angular_minimum = self.angular_deadzone_minimum(msg)
+        twist.angular.z = lift_deadzone(
+            clamp(msg.angular.z, self.max_angular_z),
+            min(angular_minimum, self.max_angular_z),
+        )
         return twist
+
+    def angular_deadzone_minimum(self, msg):
+        """Use a stronger yaw floor for deliberate in-place turns."""
+        if msg.angular.z == 0.0:
+            return 0.0
+
+        linear_motion = abs(msg.linear.x) > 0.0 or abs(msg.linear.y) > 0.0
+        if linear_motion:
+            return self.min_angular_z
+
+        if abs(msg.angular.z) >= abs(self.stationary_angular_threshold):
+            return self.min_stationary_angular_z
+
+        return self.min_angular_z
 
     def current_command(self):
         """Return the command that should be published now."""

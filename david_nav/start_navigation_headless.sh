@@ -4,24 +4,29 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 RVIZ=false
-REALSENSE=true
-EXPLORATION=true
+REALSENSE=false
+EXPLORATION=false
 DRY_RUN=false
-SERVER_URI="ws://172.16.21.205:8100/ws/navigation/executor"
-SUDO_PASSWORD="${SUDO_PASSWORD:-123}"
+SERVER_URI="ws://192.168.123.102:8101/ws/navigation/executor"
+SUDO_PASSWORD="${SUDO_PASSWORD:-1234}"
 SLAM_START_DELAY="${SLAM_START_DELAY:-5}"
 SHUTDOWN_GRACE_SECONDS="${SHUTDOWN_GRACE_SECONDS:-5}"
 ENABLE_CPU_ONLINE="${ENABLE_CPU_ONLINE:-true}"
 ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-30}"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
-SLAM_WORKSPACE="${SLAM_WORKSPACE:-/home/unitree/lightning-lm-livox}"
-AUTO_WORKSPACE="${AUTO_WORKSPACE:-/home/unitree/ros2_ws}"
+LIGHTNING_WORKSPACE="${LIGHTNING_WORKSPACE:-/home/agx/lightning_ws}"
+AUTO_WORKSPACE="${AUTO_WORKSPACE:-/home/agx/ros2_ws}"
+LOCALIZATION_CONFIG="${LOCALIZATION_CONFIG:-${LIGHTNING_WORKSPACE}/src/hoslam_lightning_lm/config/default_c16.yaml}"
+LIDAR_INTERFACE="${LIDAR_INTERFACE:-eno1}"
+LIDAR_INTERFACE_IP="${LIDAR_INTERFACE_IP:-192.168.1.102}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 EXECUTOR_POI_STORE_FILE="${EXECUTOR_POI_STORE_FILE:-}"
 DEFAULT_EXECUTOR_POI_STORE_FILE="${HOME}/.ros/david_nav/poi_store.yaml"
-TF_COMMAND="${TF_COMMAND:-}"
-SLAM_COMMAND="${SLAM_COMMAND:-}"
-AUTO_COMMAND="${AUTO_COMMAND:-}"
+NAMED_POSES_FILE="${NAMED_POSES_FILE:-/home/agx/semantic_map/named_poses.json}"
+IMU_COMMAND="${IMU_COMMAND:-}"
+LIDAR_COMMAND="${LIDAR_COMMAND:-}"
+LOCALIZATION_COMMAND="${LOCALIZATION_COMMAND:-}"
+NAV2_COMMAND="${NAV2_COMMAND:-}"
 EXECUTOR_COMMAND="${EXECUTOR_COMMAND:-}"
 
 declare -a CHILD_PIDS=()
@@ -38,16 +43,16 @@ Usage:
   start_navigation_headless.sh [-r] [-s] [-e] [-u URI] [-d]
 
 Behavior:
-  Start TF, slam2, david_auto_explore, and navigation_executor in one shell as managed background processes.
+  Start IMU, lidar, Lightning localization, Nav2, and navigation_executor in one shell as managed background processes.
   Press Ctrl+C in this shell to stop every managed process cleanly.
 
 Options:
   --rviz               Enable RViz. Default: disabled.
   -r                   Enable RViz.
-  --realsense          Enable Realsense depth-to-scan bridge. Default: enabled.
-  --no-realsense       Disable Realsense depth-to-scan bridge.
+  --realsense          Enable Realsense depth-to-scan bridge and disable LiDAR scan bridge. Default: disabled.
+  --no-realsense       Disable Realsense depth-to-scan bridge. LiDAR scan bridge remains enabled.
   -s                   Disable Realsense depth-to-scan bridge.
-  --exploration        Enable frontier exploration. Default: enabled.
+  --exploration        Enable frontier exploration in Nav2. Default: disabled.
   --no-exploration     Disable frontier exploration.
   -e                   Disable frontier exploration.
   --server-uri URI     WebSocket server URI for navigation_executor.py.
@@ -58,14 +63,18 @@ Options:
 
 Environment variables:
   ROS_DOMAIN_ID_DEFAULT     Default ROS 2 domain ID when ROS_DOMAIN_ID is unset. Default: 30
-  SUDO_PASSWORD            Password used for sudo. Default: 123
-  SLAM_START_DELAY         Seconds to wait after starting slam2 before auto/executor. Default: 5
+  SUDO_PASSWORD            Password used for sudo. Default: 1234
+  SLAM_START_DELAY         Seconds to wait after localization before Nav2/executor. Default: 5
   SHUTDOWN_GRACE_SECONDS   Seconds to wait before force kill. Default: 5
   ENABLE_CPU_ONLINE        true/false. Whether to online cpu4-cpu7. Default: true
   PYTHON_BIN               Python interpreter used for executor preflight checks. Default: python3
   ROS_SETUP                ROS 2 setup.bash path. Default: /opt/ros/humble/setup.bash
-  SLAM_WORKSPACE           Lightning SLAM workspace. Default: /home/unitree/lightning-lm-livox
-  AUTO_WORKSPACE           ROS 2 workspace containing david_nav. Default: /home/unitree/ros2_ws
+  LIGHTNING_WORKSPACE      Lightning workspace. Default: /home/agx/lightning_ws
+  AUTO_WORKSPACE           ROS 2 workspace containing david_nav. Default: /home/agx/ros2_ws
+  LOCALIZATION_CONFIG      Lightning localization config. Default: $LIGHTNING_WORKSPACE/src/hoslam_lightning_lm/config/default_c16.yaml
+  LIDAR_INTERFACE          Network interface configured before starting lidar. Default: eno1
+  LIDAR_INTERFACE_IP       IP assigned to LIDAR_INTERFACE. Default: 192.168.1.102
+  NAMED_POSES_FILE         JSON named poses imported for navigation. Default: /home/agx/semantic_map/named_poses.json
   EXECUTOR_POI_STORE_FILE  Optional path passed to navigation_executor.py --poi-store-file
 EOF
 }
@@ -185,22 +194,47 @@ require_python_module() {
 }
 
 set_default_commands() {
-  if [[ -z "$TF_COMMAND" ]]; then
-    TF_COMMAND="source ${ROS_SETUP} && exec ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 map odom"
+  local lidar_scan=true
+  if [[ "$REALSENSE" == true ]]; then
+    lidar_scan=false
   fi
 
-  if [[ -z "$SLAM_COMMAND" ]]; then
-    SLAM_COMMAND="cd ${SLAM_WORKSPACE} && source install/setup.bash && exec ros2 run lightning run_slam_online --config ./config/default_livox.yaml"
+  if [[ -z "$IMU_COMMAND" ]]; then
+    IMU_COMMAND="cd ${LIGHTNING_WORKSPACE} && source install/setup.bash && exec ros2 launch wit_imu_ros2 wit_imu.launch.py"
   fi
 
-  if [[ -z "$AUTO_COMMAND" ]]; then
-    AUTO_COMMAND="cd ${AUTO_WORKSPACE} && source install/setup.bash && exec ros2 launch david_nav david_auto_explore.launch.py use_rviz:=${RVIZ} enable_realsense_scan_bridge:=${REALSENSE} enable_exploration:=${EXPLORATION}"
+  if [[ -z "$LIDAR_COMMAND" ]]; then
+    LIDAR_COMMAND="cd ${LIGHTNING_WORKSPACE} && source install/setup.bash && printf '%s\n' '${SUDO_PASSWORD}' | sudo -S -p '' ifconfig ${LIDAR_INTERFACE} ${LIDAR_INTERFACE_IP} && exec ros2 launch lslidar_driver lslidar_c16_launch.py"
+  fi
+
+  if [[ -z "$LOCALIZATION_COMMAND" ]]; then
+    LOCALIZATION_COMMAND="cd ${LIGHTNING_WORKSPACE} && source install/setup.bash && exec ros2 run lightning run_loc_online --config ${LOCALIZATION_CONFIG}"
+  fi
+
+  if [[ -z "$NAV2_COMMAND" ]]; then
+    NAV2_COMMAND="cd ${AUTO_WORKSPACE} && source install/setup.bash && exec ros2 launch david_nav 2d_david_nav2_bringup.launch.py use_rviz:=${RVIZ} enable_scan_bridge:=${lidar_scan} enable_realsense_scan_bridge:=${REALSENSE} enable_exploration:=${EXPLORATION}"
   fi
 
   if [[ -z "$EXECUTOR_COMMAND" ]]; then
     EXECUTOR_COMMAND="cd ${AUTO_WORKSPACE} && source install/setup.bash && exec ros2 run david_nav navigation_executor.py --server-uri ${SERVER_URI}"
-    if [[ -n "${EXECUTOR_POI_STORE_FILE}" ]]; then
-      EXECUTOR_COMMAND="${EXECUTOR_COMMAND} --poi-store-file ${EXECUTOR_POI_STORE_FILE}"
+    EXECUTOR_COMMAND="${EXECUTOR_COMMAND} --poi-store-file $(executor_poi_store_file)"
+  fi
+}
+
+pin_jetson_clocks() {
+  if command -v nvpmodel >/dev/null 2>&1; then
+    log '[cold-start-fix] Setting nvpmodel to MAXN (mode 0)...'
+    if [[ "$DRY_RUN" != true ]]; then
+      printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' nvpmodel -m 0 || \
+        log '[cold-start-fix] WARN: nvpmodel failed'
+    fi
+  fi
+
+  if command -v jetson_clocks >/dev/null 2>&1; then
+    log '[cold-start-fix] Pinning CPU/GPU/EMC clocks to max...'
+    if [[ "$DRY_RUN" != true ]]; then
+      printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' jetson_clocks || \
+        log '[cold-start-fix] WARN: jetson_clocks failed'
     fi
   fi
 }
@@ -214,19 +248,68 @@ executor_poi_store_file() {
   printf '%s\n' "${DEFAULT_EXECUTOR_POI_STORE_FILE}"
 }
 
-reset_poi_store_file() {
+prepare_poi_store_file() {
   local poi_store_file
 
   poi_store_file="$(executor_poi_store_file)"
-  mkdir -p "$(dirname "${poi_store_file}")"
 
   if [[ "$DRY_RUN" == true ]]; then
-    log "Would clear POI store: ${poi_store_file}"
+    log "Would import named poses: ${NAMED_POSES_FILE} -> ${poi_store_file}"
     return 0
   fi
 
-  : > "${poi_store_file}"
-  log "Cleared POI store: ${poi_store_file}"
+  "$PYTHON_BIN" - "${NAMED_POSES_FILE}" "${poi_store_file}" <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+import yaml
+
+
+def pose_from_named_pose(item: dict) -> dict:
+    position = item.get("position") or {}
+    return {
+        "frame_id": str(item.get("frame_id") or "map"),
+        "x": float(position.get("x", 0.0)),
+        "y": float(position.get("y", 0.0)),
+        "z": float(position.get("z", 0.0)),
+        "yaw": float(item.get("yaw", 0.0)),
+        "stamp_sec": 0.0,
+    }
+
+
+source_path, target_path = sys.argv[1], sys.argv[2]
+with open(source_path, "r", encoding="utf-8") as handle:
+    named_poses = json.load(handle)
+
+if not isinstance(named_poses, list):
+    raise SystemExit(f"{source_path} must contain a JSON list of named poses")
+
+pois = []
+for index, item in enumerate(named_poses, start=1):
+    if not isinstance(item, dict):
+        raise SystemExit(f"{source_path} item {index} is not an object")
+    poi_id = str(item.get("id") or item.get("name") or f"POI_{index:03d}")
+    pose = pose_from_named_pose(item)
+    pois.append(
+        {
+            "id": poi_id,
+            "name": str(item.get("name") or poi_id),
+            "map_pose": pose,
+            "odom_pose": dict(pose),
+            "slam_session_id": "semantic_map",
+        }
+    )
+
+os.makedirs(os.path.dirname(target_path), exist_ok=True)
+tmp_path = f"{target_path}.tmp"
+with open(tmp_path, "w", encoding="utf-8") as handle:
+    yaml.safe_dump({"pois": pois}, handle, allow_unicode=True, sort_keys=False)
+os.replace(tmp_path, target_path)
+PY
+  log "Imported named poses: ${NAMED_POSES_FILE} -> ${poi_store_file}"
 }
 
 enable_all_cpus() {
@@ -469,11 +552,13 @@ main() {
   require_command ps
   require_command setsid
   require_command sudo
+  require_command ifconfig
   require_command "$PYTHON_BIN"
   require_path "$ROS_SETUP"
-  require_path "${SLAM_WORKSPACE}/install/setup.bash"
-  require_path "${SLAM_WORKSPACE}/config/default_livox.yaml"
+  require_path "${LIGHTNING_WORKSPACE}/install/setup.bash"
+  require_path "${LOCALIZATION_CONFIG}"
   require_path "${AUTO_WORKSPACE}/install/setup.bash"
+  require_path "${NAMED_POSES_FILE}"
   require_python_module yaml python3-yaml
   require_python_module websockets python3-websockets
 
@@ -481,8 +566,9 @@ main() {
   trap 'handle_signal TERM' TERM
   trap cleanup EXIT
 
+  pin_jetson_clocks
   enable_all_cpus
-  reset_poi_store_file
+  prepare_poi_store_file
 
   log "Using ROS_DOMAIN_ID=${ROS_DOMAIN_ID}"
   log "RViz enabled: ${RVIZ}"
@@ -490,18 +576,20 @@ main() {
   log "Frontier exploration enabled: ${EXPLORATION}"
   log "Executor target URI: ${SERVER_URI}"
   log 'Starting all processes in this shell'
-  start_managed_process 'map->odom tf' "$TF_COMMAND"
+  start_managed_process 'imu' "$IMU_COMMAND"
   sleep 1
-  start_managed_process 'slam2' "$SLAM_COMMAND"
+  start_managed_process 'lidar' "$LIDAR_COMMAND"
+  sleep 1
+  start_managed_process 'localization' "$LOCALIZATION_COMMAND"
 
   if [[ "$DRY_RUN" == true ]]; then
     log "Skipping ${SLAM_START_DELAY}s wait in dry-run mode"
   else
-    log "Waiting ${SLAM_START_DELAY}s before starting auto and navigation executor"
+    log "Waiting ${SLAM_START_DELAY}s before starting Nav2 and navigation executor"
     sleep "$SLAM_START_DELAY"
   fi
 
-  start_managed_process 'auto' "$AUTO_COMMAND"
+  start_managed_process 'nav2 bringup' "$NAV2_COMMAND"
   start_managed_process 'navigation executor' "$EXECUTOR_COMMAND"
 
   if [[ "$DRY_RUN" == true ]]; then
@@ -509,7 +597,7 @@ main() {
   fi
 
   log 'All processes are running in the background of this shell'
-  log 'Press Ctrl+C here to stop tf, slam2, auto, and navigation executor together'
+  log 'Press Ctrl+C here to stop imu, lidar, localization, Nav2, and navigation executor together'
 
   if ! monitor_children; then
     log 'A managed process exited unexpectedly, stopping the rest'

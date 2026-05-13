@@ -26,7 +26,7 @@
                   cmd_vel_topic="cmd_vel"
                   costmap_topic="local_costmap/costmap_raw"
                   footprint_topic="local_costmap/published_footprint"
-                  robot_base_frame="base"
+                  robot_base_frame="base_footprint"
                   longitudinal_speed="0.25"
                   lateral_speed="0.20"
                   lethal_cost_threshold="254"
@@ -58,7 +58,7 @@
                 output_goals="{goals}"
                 radius="0.7"
                 global_frame="map"
-                robot_base_frame="base"/>
+                robot_base_frame="base_footprint"/>
               <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="GridBased"/>
             </ReactiveSequence>
             <ClearEntireCostmap

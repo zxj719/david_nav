@@ -16,14 +16,21 @@ def _write_file(path: Path, content: str = "#!/usr/bin/env bash\n"):
 
 def _prepare_env(tmp_path: Path, *, websockets_available: bool = True):
     ros_setup = tmp_path / "opt/ros/humble/setup.bash"
-    slam_workspace = tmp_path / "lightning-lm-livox"
+    lightning_workspace = tmp_path / "lightning_ws"
     auto_workspace = tmp_path / "ros2_ws"
     fake_python = tmp_path / "bin/fake_python3"
+    fake_ifconfig = tmp_path / "bin/ifconfig"
+    named_poses = tmp_path / "semantic_map/named_poses.json"
+    localization_config = lightning_workspace / "src/hoslam_lightning_lm/config/default_c16.yaml"
 
     _write_file(ros_setup)
-    _write_file(slam_workspace / "install/setup.bash")
-    _write_file(slam_workspace / "config/default_livox.yaml", "dummy: true\n")
+    _write_file(lightning_workspace / "install/setup.bash")
+    _write_file(localization_config, "dummy: true\n")
     _write_file(auto_workspace / "install/setup.bash")
+    _write_file(
+        named_poses,
+        '[{"id":"POI_001","name":"1","frame_id":"map","position":{"x":1.0,"y":2.0,"z":0.0},"yaw":0.5}]\n',
+    )
     _write_file(
         fake_python,
         f"""#!/usr/bin/env bash
@@ -41,14 +48,19 @@ exec python3 "$@"
 """,
     )
     fake_python.chmod(0o755)
+    _write_file(fake_ifconfig, "#!/usr/bin/env bash\nexit 0\n")
+    fake_ifconfig.chmod(0o755)
 
     env = os.environ.copy()
     env.update(
         {
             "HOME": str(tmp_path),
+            "PATH": f"{fake_ifconfig.parent}:{env.get('PATH', '')}",
             "ROS_SETUP": str(ros_setup),
-            "SLAM_WORKSPACE": str(slam_workspace),
+            "LIGHTNING_WORKSPACE": str(lightning_workspace),
+            "LOCALIZATION_CONFIG": str(localization_config),
             "AUTO_WORKSPACE": str(auto_workspace),
+            "NAMED_POSES_FILE": str(named_poses),
             "ENABLE_CPU_ONLINE": "false",
             "PYTHON_BIN": str(fake_python),
         }
@@ -94,25 +106,31 @@ def _pid_exists(pid: int) -> bool:
     return True
 
 
-def test_headless_navigation_defaults_to_david_executor_uri_and_exploration_enabled(tmp_path):
+def test_headless_navigation_defaults_to_relocation_nav2_and_executor_uri(tmp_path):
     result = _run_script(tmp_path, "--dry-run")
 
     assert result.returncode == 0
     assert "start_navigation_headless.sh" in result.stdout
-    assert "ws://172.16.21.205:8100/ws/navigation/executor" in result.stdout
-    assert "david_auto_explore.launch.py use_rviz:=false" in result.stdout
-    assert "enable_realsense_scan_bridge:=true" in result.stdout
-    assert "enable_exploration:=true" in result.stdout
-    assert "navigation_executor.py --server-uri ws://172.16.21.205:8100/ws/navigation/executor" in result.stdout
-
-
-def test_headless_navigation_short_flags_toggle_rviz_realsense_and_exploration(tmp_path):
-    result = _run_script(tmp_path, "-rse", "--dry-run")
-
-    assert result.returncode == 0
-    assert "david_auto_explore.launch.py use_rviz:=true" in result.stdout
+    assert "ws://192.168.123.102:8101/ws/navigation/executor" in result.stdout
+    assert "ros2 launch wit_imu_ros2 wit_imu.launch.py" in result.stdout
+    assert "sudo -S -p '' ifconfig eno1 192.168.1.102" in result.stdout
+    assert "run_loc_online --config" in result.stdout
+    assert "2d_david_nav2_bringup.launch.py use_rviz:=false" in result.stdout
+    assert "enable_scan_bridge:=true" in result.stdout
     assert "enable_realsense_scan_bridge:=false" in result.stdout
     assert "enable_exploration:=false" in result.stdout
+    assert "navigation_executor.py --server-uri ws://192.168.123.102:8101/ws/navigation/executor" in result.stdout
+    assert "--poi-store-file" in result.stdout
+
+
+def test_headless_navigation_flags_toggle_rviz_realsense_and_exploration(tmp_path):
+    result = _run_script(tmp_path, "--rviz", "--realsense", "--exploration", "--dry-run")
+
+    assert result.returncode == 0
+    assert "2d_david_nav2_bringup.launch.py use_rviz:=true" in result.stdout
+    assert "enable_scan_bridge:=false" in result.stdout
+    assert "enable_realsense_scan_bridge:=true" in result.stdout
+    assert "enable_exploration:=true" in result.stdout
 
 
 def test_headless_navigation_short_server_uri_override_updates_executor_command(tmp_path):
@@ -135,7 +153,7 @@ def test_headless_navigation_fails_fast_when_websockets_module_is_missing(tmp_pa
     assert "sudo apt install python3-websockets" in result.stderr
 
 
-def test_headless_navigation_clears_default_poi_store_before_start(tmp_path):
+def test_headless_navigation_imports_named_poses_before_start(tmp_path):
     poi_store = tmp_path / ".ros/david_nav/poi_store.yaml"
     _write_file(poi_store, "old poi\n")
 
@@ -146,7 +164,8 @@ def test_headless_navigation_clears_default_poi_store_before_start(tmp_path):
     )
 
     assert result.returncode == 0
-    assert f"Would clear POI store: {poi_store}" in result.stdout
+    assert f"Would import named poses:" in result.stdout
+    assert f"-> {poi_store}" in result.stdout
 
 
 def test_headless_navigation_ctrl_c_kills_detached_descendants(tmp_path):
@@ -168,9 +187,10 @@ wait "$child"
         extra_env={
             "ENABLE_CPU_ONLINE": "false",
             "SLAM_START_DELAY": "0",
-            "TF_COMMAND": "exec sleep 1000",
-            "SLAM_COMMAND": "exec sleep 1000",
-            "AUTO_COMMAND": f"exec {detached_launcher}",
+            "IMU_COMMAND": "exec sleep 1000",
+            "LIDAR_COMMAND": "exec sleep 1000",
+            "LOCALIZATION_COMMAND": "exec sleep 1000",
+            "NAV2_COMMAND": f"exec {detached_launcher}",
             "EXECUTOR_COMMAND": "exec sleep 1000",
         },
     )

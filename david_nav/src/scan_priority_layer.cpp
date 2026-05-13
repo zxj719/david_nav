@@ -159,7 +159,7 @@ void ScanPriorityLayer::recomputeLayer(
   geometry_msgs::msg::TransformStamped tf_msg;
   try {
     tf_msg = tf_->lookupTransform(
-      "base",
+      "base_footprint",
       scan.header.frame_id,
       scan.header.stamp,
       tf2::durationFromSec(0.1));
@@ -279,7 +279,7 @@ void ScanPriorityLayer::publishDebugMarkers() const
   visualization_msgs::msg::MarkerArray array;
 
   visualization_msgs::msg::Marker obstacle_marker;
-  obstacle_marker.header.frame_id = "base";
+  obstacle_marker.header.frame_id = "base_footprint";
   obstacle_marker.header.stamp = latest_scan_stamp_;
   obstacle_marker.ns = "scan_priority_obstacles";
   obstacle_marker.id = 0;

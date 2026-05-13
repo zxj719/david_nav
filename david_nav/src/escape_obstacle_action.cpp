@@ -155,7 +155,7 @@ EscapeObstacleAction::EscapeObstacleAction(
 
   getInput("robot_base_frame", robot_base_frame_);
   if (robot_base_frame_.empty()) {
-    robot_base_frame_ = "base";
+    robot_base_frame_ = "base_footprint";
   }
 
   int clear_confirmations = 3;
@@ -242,7 +242,7 @@ BT::PortsList EscapeObstacleAction::providedPorts()
       "Velocity command topic used to publish escape motions"),
     BT::InputPort<std::string>(
       "robot_base_frame",
-      "base",
+      "base_footprint",
       "Robot base frame used to express overlap points"),
     BT::InputPort<int>(
       "clear_confirmations",

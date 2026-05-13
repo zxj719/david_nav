@@ -106,7 +106,7 @@ controller_server:                                  # 局部规划器服务器
     odom_topic: /lightning/odometry
     # NOTE：若遇到 SLAM 回环后局部控制抖动/TF 超时，可考虑让局部控制工作在 odom，
     # 并确保它与 local_costmap.global_frame（本文件为 odom）一致。
-    controller_frequency: 15.0                      # 降一点频率，减少控制循环超时抖动
+    controller_frequency: 10.0                      # 对齐键盘遥控脚本约10Hz的/cmd_vel发布节奏
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.0
     min_theta_velocity_threshold: 0.02
@@ -146,21 +146,23 @@ controller_server:                                  # 局部规划器服务器
       # min_speed_xy stays at 0.0 so DWB can still rotate in place near goal.
       min_vel_x: 0.0
       min_vel_y: 0.00
-      max_vel_x: 0.30
+      max_vel_x: 0.20
       max_vel_y: 0.0
-      max_vel_theta: 0.55
+      max_vel_theta: 0.50
       min_vel_theta: 0.10
       min_speed_xy: 0.0
-      max_speed_xy: 0.3                                          # 最大xy方向速度
+      max_speed_xy: 0.2                                          # 最大xy方向速度，对齐键盘遥控默认speed=0.2
       min_speed_theta: 0.10
       # Add high threshold velocity for turtlebot 3 issue.
       # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
-      acc_lim_x: 2.5
+      # keyboard_teleop_ros2.py: 10Hz循环下每周期线速度变化0.1、角速度变化0.5
+      # 约等效为1.0 m/s^2和5.0 rad/s^2。
+      acc_lim_x: 1.0
       acc_lim_y: 0.0
-      acc_lim_theta: 3.2
-      decel_lim_x: -2.5
+      acc_lim_theta: 5.0
+      decel_lim_x: -1.0
       decel_lim_y: 0.0
-      decel_lim_theta: -3.2
+      decel_lim_theta: -5.0
       vx_samples: 15
       vy_samples: 1
       vtheta_samples: 20
@@ -272,7 +274,7 @@ local_costmap:
           raytrace_min_range: 0.2
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        enabled: True
+        enabled: False
         cost_scaling_factor: 10.0              # 可能会影响路径太长的计算
         inflation_radius: 0.20                # 保持局部控制稍松一些，减少窄处贴边 abort
       # voxel_layer:
@@ -349,7 +351,7 @@ global_costmap:
           raytrace_min_range: 0.2
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        enabled: True                         # 启用膨胀层
+        enabled: False                      # 启用膨胀层
         cost_scaling_factor: 1.5             # 可能会影响路径太长的计算
         inflation_radius: 0.3               # 与机器人半径一致，让全局路径更早绕开障碍
       always_send_full_costmap: True
@@ -522,15 +524,15 @@ waypoint_follower:
 velocity_smoother:
   ros__parameters:
     use_sim_time: false
-    smoothing_frequency: 50.0
+    smoothing_frequency: 10.0
     scale_velocities: False
     # OPEN_LOOP avoids hard dependence on odometry feedback.
     feedback: "OPEN_LOOP"
     # feedback: "CLOSED_LOOP"
-    max_velocity: [0.4, 0.0, 1.0]
-    min_velocity: [-0.4, 0.0, -1.0]
-    max_accel: [2.5, 0.0, 3.2]
-    max_decel: [-2.5, 0.0, -3.2]
+    max_velocity: [0.2, 0.0, 0.5]
+    min_velocity: [-0.2, 0.0, -0.5]
+    max_accel: [1.0, 0.0, 5.0]
+    max_decel: [-1.0, 0.0, -5.0]
     # Lightning now publishes odometry directly.
     odom_topic: /lightning/odometry
     odom_duration: 0.1

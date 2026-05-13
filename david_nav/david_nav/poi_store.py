@@ -23,6 +23,25 @@ class LocalPoiStore:
         self.path = Path(path)
         self._pois: dict[str, StoredPoi] = {}
 
+    def load(self) -> None:
+        self._pois = {}
+        if not self.path.exists():
+            return
+
+        with self.path.open("r", encoding="utf-8") as handle:
+            payload = yaml.safe_load(handle) or {}
+
+        items = payload.get("pois", []) if isinstance(payload, dict) else payload
+        if not isinstance(items, list):
+            return
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            stored = self._stored_poi_from_mapping(item)
+            if stored is not None:
+                self._pois[stored.poi_id] = stored
+
     def get_required(self, poi_id: str) -> StoredPoi:
         return self._pois[poi_id]
 
@@ -105,3 +124,30 @@ class LocalPoiStore:
         with tmp_path.open("w", encoding="utf-8") as handle:
             yaml.safe_dump(payload, handle, allow_unicode=True, sort_keys=False)
         os.replace(tmp_path, self.path)
+
+    def _stored_poi_from_mapping(self, item: dict) -> StoredPoi | None:
+        poi_id = item.get("id")
+        if poi_id is None:
+            return None
+        name = str(item.get("name") or poi_id)
+        map_pose = self._pose_from_mapping(item.get("map_pose") or item)
+        odom_pose = self._pose_from_mapping(item.get("odom_pose") or item)
+        return StoredPoi(
+            poi_id=str(poi_id),
+            name=name,
+            map_pose=map_pose,
+            odom_pose=odom_pose,
+            slam_session_id=str(item.get("slam_session_id") or "semantic_map"),
+        )
+
+    @staticmethod
+    def _pose_from_mapping(item: dict) -> PoseRecord:
+        position = item.get("position") or {}
+        return PoseRecord(
+            frame_id=str(item.get("frame_id") or "map"),
+            x=float(item.get("x", position.get("x", 0.0))),
+            y=float(item.get("y", position.get("y", 0.0))),
+            z=float(item.get("z", position.get("z", 0.0))),
+            yaw=float(item.get("yaw", 0.0)),
+            stamp_sec=float(item.get("stamp_sec", 0.0)),
+        )

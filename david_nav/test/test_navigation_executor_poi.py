@@ -4,6 +4,42 @@ from david_nav.navigation_types import PoseRecord, Transform2D
 from david_nav.poi_store import LocalPoiStore
 
 
+def test_load_imported_named_pose_store(tmp_path: Path):
+    store_path = tmp_path / "poi_store.yaml"
+    store_path.write_text(
+        """
+pois:
+- id: POI_001
+  name: "1"
+  map_pose:
+    frame_id: map
+    x: -3.4
+    y: 0.7
+    z: 0.0
+    yaw: -1.57
+    stamp_sec: 0.0
+  odom_pose:
+    frame_id: map
+    x: -3.4
+    y: 0.7
+    z: 0.0
+    yaw: -1.57
+    stamp_sec: 0.0
+  slam_session_id: semantic_map
+""",
+        encoding="utf-8",
+    )
+
+    store = LocalPoiStore(store_path)
+    store.load()
+
+    stored = store.get_required("POI_001")
+    assert stored.name == "1"
+    assert stored.map_pose.frame_id == "map"
+    assert stored.map_pose.x == -3.4
+    assert stored.slam_session_id == "semantic_map"
+
+
 def test_apply_semantic_directory_keeps_existing_geometry(tmp_path: Path):
     store = LocalPoiStore(tmp_path / "poi_store.yaml")
     store.upsert_marked_poi(

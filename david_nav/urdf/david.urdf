@@ -1,51 +1,51 @@
 <?xml version="1.0"?>
 <!--
-  David (Unitree wheeled humanoid) — minimal URDF for Nav2 TF tree
-  ================================================================
+  David David URDF - integrated with full_robot CAD assembly
+  ============================================================
+  Wrapper navigation frames (top), then full_robot mesh content (chassis,
+  arms, wheels, hands) renamed: original base_link -> chassis_root.
 
-  约定（机器人本体坐标系 body / 地面坐标系 G，二者朝向相同）:
-    x 前 (length 0.95 m)
-    y 左 (width  0.75 m)
-    z 上 (height 0.38 m)
-    body 原点在长方体几何中心
-    地面 z = 0, 故 body 中心在 z = 0.19 m
+  TF layout:
+    base (SLAM)
+     +-- base_link (alias via launch static_transform_publisher, IMU pose)
+          +-- imu_link             identity
+          +-- livox_frame          IMU<->LiDAR extrinsic
+          +-- base_footprint       body center on ground (body-aligned)
+          +-- chassis_root         full_robot CAD root (URDF axes:
+                                    X=right, Y=forward, Z=up)
+              +-- Link1..4 (arms)
+              +-- left_wheel_link / right_wheel_link
+              +-- left_hand_link1..7 + left fingers
+              +-- right_hand_link1..7 + right fingers
 
-  传感器物理位置（机身坐标，单位 m）:
-    IMU   : x=-0.175, y=0, z=0.25   (距后边 0.30 m, y 居中, 高 0.25 m)
-    LiDAR : x= 0.175, y=0, z=0.38   (距后边 0.65 m, y 居中, 高 0.38 m)
+  Key transforms (rationale below):
+    base_link -> chassis_root : xyz="0 0 -0.1035" rpy="0 0 3.14159"
+        IMU is at URDF (0, 0, +0.1035) - i.e. 25cm above ground, laterally
+        centered, at URDF.y=0. URDF is rotated 180 deg from IMU around Z
+        (URDF X=right=body-right=IMU-X; URDF Y=forward=body-forward=IMU-Y).
 
-  朝向关系:
-    LiDAR 与机身对齐
-    IMU   相对机身绕 +z 旋转 +90° CCW
+    base_link -> livox_frame  : xyz="0 -0.352 0.1275" rpy="0 0 -1.5708"
+        From IMU<->LiDAR calibration (unchanged from previous david.urdf).
 
-  TF 链路:
-    odom (SLAM)
-      └─> base                       (SLAM 输出, 与 IMU 同位姿)
-            └─> base_link            (launch 中 base→base_link static alias)
-                  ├─> imu_link       (identity)
-                  ├─> livox_frame    (标定外参)
-                  ├─> body           (机身长方体, RViz 可视化)
-                  └─> base_footprint (地面投影, 机身朝向)
+    base_link -> base_footprint: xyz="0 -0.06 -0.25" rpy="0 0 -1.5708"
+        Body geometric centre on the ground. STL bbox centre is at URDF
+        (0, 0.06, 0.077); base_footprint is body-aligned (Rz(-pi/2) from
+        IMU) and z=-0.25 below IMU = ground level.
 
-  LiDAR↔IMU 标定（已校验）:
-    t_imu_lidar = [0, -0.352, 0.1275]      (LiDAR 原点在 IMU 坐标系下)
-    R_imu_lidar = Rz(-90°) = [[0,1,0],[-1,0,0],[0,0,1]]
-
-  body 在 base_link 下:
-    平移 (0, -0.175, -0.06)   ; Rz(-90°)·(0.175, 0, -0.06)
-    旋转 yaw = -π/2            ; body 朝向 = 机身朝向
-
-  NOTE: 注意确认 LiDAR 点云的 frame_id 是不是 "livox_frame".
-        Unitree David 默认可能是 "utlidar_lidar" 或别的, 用
-        `ros2 topic echo /utlidar/cloud_livox_mid360 --once --field header`
-        验证一次, 名字不一致需要改本文件的 livox_frame, 或在驱动里重映射.
+  NOTE: IMU position in URDF is back-estimated from physical reference
+        (30 cm from back, lateral centre, 25 cm above ground), using CAD
+        STL bbox (URDF Y range -0.30 .. +0.42, ground at URDF Z=-0.1465).
+        Verify in RViz; if IMU is more forward/back, adjust chassis_root
+        joint xyz and base_footprint joint xyz accordingly.
 -->
 <robot name="david">
 
-  <!-- 根节点: 与 IMU 同位姿, SLAM 通过 odom→base 间接发布 -->
+  <!-- ============ wrapper navigation frames ============ -->
+
+  <!-- Root: SLAM publishes odom->base, launch aliases base->base_link -->
   <link name="base_link"/>
 
-  <!-- IMU link, 与 base_link 重合 -->
+  <!-- IMU: identity with base_link -->
   <link name="imu_link"/>
   <joint name="base_link_to_imu_link" type="fixed">
     <parent link="base_link"/>
@@ -53,7 +53,7 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
-  <!-- LiDAR frame: 从 IMU 应用 [t, R] 标定外参 -->
+  <!-- LiDAR: from IMU<->LiDAR extrinsic -->
   <link name="livox_frame"/>
   <joint name="base_link_to_livox_frame" type="fixed">
     <parent link="base_link"/>
@@ -61,38 +61,1819 @@
     <origin xyz="0 -0.352 0.1275" rpy="0 0 -1.5707963267948966"/>
   </joint>
 
-  <!-- body: 机身长方体, 用于 RViz 可视化和 collision footprint -->
-  <link name="body">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.95 0.75 0.38"/>
-      </geometry>
-      <material name="david_gray">
-        <color rgba="0.55 0.55 0.60 0.85"/>
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.95 0.75 0.38"/>
-      </geometry>
-    </collision>
-  </link>
-  <joint name="base_link_to_body" type="fixed">
-    <parent link="base_link"/>
-    <child  link="body"/>
-    <origin xyz="0 -0.175 -0.06" rpy="0 0 -1.5707963267948966"/>
-  </joint>
-
-  <!-- base_footprint: 机身中心地面投影, 朝向与机身一致 (Nav2 robot_base_frame)
-       和 base_link 的偏移 = 机身中心(在base_link下) 的 xy 同 body 一致 (0, -0.175),
-       z 落到地面 (-0.25). 这样 Nav2 把"机器人位置"放在机身中心,而不是 IMU xy. -->
+  <!-- base_footprint: body centre on ground, aligned with body -->
   <link name="base_footprint"/>
   <joint name="base_link_to_base_footprint" type="fixed">
     <parent link="base_link"/>
     <child  link="base_footprint"/>
-    <origin xyz="0 -0.175 -0.25" rpy="0 0 -1.5707963267948966"/>
+    <origin xyz="0 -0.06 -0.25" rpy="0 0 -1.5707963267948966"/>
   </joint>
 
+  <!-- Joint to the CAD chassis root: IMU is Rz(+pi) from URDF; URDF is at
+       IMU + (0,0,-0.1035) in URDF coords (= same vector in IMU coords). -->
+  <joint name="base_link_to_chassis_root" type="fixed">
+    <parent link="base_link"/>
+    <child  link="chassis_root"/>
+    <origin xyz="0 0 -0.1035" rpy="0 0 3.141592653589793"/>
+  </joint>
+
+  <!-- ============ full_robot CAD content ============ -->
+<link name="chassis_root">
+    <inertial>
+      <origin xyz="0.0260324583597855 0.0179022760034589 0.0772389796790675" rpy="0 0 0" />
+      <mass value="16.6007220352047" />
+      <inertia ixx="0.322365683606253" ixy="-0.00355432435118943" ixz="2.46907320009811E-05" iyy="0.302813619372029" iyz="-4.47427835668917E-05" izz="0.617038509459363" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/base_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="Link1">
+    <inertial>
+      <origin xyz="0.172049849724768 0.0306313441543051 0.202039565147878" rpy="0 0 0" />
+      <mass value="0.44965271177211" />
+      <inertia ixx="0.00771694212486206" ixy="0.000113469153421675" ixz="0.000349029910742719" iyy="0.00721629458789793" iyz="-0.00107870988542436" izz="0.00128470912324809" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/Link1.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.109803921568627 0.109803921568627 0.109803921568627 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/Link1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint1" type="revolute">
+    <origin xyz="-0.1891 0.159999999987456 0.228" rpy="1.5707963267949 0 0" />
+    <parent link="chassis_root" />
+    <child link="Link1" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="Link2">
+    <inertial>
+      <origin xyz="0.167259509982906 0.0178579160280001 -0.138829249156696" rpy="0 0 0" />
+      <mass value="0.383838870890664" />
+      <inertia ixx="0.00742305933437009" ixy="1.104175269207E-05" ixz="-0.000140917880014633" iyy="0.00778795286740179" iyz="0.00109816533056631" izz="0.00113157026255619" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/Link2.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.109803921568627 0.109803921568627 0.109803921568627 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/Link2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint2" type="revolute">
+    <origin xyz="0.017725 0.0630318997321841 0.395002505835282" rpy="0 0 0" />
+    <parent link="Link1" />
+    <child link="Link2" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="Link3">
+    <inertial>
+      <origin xyz="0.123379081269978 0.0470958513424469 2.50414661433496E-05" rpy="0 0 0" />
+      <mass value="0.760517445677975" />
+      <inertia ixx="0.00464825167728482" ixy="-0.000413487549979701" ixz="-1.10875208010368E-07" iyy="0.00273231267607631" iyz="5.43861425060165E-07" izz="0.00387493576261149" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/Link3.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.109803921568627 0.109803921568627 0.109803921568627 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/Link3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint3" type="revolute">
+    <origin xyz="0.0237250000000065 0.0590142978768133 -0.32" rpy="0 0 0" />
+    <parent link="Link2" />
+    <child link="Link3" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="Link4">
+    <inertial>
+      <origin xyz="-0.000261726360916565 0.168065916460224 0.107334204363317" rpy="0 0 0" />
+      <mass value="3.27516013687068" />
+      <inertia ixx="0.0238067794712089" ixy="-1.80531228535312E-05" ixz="-5.29126814405585E-06" iyy="0.0302726053911554" iyz="-0.000251472583482566" izz="0.0482024141730304" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/Link4.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0.501960784313725 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/Link4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="Joint4" type="revolute">
+    <origin xyz="0.14768 0.1675 0" rpy="0 0 0" />
+    <parent link="Link3" />
+    <child link="Link4" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="right_hand_link1">
+    <inertial>
+      <origin xyz="0.0617599302348635 5.3915357796086E-06 0.00525531147176048" rpy="0 0 0" />
+      <mass value="1.22030278732725" />
+      <inertia ixx="0.00203616716780108" ixy="3.290511777505E-07" ixz="-5.50315566042842E-05" iyy="0.00238551351235145" iyz="1.20138572503909E-07" izz="0.00227623193158645" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link1.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_hand_joint1" type="revolute">
+    <origin xyz="0.1447 0.276 0" rpy="0 0 0" />
+    <parent link="Link4" />
+    <child link="right_hand_link1" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="right_hand_link2">
+    <inertial>
+      <origin xyz="4.6219976704287E-06 -0.0981660981459778 0.0469259681383812" rpy="0 0 0" />
+      <mass value="1.17109351485779" />
+      <inertia ixx="0.00566334226638069" ixy="-4.43516768623412E-07" ixz="8.90720403890686E-08" iyy="0.00226188591679865" iyz="0.000692452301979303" izz="0.00488227927513329" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link2.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_hand_joint2" type="revolute">
+    <origin xyz="0.0703 0 -0.0532" rpy="0 0 0" />
+    <parent link="right_hand_link1" />
+    <child link="right_hand_link2" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="right_hand_link3">
+    <inertial>
+      <origin xyz="-0.00274945556563799 -0.0916191044238254 -0.00177830292350772" rpy="0 0 0" />
+      <mass value="1.17494245412145" />
+      <inertia ixx="0.00345754297165314" ixy="-0.000110522645944063" ixz="-2.65261990535779E-05" iyy="0.00154606022253175" iyz="-0.000359593829784547" izz="0.00363660351353731" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link3.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_hand_joint3" type="revolute">
+    <origin xyz="0 -0.189 0.0532" rpy="0 0 0" />
+    <parent link="right_hand_link2" />
+    <child link="right_hand_link3" />
+    <axis xyz="0 -1 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="right_hand_link4">
+    <inertial>
+      <origin xyz="-0.0436280525879637 -0.00766644480808765 -0.0683548643854049" rpy="0 0 0" />
+      <mass value="0.614810257557596" />
+      <inertia ixx="0.00140619455548752" ixy="-3.1459385851181E-05" ixz="-0.000283737192151712" iyy="0.00178126955698856" iyz="-6.78953818762796E-05" izz="0.000930521026121142" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link4.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_hand_joint4" type="revolute">
+    <origin xyz="0.05075 -0.125 -0.01" rpy="0 0 0" />
+    <parent link="right_hand_link3" />
+    <child link="right_hand_link4" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="right_hand_link5">
+    <inertial>
+      <origin xyz="0.00676067268461922 -0.00049101255866435 -0.0498794341967361" rpy="0 0 0" />
+      <mass value="0.624532098258562" />
+      <inertia ixx="0.00100985754907135" ixy="-2.64047157918166E-05" ixz="8.2449366328235E-05" iyy="0.00139262950766096" iyz="-2.10182116752012E-05" izz="0.000920598051425331" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link5.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_hand_joint5" type="revolute">
+    <origin xyz="-0.05075 -0.01 -0.137" rpy="0 0 0" />
+    <parent link="right_hand_link4" />
+    <child link="right_hand_link5" />
+    <axis xyz="0 0 -1" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="right_hand_link6">
+    <inertial>
+      <origin xyz="-0.0362817818138957 3.55944367195771E-05 -1.00353390503072E-06" rpy="0 0 0" />
+      <mass value="0.473472771305598" />
+      <inertia ixx="0.000494319253179257" ixy="1.22764035530725E-07" ixz="-3.14187676639567E-10" iyy="0.000420508734086018" iyz="-2.3419085502777E-08" izz="0.000471686478573309" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link6.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_hand_joint6" type="revolute">
+    <origin xyz="0.0363 0 -0.135" rpy="0 0 0" />
+    <parent link="right_hand_link5" />
+    <child link="right_hand_link6" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="right_hand_link7">
+    <inertial>
+      <origin xyz="3.22055549443201E-05 -0.0407636926717405 -0.0570177964569147" rpy="0 0 0" />
+      <mass value="0.203567421358067" />
+      <inertia ixx="0.000261300353478939" ixy="9.61626805739302E-08" ixz="1.28792745220873E-07" iyy="0.000198670450971951" iyz="-8.0205583290313E-05" izz="0.000160544900493967" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link7.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_hand_link7.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_hand_joint7" type="revolute">
+    <origin xyz="-0.0363 0.044 0" rpy="0 0 0" />
+    <parent link="right_hand_link6" />
+    <child link="right_hand_link7" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="left_hand_link1">
+    <inertial>
+      <origin xyz="-0.0617599535264915 5.4800903828145E-06 -0.00525523703506052" rpy="0 0 0" />
+      <mass value="1.22029994773234" />
+      <inertia ixx="0.00203617020312064" ixy="-3.27267269646079E-07" ixz="-5.50300349906481E-05" iyy="0.0023855162262892" iyz="-1.21673240118906E-07" izz="0.00227623512015331" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link1.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_hand_joint1" type="revolute">
+    <origin xyz="-0.1447 0.276 0" rpy="0 0 0" />
+    <parent link="Link4" />
+    <child link="left_hand_link1" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="left_hand_link2">
+    <inertial>
+      <origin xyz="4.61088187667102E-06 -0.0981660872755098 0.056475981295152" rpy="0 0 0" />
+      <mass value="1.17109383071984" />
+      <inertia ixx="0.00566334364161687" ixy="-4.42990018458756E-07" ixz="8.97376436286092E-08" iyy="0.00226188700933276" iyz="0.000692451664343019" izz="0.00488228027703778" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link2.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_hand_joint2" type="revolute">
+    <origin xyz="-0.0703 0 -0.06275" rpy="0 0 0" />
+    <parent link="left_hand_link1" />
+    <child link="left_hand_link2" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="left_hand_link3">
+    <inertial>
+      <origin xyz="0.00275027134707179 -0.0916211569077868 -0.00177791727235861" rpy="0 0 0" />
+      <mass value="1.17493075627323" />
+      <inertia ixx="0.00345754992360163" ixy="0.000110505918161962" ixz="2.65056576792945E-05" iyy="0.00154605226219875" iyz="-0.000359528359990981" izz="0.00363664186943124" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link3.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_hand_joint3" type="revolute">
+    <origin xyz="0 -0.189 0.06275" rpy="0 0 0" />
+    <parent link="left_hand_link2" />
+    <child link="left_hand_link3" />
+    <axis xyz="0 -1 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="left_hand_link4">
+    <inertial>
+      <origin xyz="0.043626816958598 -0.0076668529880512 -0.0683664629920354" rpy="0 0 0" />
+      <mass value="0.614892950416948" />
+      <inertia ixx="0.0014065709063755" ixy="3.14666565669496E-05" ixz="0.000283814072242629" iyy="0.00178158410280437" iyz="-6.79195698153445E-05" izz="0.000930480767153432" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link4.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_hand_link4" type="revolute">
+    <origin xyz="-0.05075 -0.125 -0.01" rpy="0 0 0" />
+    <parent link="left_hand_link3" />
+    <child link="left_hand_link4" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="left_hand_link5">
+    <inertial>
+      <origin xyz="-0.00676070258805894 -0.0004923132527615 -0.0498774593146745" rpy="0 0 0" />
+      <mass value="0.624517879842846" />
+      <inertia ixx="0.0010097599310712" ixy="2.62525403498661E-05" ixz="-8.24329151708187E-05" iyy="0.00139250418351852" iyz="-2.10031819399273E-05" izz="0.000920576613709586" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link5.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_hand_joint5" type="revolute">
+    <origin xyz="0.05075 -0.01 -0.137" rpy="0 0 0" />
+    <parent link="left_hand_link4" />
+    <child link="left_hand_link5" />
+    <axis xyz="0 0 -1" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="left_hand_link6">
+    <inertial>
+      <origin xyz="0.0362819677348325 3.56250315839968E-05 -1.05081110213234E-06" rpy="0 0 0" />
+      <mass value="0.473474130608058" />
+      <inertia ixx="0.000494322704653558" ixy="-1.23089742439993E-07" ixz="3.94341720321067E-10" iyy="0.000420512391819067" iyz="-2.34231225510626E-08" izz="0.000471692277656792" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link6.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_hand_joint6" type="revolute">
+    <origin xyz="-0.0363 0 -0.135" rpy="0 0 0" />
+    <parent link="left_hand_link5" />
+    <child link="left_hand_link6" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="left_hand_link7">
+    <inertial>
+      <origin xyz="0.00832728046340245 -0.0407637267008293 -0.0564061757568014" rpy="0 0 0" />
+      <mass value="0.203562728342383" />
+      <inertia ixx="0.000259130077822785" ixy="1.17619888311714E-05" ixz="1.46243007925758E-05" iyy="0.000198671262451604" iyz="-7.93386789524821E-05" izz="0.000162713455610945" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link7.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_hand_link7.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_hand_joint7" type="revolute">
+    <origin xyz="0.0363 0.044 0" rpy="0 0 0" />
+    <parent link="left_hand_link6" />
+    <child link="left_hand_link7" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="left_wheel_link">
+    <inertial>
+      <origin xyz="0.0215436228721596 -2.4871829294032E-06 1.96609603111576E-08" rpy="0 0 0" />
+      <mass value="0.272387982807766" />
+      <inertia ixx="0.000637120767161904" ixy="2.31687133017476E-09" ixz="4.28905159983964E-11" iyy="0.00035405432582222" iyz="-4.78531137075495E-11" izz="0.000354050438511622" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_wheel_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_wheel_joint" type="revolute">
+    <origin xyz="-0.2955 0 -0.084" rpy="1.5708 0 0" />
+    <parent link="chassis_root" />
+    <child link="left_wheel_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="right_wheel_link">
+    <inertial>
+      <origin xyz="-0.0229440987977794 -2.48637469096868E-06 -2.01838018354603E-08" rpy="0 0 0" />
+      <mass value="0.272387983874311" />
+      <inertia ixx="0.000637120765320742" ixy="-2.31077385129403E-09" ixz="4.55453740824157E-11" iyy="0.000354054337277639" iyz="4.78235536475146E-11" izz="0.000354050440979772" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_wheel_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_wheel_joint" type="revolute">
+    <origin xyz="0.2969 0 -0.084" rpy="1.5708 0 0" />
+    <parent link="chassis_root" />
+    <child link="right_wheel_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+<material name="silver">
+    <color rgba="0.5 0.5 0.52 1.0" />
+  </material>
+  
+  <material name="BlackAccent">
+    <color rgba="0.15 0.15 0.15 1.0" />
+  </material>
+  <link name="left_hand_base_link">
+    <inertial>
+      <origin xyz="-0.0116727722939327 0.00239170872843489 0.0871762920744696" rpy="0 0 0" />
+      <mass value="0.101084447002037" />
+      <inertia ixx="0.000271826530077633" ixy="8.33797311529542E-07" ixz="1.23677096111255E-05" iyy="0.000186621937428594" iyz="2.60114242994139E-07" izz="0.000100154002400723" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/hand_base_link.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/hand_base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_pinky_metacarpals">
+    <inertial>
+      <origin xyz="0.011273359749834 5.58797362021357E-07 0.00220163360579343" rpy="0 0 0" />
+      <mass value="0.000876740996892322" />
+      <inertia ixx="3.50685925101058E-08" ixy="-2.08006745904487E-13" ixz="-5.24775256932166E-09" iyy="2.68809302149722E-08" iyz="-3.12061865388427E-14" izz="4.23561469598636E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/pinky_metacarpals.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/pinky_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_pinky_mcp_roll" type="revolute">
+    <origin xyz="-0.0286705351154727 0.0381019360798378 0.150312712339165" rpy="0 0 0" />
+    <parent link="left_hand_base_link" />
+    <child link="left_pinky_metacarpals" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.17" upper="0.17" effort="1" velocity="1" />
+  </joint>
+  <link name="left_pinky_proximal">
+    <inertial>
+      <origin xyz="-0.00259919760667904 1.80263409741976E-05 0.0223540470071822" rpy="0 0 0" />
+      <mass value="0.00372419362915814" />
+      <inertia ixx="6.202963633696E-07" ixy="1.00976261080319E-11" ixz="2.37001129310701E-08" iyy="6.5115978050739E-07" iyz="1.59779213981735E-10" izz="1.08628572552471E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/pinky_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/pinky_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_pinky_mcp_pitch" type="revolute">
+    <origin xyz="0.0167698082541766 -1.26288306181443E-05 0" rpy="0 0 0" />
+    <parent link="left_pinky_metacarpals" />
+    <child link="left_pinky_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+  </joint>
+  <link name="left_pinky_middle">
+    <inertial>
+      <origin xyz="-0.000210993511532531 2.84863947797032E-06 0.0168376237045266" rpy="0 0 0" />
+      <mass value="0.0024073792131766" />
+      <inertia ixx="2.37173967358824E-07" ixy="-9.5009378889495E-13" ixz="1.39325437615843E-08" iyy="1.83343324671271E-07" iyz="1.45144071548116E-12" izz="9.82251635605792E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/pinky_middle.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/pinky_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_pinky_pip" type="revolute">
+    <origin xyz="-0.00419455239160021 0 0.0448194355727413" rpy="0 0 0" />
+    <parent link="left_pinky_proximal" />
+    <child link="left_pinky_middle" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.57" effort="1" velocity="1" />
+  </joint>
+  <link name="left_pinky_distal">
+    <inertial>
+      <origin xyz="-0.00808923054910049 1.93081059705058E-05 0.0079833988146474" rpy="0 0 0" />
+      <mass value="0.00340429157293531" />
+      <inertia ixx="1.62309489176408E-07" ixy="-1.01832025691858E-10" ixz="5.96297882779922E-08" iyy="1.791066359742E-07" iyz="1.03698592597803E-10" izz="1.33154678461816E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/pinky_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/pinky_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_pinky_dip" type="revolute">
+    <origin xyz="0.00275561954550002 0 0.0317024252339397" rpy="0 0 0" />
+    <parent link="left_pinky_middle" />
+    <child link="left_pinky_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+    <mimic joint="left_pinky_pip" multiplier="0.8917" offset="0" />
+  </joint>
+  <link name="left_ring_metacarpals">
+    <inertial>
+      <origin xyz="0.0112733597498339 5.58797362104624E-07 0.0022016336057935" rpy="0 0 0" />
+      <mass value="0.000876740996892337" />
+      <inertia ixx="3.5068592510106E-08" ixy="-2.08006745656433E-13" ixz="-5.2477525693216E-09" iyy="2.68809302149724E-08" iyz="-3.12061868375301E-14" izz="4.23561469598638E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/ring_metacarpals.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/ring_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_ring_mcp_roll" type="revolute">
+    <origin xyz="-0.0322943001717225 0.0165019360798537 0.1593114381003" rpy="0 0 0" />
+    <parent link="left_hand_base_link" />
+    <child link="left_ring_metacarpals" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.17" upper="0.17" effort="1" velocity="1" />
+  </joint>
+  <link name="left_ring_proximal">
+    <inertial>
+      <origin xyz="-0.00259919760687244 1.80263410521353E-05 0.0223540470075662" rpy="0 0 0" />
+      <mass value="0.00372419362925796" />
+      <inertia ixx="6.20296363381635E-07" ixy="1.00976266035746E-11" ixz="2.37001129304922E-08" iyy="6.51159780517856E-07" iyz="1.59779216165356E-10" izz="1.08628572555278E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/ring_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/ring_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_ring_mcp_pitch" type="revolute">
+    <origin xyz="0.0167698082541766 -1.26288306177003E-05 0" rpy="0 0 0" />
+    <parent link="left_ring_metacarpals" />
+    <child link="left_ring_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+  </joint>
+  <link name="left_ring_middle">
+    <inertial>
+      <origin xyz="-0.000210992899039725 2.84919478066303E-06 0.0168376232416402" rpy="0 0 0" />
+      <mass value="0.00240737948314978" />
+      <inertia ixx="2.37173969821651E-07" ixy="-9.58236169751817E-13" ixz="1.39325492408724E-08" iyy="1.83343330654458E-07" iyz="1.45662713847168E-12" izz="9.82251790566103E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/ring_middle.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/ring_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_ring_pip" type="revolute">
+    <origin xyz="-0.00419455239160021 0 0.0448194355727413" rpy="0 0 0" />
+    <parent link="left_ring_proximal" />
+    <child link="left_ring_middle" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.57" effort="1" velocity="1" />
+  </joint>
+  <link name="left_ring_distal">
+    <inertial>
+      <origin xyz="-0.0080892305379989 1.93081290764674E-05 0.00798339906860533" rpy="0 0 0" />
+      <mass value="0.00340429156569409" />
+      <inertia ixx="1.62309488444951E-07" ixy="-1.0183190004931E-10" ixz="5.96297880165917E-08" iyy="1.79106636348586E-07" iyz="1.0369898142426E-10" izz="1.33154678118104E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/ring_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/ring_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_ring_dip" type="revolute">
+    <origin xyz="0.00275561954550363 0 0.0317024242175084" rpy="0 0 0" />
+    <parent link="left_ring_middle" />
+    <child link="left_ring_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+    <mimic joint="left_ring_pip" multiplier="0.8917" offset="0" />
+  </joint>
+  <link name="left_middle_metacarpals">
+    <inertial>
+      <origin xyz="0.0112733597498333 5.58797360966645E-07 0.00220163360579468" rpy="0 0 0" />
+      <mass value="0.000876740996892609" />
+      <inertia ixx="3.50685925101141E-08" ixy="-2.08006747752409E-13" ixz="-5.24775256931958E-09" iyy="2.68809302149779E-08" iyz="-3.1206182704595E-14" izz="4.23561469598688E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/middle_metacarpals.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/middle_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_middle_mcp_roll" type="revolute">
+    <origin xyz="-0.0345991283789502 -0.00509806392012034 0.163804328353988" rpy="0 0 0" />
+    <parent link="left_hand_base_link" />
+    <child link="left_middle_metacarpals" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.17" upper="0.17" effort="1" velocity="1" />
+  </joint>
+  <link name="left_middle_proximal">
+    <inertial>
+      <origin xyz="-0.00259919760684438 1.80263407566217E-05 0.0223540470073731" rpy="0 0 0" />
+      <mass value="0.00372419362926555" />
+      <inertia ixx="6.20296363380973E-07" ixy="1.00976258625309E-11" ixz="2.3700112929639E-08" iyy="6.51159780516363E-07" iyz="1.59779215266821E-10" izz="1.08628572555911E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/middle_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/middle_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_middle_mcp_pitch" type="revolute">
+    <origin xyz="0.0167698082541766 -1.26288306171729E-05 0" rpy="0 0 0" />
+    <parent link="left_middle_metacarpals" />
+    <child link="left_middle_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+  </joint>
+  <link name="left_middle_middle">
+    <inertial>
+      <origin xyz="-0.000210992947527772 2.84910398566651E-06 0.0168376231400969" rpy="0 0 0" />
+      <mass value="0.0024073794492107" />
+      <inertia ixx="2.37173967196981E-07" ixy="-9.57379468395225E-13" ixz="1.39325501105232E-08" iyy="1.83343327900654E-07" iyz="1.45863830207918E-12" izz="9.82251781447092E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/middle_middle.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/middle_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_middle_pip" type="revolute">
+    <origin xyz="-0.00419455239160021 0 0.0448194355727413" rpy="0 0 0" />
+    <parent link="left_middle_proximal" />
+    <child link="left_middle_middle" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.57" effort="1" velocity="1" />
+  </joint>
+  <link name="left_middle_distal">
+    <inertial>
+      <origin xyz="-0.00808923052691382 1.93068851489925E-05 0.00798339856147751" rpy="0 0 0" />
+      <mass value="0.00340429126675807" />
+      <inertia ixx="1.62309460213558E-07" ixy="-1.01827243393736E-10" ixz="5.96297835992339E-08" iyy="1.79106647576269E-07" iyz="1.03694610338543E-10" izz="1.3315465465903E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/middle_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/middle_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_middle_dip" type="revolute">
+    <origin xyz="0.00275561954550102 0 0.0317024252339387" rpy="0 0 0" />
+    <parent link="left_middle_middle" />
+    <child link="left_middle_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+    <mimic joint="left_middle_pip" multiplier="0.8917" offset="0" />
+  </joint>
+  <link name="left_index_metacarpals">
+    <inertial>
+      <origin xyz="0.011273359749834 5.58797359592744E-07 0.00220163360579331" rpy="0 0 0" />
+      <mass value="0.000876740996892305" />
+      <inertia ixx="3.50685925101051E-08" ixy="-2.08006750255505E-13" ixz="-5.24775256932187E-09" iyy="2.68809302149717E-08" iyz="-3.12061779284546E-14" izz="4.23561469598635E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/index_metacarpals.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/index_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_index_mcp_roll" type="revolute">
+    <origin xyz="-0.029865288607565 -0.0266980639200853 0.159311439204817" rpy="0 0 0" />
+    <parent link="left_hand_base_link" />
+    <child link="left_index_metacarpals" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.17" upper="0.17" effort="1" velocity="1" />
+  </joint>
+  <link name="left_index_proximal">
+    <inertial>
+      <origin xyz="-0.00259919760675714 1.80263408862541E-05 0.0223540470077353" rpy="0 0 0" />
+      <mass value="0.00372419362918456" />
+      <inertia ixx="6.20296363373777E-07" ixy="1.00976246356571E-11" ixz="2.3700112933589E-08" iyy="6.51159780511906E-07" iyz="1.59779214193428E-10" izz="1.08628572552767E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/index_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/index_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_index_mcp_pitch" type="revolute">
+    <origin xyz="0.0167698082541766 -1.26288306177003E-05 0" rpy="0 0 0" />
+    <parent link="left_index_metacarpals" />
+    <child link="left_index_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+  </joint>
+  <link name="left_index_middle">
+    <inertial>
+      <origin xyz="-0.000210993711084823 2.84850391663038E-06 0.0168376233231012" rpy="0 0 0" />
+      <mass value="0.0024073790765763" />
+      <inertia ixx="2.3717395594814E-07" ixy="-9.49193332108691E-13" ixz="1.39325474274094E-08" iyy="1.83343313238943E-07" iyz="1.45439297666705E-12" izz="9.82251595918732E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/index_middle.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/index_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_index_pip" type="revolute">
+    <origin xyz="-0.00419455239160021 0 0.0448194355727413" rpy="0 0 0" />
+    <parent link="left_index_proximal" />
+    <child link="left_index_middle" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.57" effort="1" velocity="1" />
+  </joint>
+  <link name="left_index_distal">
+    <inertial>
+      <origin xyz="-0.00808923055582758 1.93080737102697E-05 0.00798339883319979" rpy="0 0 0" />
+      <mass value="0.00340429158070606" />
+      <inertia ixx="1.62309490448785E-07" ixy="-1.01832013903329E-10" ixz="5.96297882787527E-08" iyy="1.79106636488149E-07" iyz="1.03699090515246E-10" izz="1.33154677949336E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/index_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/index_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_index_dip" type="revolute">
+    <origin xyz="0.00275561954550102 0 0.0317024252339397" rpy="0 0 0" />
+    <parent link="left_index_middle" />
+    <child link="left_index_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+    <mimic joint="left_index_pip" multiplier="0.8917" offset="0" />
+  </joint>
+  <link name="left_thumb_metacarpals_base2">
+    <inertial>
+      <origin xyz="0.0237124204018698 -0.0032577131736877 -0.00179111866963011" rpy="0 0 0" />
+      <mass value="0.000997223173061939" />
+      <inertia ixx="6.76160511689089E-08" ixy="1.91404111587181E-09" ixz="1.04859363439431E-09" iyy="2.37490427138065E-08" iyz="-2.27623712303909E-08" izz="5.30002826829265E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_metacarpals_base2.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_metacarpals_base2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_thumb_cmc_yaw" type="revolute">
+    <origin xyz="-0.00091528 -0.0050818 0.057392" rpy="0 0 0" />
+    <parent link="left_hand_base_link" />
+    <child link="left_thumb_metacarpals_base2" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="1.40" effort="1" velocity="1" />
+  </joint>
+  <link name="left_thumb_metacarpals_base1">
+    <inertial>
+      <origin xyz="0.00119725687810912 -0.00621320302666009 0.00980327295810525" rpy="0 0 0" />
+      <mass value="0.00459735542885393" />
+      <inertia ixx="7.31554884578251E-07" ixy="-4.16733983238535E-08" ixz="-7.2737170474297E-08" iyy="5.38393885777219E-07" iyz="-1.053796826157E-07" izz="3.7251724699777E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_metacarpals_base1.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_metacarpals_base1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_thumb_cmc_roll" type="revolute">
+    <origin xyz="0.024508 -0.002864 0.0035063" rpy="2.0706 0 0" />
+    <parent link="left_thumb_metacarpals_base2" />
+    <child link="left_thumb_metacarpals_base1" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.22" effort="1" velocity="1" />
+  </joint>
+  <link name="left_thumb_metacarpals">
+    <inertial>
+      <origin xyz="0.00390866481652528 -0.00101974751912615 0.0259651493856781" rpy="0 0 0" />
+      <mass value="0.0229652105738877" />
+      <inertia ixx="8.08206700956942E-06" ixy="1.10936410987657E-10" ixz="1.91257683128181E-07" iyy="9.56472367001086E-06" iyz="1.05154347030226E-11" izz="2.32483986337667E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_metacarpals.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_thumb_cmc_pitch" type="revolute">
+    <origin xyz="-0.0011523 -0.00048559 0.030795" rpy="0 0.49978 1.5708" />
+    <parent link="left_thumb_metacarpals_base1" />
+    <child link="left_thumb_metacarpals" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0.79" effort="1" velocity="1" />
+  </joint>
+  <link name="left_thumb_proximal">
+    <inertial>
+      <origin xyz="-0.00159524245480475 -0.0013767378761429 0.0128091130596459" rpy="0 0 0" />
+      <mass value="0.00515933884351986" />
+      <inertia ixx="4.62234120892736E-07" ixy="9.47946779694072E-10" ixz="-7.29248165702153E-08" iyy="6.16281981622134E-07" iyz="5.4065837324197E-09" izz="2.41025581524031E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_thumb_mcp" type="revolute">
+    <origin xyz="0.0064539 0 0.055858" rpy="0 0 0" />
+    <parent link="left_thumb_metacarpals" />
+    <child link="left_thumb_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.05" effort="1" velocity="1" />
+  </joint>
+  <link name="left_thumb_distal">
+    <inertial>
+      <origin xyz="-0.00674917497723541 0.00146540201683087 0.0129643501531232" rpy="0 0 0" />
+      <mass value="0.00408975520701271" />
+      <inertia ixx="2.31173968977013E-07" ixy="-2.59638542422813E-09" ixz="6.89726337094602E-08" iyy="2.76670571861199E-07" iyz="6.47208101373243E-09" izz="1.17838414072026E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/left/thumb_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_thumb_ip" type="revolute">
+    <origin xyz="0.0053547 0 0.034485" rpy="0 0 0" />
+    <parent link="left_thumb_proximal" />
+    <child link="left_thumb_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.22" effort="1" velocity="1" />
+    <mimic joint="left_thumb_mcp" multiplier="1.1619" offset="0" />
+  </joint>
+
+
+  
+  <link name="right_base_link">
+    <inertial>
+      <origin xyz="-0.0116260966942382 -0.00274813279998326 0.0887556064299578" rpy="0 0 0" />
+      <mass value="0.119355521222427" />
+      <inertia ixx="0.000281608895823112" ixy="8.38474241472843E-07" ixz="-1.21134466138976E-05" iyy="0.00019328567036429" iyz="4.38631241419914E-07" izz="0.000103627416878272" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/base_link.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_pinky_metacarpals">
+    <inertial>
+      <origin xyz="0.0111783787153197 1.73988259632996E-08 0.00220160108534925" rpy="0 0 0" />
+      <mass value="0.000876738307234833" />
+      <inertia ixx="3.50684268310259E-08" ixy="-2.01255880662754E-13" ixz="5.24776532940736E-09" iyy="2.68810255289946E-08" iyz="-3.6732684106161E-14" izz="4.23561712818563E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/pinky_metacarpals.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/pinky_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_pinky_mcp_roll" type="revolute">
+    <origin xyz="-0.028576 -0.038102 0.15031" rpy="0 0 0" />
+    <parent link="right_base_link" />
+    <child link="right_pinky_metacarpals" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.17" upper="0.17" effort="1" velocity="1" />
+  </joint>
+  <link name="right_pinky_proximal">
+    <inertial>
+      <origin xyz="-0.00112908280804496 -3.86673394475734E-06 0.0228400655439676" rpy="0 0 0" />
+      <mass value="0.00451758867960127" />
+      <inertia ixx="6.70005738245491E-07" ixy="1.07100998730671E-11" ixz="-2.60697889693044E-08" iyy="6.78910860635017E-07" iyz="1.619384302116E-10" izz="1.37487233622769E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/pinky_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/pinky_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_pinky_mcp_pitch" type="revolute">
+    <origin xyz="0.016675 0 0" rpy="0 0 0" />
+    <parent link="right_pinky_metacarpals" />
+    <child link="right_pinky_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+  </joint>
+  <link name="right_pinky_middle">
+    <inertial>
+      <origin xyz="-0.000210918582412463 -2.91656475989721E-06 0.0168376013644396" rpy="0 0 0" />
+      <mass value="0.00240742140800545" />
+      <inertia ixx="2.37171034123177E-07" ixy="-2.70991764305561E-12" ixz="-1.39296056921613E-08" iyy="1.83342187871652E-07" iyz="3.74983864753835E-12" izz="9.8226350069222E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/pinky_middle.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/pinky_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_pinky_pip" type="revolute">
+    <origin xyz="-0.00419455244191127 1.32099958100595E-05 0.0448194355633776" rpy="0 0 0" />
+    <parent link="right_pinky_proximal" />
+    <child link="right_pinky_middle" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.57" effort="1" velocity="1" />
+  </joint>
+  <link name="right_pinky_distal">
+    <inertial>
+      <origin xyz="-0.00807040294887727 -1.95860163051398E-05 0.00803087332396402" rpy="0 0 0" />
+      <mass value="0.00337412669848792" />
+      <inertia ixx="1.62067265373363E-07" ixy="-1.03084161797139E-10" ixz="-5.96264453601984E-08" iyy="1.79090083193527E-07" iyz="1.05530293251026E-10" izz="1.32918139665313E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/pinky_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/pinky_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_pinky_dip" type="revolute">
+    <origin xyz="0.0027556 0 0.031702" rpy="0 0 0" />
+    <parent link="right_pinky_middle" />
+    <child link="right_pinky_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+    <mimic joint="right_pinky_pip" multiplier="0.8917" offset="0" />
+  </joint>
+  <link name="right_ring_metacarpals">
+    <inertial>
+      <origin xyz="0.0111783787153197 -5.36905619352712E-07 0.0022016396219149" rpy="0 0 0" />
+      <mass value="0.000876738307234883" />
+      <inertia ixx="3.5068426831027E-08" ixy="-2.01255880718238E-13" ixz="5.24776532940712E-09" iyy="2.68810255289954E-08" iyz="-3.67326835665223E-14" izz="4.23561712818567E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/ring_metacarpals.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/ring_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_ring_mcp_roll" type="revolute">
+    <origin xyz="-0.032199 -0.016502 0.15931" rpy="0 0 0" />
+    <parent link="right_base_link" />
+    <child link="right_ring_metacarpals" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.17" upper="0.17" effort="1" velocity="1" />
+  </joint>
+  <link name="right_ring_proximal">
+    <inertial>
+      <origin xyz="-0.00112908262583935 -1.70769630077061E-05 0.0228400659770985" rpy="0 0 0" />
+      <mass value="0.00451758885102983" />
+      <inertia ixx="6.70005760179099E-07" ixy="1.07124239123891E-11" ixz="-2.60697922383748E-08" iyy="6.78910876105749E-07" iyz="1.61928071276549E-10" izz="1.37487241358748E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/ring_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/ring_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_ring_mcp_pitch" type="revolute">
+    <origin xyz="0.016675 1.2656E-05 0" rpy="0 0 0" />
+    <parent link="right_ring_metacarpals" />
+    <child link="right_ring_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+  </joint>
+  <link name="right_ring_middle">
+    <inertial>
+      <origin xyz="-0.00021091859446306 -2.91657898018882E-06 0.0168376013345287" rpy="0 0 0" />
+      <mass value="0.00240742140052362" />
+      <inertia ixx="2.37171033138143E-07" ixy="-2.7100414951465E-12" ixz="-1.39296060459522E-08" iyy="1.83342186859774E-07" iyz="3.74956284923257E-12" izz="9.82263498201999E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/ring_middle.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/ring_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_ring_pip" type="revolute">
+    <origin xyz="-0.00419455244174995 0 0.0448194355645609" rpy="0 0 0" />
+    <parent link="right_ring_proximal" />
+    <child link="right_ring_middle" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.57" effort="1" velocity="1" />
+  </joint>
+  <link name="right_ring_distal">
+    <inertial>
+      <origin xyz="-0.00807040294866931 -1.9586017669021E-05 0.00803087256062983" rpy="0 0 0" />
+      <mass value="0.0033741266986076" />
+      <inertia ixx="1.6206726538022E-07" ixy="-1.03084186529573E-10" ixz="-5.96264453639804E-08" iyy="1.79090083161836E-07" iyz="1.05530278574068E-10" izz="1.32918139683415E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/ring_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/ring_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_ring_dip" type="revolute">
+    <origin xyz="0.00275561956405355 0 0.0317024252327154" rpy="0 0 0" />
+    <parent link="right_ring_middle" />
+    <child link="right_ring_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+    <mimic joint="right_ring_pip" multiplier="0.8917" offset="0" />
+  </joint>
+  <link name="right_middle_metacarpals">
+    <inertial>
+      <origin xyz="0.0111783787153198 -5.36905619463734E-07 0.00220163962191467" rpy="0 0 0" />
+      <mass value="0.000876738307234834" />
+      <inertia ixx="3.50684268310259E-08" ixy="-2.0125588061605E-13" ixz="5.24776532940725E-09" iyy="2.68810255289945E-08" iyz="-3.67326839308491E-14" izz="4.23561712818563E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/middle_metacarpals.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/middle_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_middle_mcp_roll" type="revolute">
+    <origin xyz="-0.0345042006792679 0.00509811417717426 0.163804307612682" rpy="0 0 0" />
+    <parent link="right_base_link" />
+    <child link="right_middle_metacarpals" />
+    <axis xyz="0.999999999998204 0 0" />
+    <limit lower="-0.17" upper="0.17" effort="1" velocity="1" />
+  </joint>
+  <link name="right_middle_proximal">
+    <inertial>
+      <origin xyz="-0.00112908264667504 -1.70765644096349E-05 0.0228400658126111" rpy="0 0 0" />
+      <mass value="0.00451758879836063" />
+      <inertia ixx="6.70005750213689E-07" ixy="1.0709683946819E-11" ixz="-2.60697892463952E-08" iyy="6.7891086764891E-07" iyz="1.61944386240367E-10" izz="1.37487237816443E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/middle_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/middle_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_middle_mcp_pitch" type="revolute">
+    <origin xyz="0.0166748095398548 1.26556862705962E-05 0" rpy="0 0 0" />
+    <parent link="right_middle_metacarpals" />
+    <child link="right_middle_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+  </joint>
+  <link name="right_middle_middle">
+    <inertial>
+      <origin xyz="-0.000210918582531389 -2.91656481549163E-06 0.0168376013611927" rpy="0 0 0" />
+      <mass value="0.00240742140799016" />
+      <inertia ixx="2.3717103371746E-07" ixy="-2.70991790215455E-12" ixz="-1.39296056849284E-08" iyy="1.83342187462169E-07" iyz="3.74983812024697E-12" izz="9.82263500660551E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/middle_middle.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/middle_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_middle_pip" type="revolute">
+    <origin xyz="-0.00419455244189623 0 0.0448194355665477" rpy="0 0 0" />
+    <parent link="right_middle_proximal" />
+    <child link="right_middle_middle" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.57" effort="1" velocity="1" />
+  </joint>
+  <link name="right_middle_distal">
+    <inertial>
+      <origin xyz="-0.00807040294827011 -1.95860161913697E-05 0.00803087332606282" rpy="0 0 0" />
+      <mass value="0.00337412669879527" />
+      <inertia ixx="1.62067265406276E-07" ixy="-1.03084160292156E-10" ixz="-5.96264453651413E-08" iyy="1.79090083197241E-07" iyz="1.05530287328658E-10" izz="1.32918139683668E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/middle_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/middle_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_middle_dip" type="revolute">
+    <origin xyz="0.00275561956368908 0 0.031702425228504" rpy="0 0 0" />
+    <parent link="right_middle_middle" />
+    <child link="right_middle_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+    <mimic joint="right_middle_pip" multiplier="0.8917" offset="0" />
+  </joint>
+  <link name="right_index_metacarpals">
+    <inertial>
+      <origin xyz="0.0111783787153197 -5.36905619408223E-07 0.0022016396219149" rpy="0 0 0" />
+      <mass value="0.000876738307234888" />
+      <inertia ixx="3.50684268310272E-08" ixy="-2.01255880639633E-13" ixz="5.24776532940715E-09" iyy="2.68810255289955E-08" iyz="-3.67326838815665E-14" izz="4.23561712818569E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/index_metacarpals.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/index_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_index_mcp_roll" type="revolute">
+    <origin xyz="-0.0297703583048348 0.026698113515616 0.159311418025823" rpy="0 0 0" />
+    <parent link="right_base_link" />
+    <child link="right_index_metacarpals" />
+    <axis xyz="0.999999999998204 0 0" />
+    <limit lower="-0.17" upper="0.17" effort="1" velocity="1" />
+  </joint>
+  <link name="right_index_proximal">
+    <inertial>
+      <origin xyz="-0.00112908264491655 -3.86657489762077E-06 0.0228400658147424" rpy="0 0 0" />
+      <mass value="0.00451758879934099" />
+      <inertia ixx="6.70005750303174E-07" ixy="1.07096827382529E-11" ixz="-2.60697892451836E-08" iyy="6.78910867706126E-07" iyz="1.61944343361799E-10" izz="1.37487237848926E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/index_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/index_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_index_mcp_pitch" type="revolute">
+    <origin xyz="0.0166748095646496 0 0" rpy="0 0 0" />
+    <parent link="right_index_metacarpals" />
+    <child link="right_index_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+  </joint>
+  <link name="right_index_middle">
+    <inertial>
+      <origin xyz="-0.000210918632589208 -2.91655816400671E-06 0.0168376013550637" rpy="0 0 0" />
+      <mass value="0.00240742140798158" />
+      <inertia ixx="2.37171033813523E-07" ixy="-2.70992594914544E-12" ixz="-1.3929605674102E-08" iyy="1.83342187562481E-07" iyz="3.74988422279869E-12" izz="9.82263500700157E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/index_middle.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/index_middle.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_index_pip" type="revolute">
+    <origin xyz="-0.00419455239160021 1.32099983796707E-05 0.0448194355727413" rpy="0 0 0" />
+    <parent link="right_index_proximal" />
+    <child link="right_index_middle" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.57" effort="1" velocity="1" />
+  </joint>
+  <link name="right_index_distal">
+    <inertial>
+      <origin xyz="-0.00807040294819541 -1.95860155396688E-05 0.00803087332614133" rpy="0 0 0" />
+      <mass value="0.0033741266988187" />
+      <inertia ixx="1.62067265427891E-07" ixy="-1.030841487474E-10" ixz="-5.96264453690637E-08" iyy="1.79090083185726E-07" iyz="1.05530285191432E-10" izz="1.32918139694536E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/index_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/index_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_index_dip" type="revolute">
+    <origin xyz="0.00275561951363186 0 0.0317024252223218" rpy="0 0 0" />
+    <parent link="right_index_middle" />
+    <child link="right_index_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+    <mimic joint="right_index_pip" multiplier="0.8917" offset="0" />
+  </joint>
+  <link name="right_thumb_metacarpals_base1">
+    <inertial>
+      <origin xyz="0.00225106540143255 0.0106280781314811 0.00386496887062775" rpy="0 0 0" />
+      <mass value="0.0123197273270212" />
+      <inertia ixx="3.08398596758481E-06" ixy="-7.90434968870597E-08" ixz="4.99257949343636E-08" iyy="4.73419522678173E-06" iyz="-1.89397292598919E-07" izz="2.03268500392085E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_metacarpals_base1.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_metacarpals_base1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_thumb_cmc_yaw" type="revolute">
+    <origin xyz="0.0039847 0.0050818 0.057392" rpy="3.1416 0 1.5708" />
+    <parent link="right_base_link" />
+    <child link="right_thumb_metacarpals_base1" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.4" effort="1" velocity="1" />
+  </joint>
+  <link name="right_thumb_metacarpals_base2">
+    <inertial>
+      <origin xyz="0.00119794122046318 0.00176288166433086 0.00980405746394286" rpy="0 0 0" />
+      <mass value="0.00459776097124383" />
+      <inertia ixx="7.31648689063878E-07" ixy="-4.16925980705595E-08" ixz="7.27793121012466E-08" iyy="5.38489639105841E-07" iyz="-1.05409912056041E-07" izz="3.72559163410338E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_metacarpals_base2.STL" />
+      </geometry>
+      <material name="BlackAccent" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_metacarpals_base2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_thumb_cmc_roll" type="revolute">
+    <origin xyz="0.000784740002368223 0.0196077603627024 0.000308721957079858" rpy="1.18264333118745 0 1.57079632679503" />
+    <parent link="right_thumb_metacarpals_base1" />
+    <child link="right_thumb_metacarpals_base2" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.22" effort="1" velocity="1" />
+  </joint>
+  <link name="right_thumb_metacarpals">
+    <inertial>
+      <origin xyz="0.00549384865796482 0.00805524685758721 0.0258290762784949" rpy="0 0 0" />
+      <mass value="0.0119728760675928" />
+      <inertia ixx="4.12796153480032E-06" ixy="2.08264516047914E-08" ixz="1.78085589076533E-08" iyy="4.82110081302191E-06" iyz="6.19419770800233E-08" izz="1.21324079339986E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_metacarpals.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_metacarpals.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_thumb_cmc_pitch" type="revolute">
+    <origin xyz="-0.000109690908352875 -0.00396440679180957 0.0307945044045898" rpy="0 0.388152995607441 -1.57079632624948" />
+    <parent link="right_thumb_metacarpals_base2" />
+    <child link="right_thumb_metacarpals" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0.79" effort="1" velocity="1" />
+  </joint>
+  <link name="right_thumb_proximal">
+    <inertial>
+      <origin xyz="-0.0011057174593414 0.000334119020688653 0.0128607021591473" rpy="0 0 0" />
+      <mass value="0.00515940162015082" />
+      <inertia ixx="4.56371524641978E-07" ixy="1.15255552260169E-09" ixz="8.11361744697202E-08" iyy="6.16289154720601E-07" iyz="5.36536229784869E-09" izz="2.4689422432426E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_proximal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_proximal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_thumb_mcp" type="revolute">
+    <origin xyz="0.00857856380171737 0 0.0555715948082196" rpy="0 0 0" />
+    <parent link="right_thumb_metacarpals" />
+    <child link="right_thumb_proximal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.05" effort="1" velocity="1" />
+  </joint>
+  <link name="right_thumb_distal">
+    <inertial>
+      <origin xyz="-0.00636210776657178 4.14651450399844E-05 0.0118150620527104" rpy="0 0 0" />
+      <mass value="0.00614449456083594" />
+      <inertia ixx="3.71418540379979E-07" ixy="2.36548498459678E-10" ixz="-9.49666673834207E-08" iyy="4.48768445500361E-07" iyz="-9.82614466952934E-10" izz="1.66160918259876E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_distal.STL" />
+      </geometry>
+      <material name="silver" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/right/thumb_distal.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_thumb_dip" type="revolute">
+    <origin xyz="0.0066653832125308 0 0.0342561774516276" rpy="0 0 0" />
+    <parent link="right_thumb_proximal" />
+    <child link="right_thumb_distal" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="1.22" effort="1" velocity="1" />
+    <mimic joint="right_thumb_mcp" multiplier="1.1619" offset="0" />
+  </joint>
+<joint name="left_attachment" type="continuous"><parent link="left_hand_link7" /><child link="left_hand_base_link" /><origin xyz="0.0145 -0.044 -0.09" rpy="0 3.14159 3.14159" /><axis xyz="0 0 1" /></joint>
+<joint name="right_attachment" type="continuous"><parent link="right_hand_link7" /><child link="right_base_link" /><origin xyz="0 -0.044 -0.09" rpy="0 3.14159 0" /><axis xyz="0 0 1" /></joint>
 </robot>

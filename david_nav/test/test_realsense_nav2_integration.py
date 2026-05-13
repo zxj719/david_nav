@@ -306,9 +306,7 @@ def test_bringup_routes_smoothed_cmd_vel_through_collision_monitor():
         and entity._Node__node_executable == 'david_move'
     ]
     assert len(david_move_nodes) == 1
-    assert _node_remappings(david_move_nodes[0]) == {
-        'cmd_vel': 'cmd_vel_safe',
-    }
+    assert _node_remappings(david_move_nodes[0]) == {}
 
 
 def test_bringup_does_not_declare_realsense_bridge_parameter_arguments():
@@ -553,7 +551,7 @@ def test_collision_monitor_uses_scan_and_safe_cmd_vel_topics():
 
     assert params['base_frame_id'] == 'base'
     assert params['odom_frame_id'] == 'odom'
-    assert params['cmd_vel_in_topic'] == 'cmd_vel'
+    assert params['cmd_vel_in_topic'] == 'cmd_vel_smoothed'
     assert params['cmd_vel_out_topic'] == 'cmd_vel_safe'
     assert params['transform_tolerance'] == 0.3
     assert params['source_timeout'] == 1.0

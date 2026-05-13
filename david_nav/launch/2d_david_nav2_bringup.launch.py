@@ -10,13 +10,13 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.descriptions import ParameterFile
 from launch_ros.parameter_descriptions import ParameterValue
 from nav2_common.launch import RewrittenYaml
 
 
 def generate_launch_description():
     pkg_david_nav = get_package_share_directory('david_nav')
-    pkg_nav2_bringup = get_package_share_directory('nav2_bringup')
     urdf_file = os.path.join(pkg_david_nav, 'urdf', 'david.urdf')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
@@ -34,6 +34,7 @@ def generate_launch_description():
     map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
     nav_to_pose_bt_xml = LaunchConfiguration('nav_to_pose_bt_xml')
     nav_through_poses_bt_xml = LaunchConfiguration('nav_through_poses_bt_xml')
+    log_level = LaunchConfiguration('log_level')
     scan_observation_active = PythonExpression([
         "'true' if ('",
         enable_scan_bridge,
@@ -52,16 +53,102 @@ def generate_launch_description():
         },
         convert_types=True,
     )
+    configured_nav2_params_file = ParameterFile(
+        configured_nav2_params,
+        allow_substs=True,
+    )
 
-    nav2_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_nav2_bringup, 'launch', 'navigation_launch.py')
-        ),
-        launch_arguments={
+    lifecycle_nodes = [
+        'controller_server',
+        'smoother_server',
+        'planner_server',
+        'behavior_server',
+        'bt_navigator',
+        'waypoint_follower',
+        'velocity_smoother',
+    ]
+    nav2_remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
+
+    controller_server_node = Node(
+        package='nav2_controller',
+        executable='controller_server',
+        output='screen',
+        parameters=[configured_nav2_params_file],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=nav2_remappings + [('cmd_vel', 'cmd_vel_nav')],
+    )
+
+    smoother_server_node = Node(
+        package='nav2_smoother',
+        executable='smoother_server',
+        name='smoother_server',
+        output='screen',
+        parameters=[configured_nav2_params_file],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=nav2_remappings,
+    )
+
+    planner_server_node = Node(
+        package='nav2_planner',
+        executable='planner_server',
+        name='planner_server',
+        output='screen',
+        parameters=[configured_nav2_params_file],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=nav2_remappings,
+    )
+
+    behavior_server_node = Node(
+        package='nav2_behaviors',
+        executable='behavior_server',
+        name='behavior_server',
+        output='screen',
+        parameters=[configured_nav2_params_file],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=nav2_remappings + [('cmd_vel', 'cmd_vel_nav')],
+    )
+
+    bt_navigator_node = Node(
+        package='nav2_bt_navigator',
+        executable='bt_navigator',
+        name='bt_navigator',
+        output='screen',
+        parameters=[configured_nav2_params_file],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=nav2_remappings + [('cmd_vel', 'cmd_vel_nav')],
+    )
+
+    waypoint_follower_node = Node(
+        package='nav2_waypoint_follower',
+        executable='waypoint_follower',
+        name='waypoint_follower',
+        output='screen',
+        parameters=[configured_nav2_params_file],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=nav2_remappings,
+    )
+
+    velocity_smoother_node = Node(
+        package='nav2_velocity_smoother',
+        executable='velocity_smoother',
+        name='velocity_smoother',
+        output='screen',
+        parameters=[configured_nav2_params_file],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=nav2_remappings + [('cmd_vel', 'cmd_vel_nav')],
+    )
+
+    nav2_lifecycle_manager = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_navigation',
+        output='screen',
+        arguments=['--ros-args', '--log-level', log_level],
+        parameters=[{
             'use_sim_time': use_sim_time,
-            'params_file': configured_nav2_params,
-            'autostart': 'true',
-        }.items(),
+            'autostart': True,
+            'node_names': lifecycle_nodes,
+        }],
     )
 
     robot_state_publisher_node = Node(
@@ -93,13 +180,13 @@ def generate_launch_description():
         name='pointcloud_to_laserscan',
         output='screen',
         remappings=[
-            ('cloud_in', '/utlidar/cloud_livox_mid360'),
+            ('cloud_in', '/lightning/loc/aligned_scan'),
             ('scan', '/scan'),
         ],
         parameters=[{
             'target_frame': 'base',
             'transform_tolerance': 0.1,
-            'min_height': -0.3,
+            'min_height': -0.0,
             'max_height': 1.0,
             'angle_min': -3.14159,
             'angle_max': 3.14159,
@@ -184,7 +271,6 @@ def generate_launch_description():
         executable='david_move',
         name='david_move',
         output='screen',
-        remappings=[('cmd_vel', 'cmd_vel_safe')],
     )
 
     return LaunchDescription([
@@ -269,11 +355,23 @@ def generate_launch_description():
             default_value='0.45',
             description='Angular speed used while warming up the live SLAM map.',
         ),
+        DeclareLaunchArgument(
+            'log_level',
+            default_value='info',
+            description='Nav2 log level',
+        ),
         robot_state_publisher_node,
         base_alias_tf_node,
         pointcloud_to_scan_node,
         realsense_depth_to_scan_launch,
-        nav2_launch,
+        controller_server_node,
+        smoother_server_node,
+        planner_server_node,
+        behavior_server_node,
+        bt_navigator_node,
+        waypoint_follower_node,
+        velocity_smoother_node,
+        nav2_lifecycle_manager,
         map_warmup_spin_node,
         frontier_explorer,
         rviz_node,

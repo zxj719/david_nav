@@ -29,8 +29,12 @@ def make_bridge(**overrides):
     parameters = {
         "input_cmd_vel_topic": "/test_cmd_vel_safe",
         "output_cmd_vel_topic": "/test_cmd_vel_out",
-        "cmd_vel_timeout": 0.25,
+        "cmd_vel_timeout": 2.0,
+        "min_linear_x": 0.20,
         "max_linear_x": 0.20,
+        "min_angular_z": 0.20,
+        "min_stationary_angular_z": 0.35,
+        "stationary_angular_threshold": 0.025,
         "max_angular_z": 0.50,
         "publish_hz": 100.0,
     }
@@ -102,6 +106,79 @@ def test_velocity_input_is_limited_and_forwarded(rclpy_initialized):
         bridge.destroy_node()
 
 
+def test_small_nonzero_velocity_is_lifted_above_deadzone(rclpy_initialized):
+    bridge = make_bridge(max_linear_x=0.40)
+
+    try:
+        msg = Twist()
+        msg.linear.x = 0.05
+        msg.angular.z = -0.05
+
+        output = bridge.sanitize_twist(msg)
+
+        assert output.linear.x == pytest.approx(0.20)
+        assert output.angular.z == pytest.approx(-0.20)
+    finally:
+        bridge.destroy_node()
+
+
+def test_stationary_nav2_yaw_is_lifted_to_turning_deadzone(rclpy_initialized):
+    bridge = make_bridge()
+
+    try:
+        msg = Twist()
+        msg.angular.z = 0.029
+
+        output = bridge.sanitize_twist(msg)
+
+        assert output.linear.x == 0.0
+        assert output.angular.z == pytest.approx(0.35)
+    finally:
+        bridge.destroy_node()
+
+
+def test_moving_yaw_uses_lower_arc_deadzone(rclpy_initialized):
+    bridge = make_bridge(max_linear_x=0.40)
+
+    try:
+        msg = Twist()
+        msg.linear.x = 0.10
+        msg.angular.z = -0.029
+
+        output = bridge.sanitize_twist(msg)
+
+        assert output.linear.x == pytest.approx(0.20)
+        assert output.angular.z == pytest.approx(-0.20)
+    finally:
+        bridge.destroy_node()
+
+
+def test_tiny_stationary_yaw_uses_normal_deadzone(rclpy_initialized):
+    bridge = make_bridge()
+
+    try:
+        msg = Twist()
+        msg.angular.z = 0.01
+
+        output = bridge.sanitize_twist(msg)
+
+        assert output.angular.z == pytest.approx(0.20)
+    finally:
+        bridge.destroy_node()
+
+
+def test_zero_velocity_stays_zero(rclpy_initialized):
+    bridge = make_bridge()
+
+    try:
+        output = bridge.sanitize_twist(Twist())
+
+        assert output.linear.x == 0.0
+        assert output.angular.z == 0.0
+    finally:
+        bridge.destroy_node()
+
+
 def test_stale_command_times_out_to_zero(rclpy_initialized):
     bridge = make_bridge()
     observer = Node("test_david_move_timeout_observer")
@@ -113,7 +190,7 @@ def test_stale_command_times_out_to_zero(rclpy_initialized):
         msg.linear.x = 0.10
         msg.angular.z = 0.20
         bridge.velocity_callback(msg)
-        bridge.last_cmd_time = bridge.get_clock().now() - Duration(seconds=1.0)
+        bridge.last_cmd_time = bridge.get_clock().now() - Duration(seconds=3.0)
         bridge.publish_current_command()
 
         assert spin_until(lambda: bool(outputs), [observer, bridge])
