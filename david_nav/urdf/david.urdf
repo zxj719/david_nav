@@ -9,8 +9,8 @@
     base (SLAM)
      +-- base_link (alias via launch static_transform_publisher, IMU pose)
           +-- imu_link             identity
-          +-- livox_frame          IMU<->LiDAR extrinsic
-          +-- base_footprint       body center on ground (body-aligned)
+          +-- laser_link           LSLIDAR C16 frame (IMU<->LiDAR extrinsic)
+          +-- base_footprint       wheel-midpoint on ground (body-aligned)
           +-- chassis_root         full_robot CAD root (URDF axes:
                                     X=right, Y=forward, Z=up)
               +-- Link1..4 (arms)
@@ -24,13 +24,17 @@
         centered, at URDF.y=0. URDF is rotated 180 deg from IMU around Z
         (URDF X=right=body-right=IMU-X; URDF Y=forward=body-forward=IMU-Y).
 
-    base_link -> livox_frame  : xyz="0 -0.352 0.1275" rpy="0 0 -1.5708"
+    base_link -> laser_link   : xyz="0 -0.352 0.1275" rpy="0 0 -1.5708"
         From IMU<->LiDAR calibration (unchanged from previous david.urdf).
+        Driver publishes the LSLIDAR C16 cloud in this frame; numbers
+        should be re-verified against the physical mount.
 
-    base_link -> base_footprint: xyz="0 -0.06 -0.25" rpy="0 0 -1.5708"
-        Body geometric centre on the ground. STL bbox centre is at URDF
-        (0, 0.06, 0.077); base_footprint is body-aligned (Rz(-pi/2) from
-        IMU) and z=-0.25 below IMU = ground level.
+    base_link -> base_footprint: xyz="0 0 -0.25" rpy="0 0 -1.5708"
+        Midpoint between the two wheels projected onto the ground.
+        Wheels sit at chassis_root x=+/-0.296 (symmetric in x), and
+        chassis_root is at base_link (0,0,-0.1035) with Rz(pi), so the
+        wheel midpoint in base_link is (0,0,-0.1875); z=-0.25 projects
+        it onto the ground plane. Body-aligned via Rz(-pi/2) from IMU.
 
   NOTE: IMU position in URDF is back-estimated from physical reference
         (30 cm from back, lateral centre, 25 cm above ground), using CAD
@@ -53,20 +57,22 @@
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
-  <!-- LiDAR: from IMU<->LiDAR extrinsic -->
-  <link name="livox_frame"/>
-  <joint name="base_link_to_livox_frame" type="fixed">
+  <!-- LSLIDAR C16: published by lslidar driver as frame_id="laser_link".
+       Pose carried over from the prior IMU<->LiDAR extrinsic and should
+       be re-verified against the actual mount. -->
+  <link name="laser_link"/>
+  <joint name="base_link_to_laser_link" type="fixed">
     <parent link="base_link"/>
-    <child  link="livox_frame"/>
+    <child  link="laser_link"/>
     <origin xyz="0 -0.352 0.1275" rpy="0 0 -1.5707963267948966"/>
   </joint>
 
-  <!-- base_footprint: body centre on ground, aligned with body -->
+  <!-- base_footprint: midpoint between the two wheels, on the ground -->
   <link name="base_footprint"/>
   <joint name="base_link_to_base_footprint" type="fixed">
     <parent link="base_link"/>
     <child  link="base_footprint"/>
-    <origin xyz="0 -0.06 -0.25" rpy="0 0 -1.5707963267948966"/>
+    <origin xyz="0 0 -0.25" rpy="0 0 -1.5707963267948966"/>
   </joint>
 
   <!-- Joint to the CAD chassis root: IMU is Rz(+pi) from URDF; URDF is at
