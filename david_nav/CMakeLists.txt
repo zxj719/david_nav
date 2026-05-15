@@ -171,6 +171,18 @@ install(PROGRAMS
   RENAME navigation_executor.py
 )
 
+install(PROGRAMS
+  david_nav/semantic_pose_navigator.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME semantic_pose_navigator.py
+)
+
+install(PROGRAMS
+  navigate_semantic_pose_with_debug_bag.sh
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME navigate_semantic_pose_with_debug_bag.sh
+)
+
 install(TARGETS
   frontier_explorer_cpp
   DESTINATION lib/${PROJECT_NAME}
