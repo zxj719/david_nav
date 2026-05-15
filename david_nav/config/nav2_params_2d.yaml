@@ -141,16 +141,15 @@ controller_server:                                  # 局部规划器服务器
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
-      # David wheeled robot motor deadband: published cmd_vel below 0.5 m/s
-      # causes unpredictable single-wheel behavior. Set min_vel_x and
-      # min_speed_xy to 0.5 so DWB never publishes below the deadband.
-      min_vel_x: 0.5
+      # DWB plans with full velocity range. Motor deadband (0.5 m/s) is
+      # enforced by velocity_smoother deadband_velocity, not here.
+      min_vel_x: 0.0
       min_vel_y: 0.0
       max_vel_x: 0.8
       max_vel_y: 0.0
       max_vel_theta: 0.50
       min_vel_theta: 0.10
-      min_speed_xy: 0.5
+      min_speed_xy: 0.0
       max_speed_xy: 0.8
       min_speed_theta: 0.10
       # Add high threshold velocity for turtlebot 3 issue.
@@ -536,6 +535,6 @@ velocity_smoother:
     # Lightning now publishes odometry directly.
     odom_topic: /lightning/odometry
     odom_duration: 0.1
-    # Keep deadband handling in david_move to avoid double-threshold stop-go motion.
-    deadband_velocity: [0.0, 0.0, 0.0]
+    # Motor deadband: clip linear cmd_vel below 0.5 m/s to zero.
+    deadband_velocity: [0.5, 0.0, 0.0]
     velocity_timeout: 1.0
