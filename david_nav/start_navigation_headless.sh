@@ -1,241 +1,189 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
-SCRIPT_NAME="$(basename "$0")"
-RVIZ=false
-REALSENSE=false
-EXPLORATION=false
-DRY_RUN=false
-SERVER_URI="ws://192.168.123.102:8101/ws/navigation/executor"
-SUDO_PASSWORD="${SUDO_PASSWORD:-1234}"
-SLAM_START_DELAY="${SLAM_START_DELAY:-5}"
-SHUTDOWN_GRACE_SECONDS="${SHUTDOWN_GRACE_SECONDS:-5}"
-ENABLE_CPU_ONLINE="${ENABLE_CPU_ONLINE:-true}"
-ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-30}"
-ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
-LIGHTNING_WORKSPACE="${LIGHTNING_WORKSPACE:-/home/agx/lightning_ws}"
-AUTO_WORKSPACE="${AUTO_WORKSPACE:-/home/agx/ros2_ws}"
-LOCALIZATION_CONFIG="${LOCALIZATION_CONFIG:-${LIGHTNING_WORKSPACE}/src/hoslam_lightning_lm/config/default_c16.yaml}"
-LIDAR_INTERFACE="${LIDAR_INTERFACE:-eno1}"
-LIDAR_INTERFACE_IP="${LIDAR_INTERFACE_IP:-192.168.1.102}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+resolve_workspace_dir() {
+  local candidate="${SCRIPT_DIR}"
+
+  while [[ "${candidate}" != "/" ]]; do
+    if [[ -d "${candidate}/src/david_nav" ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+    candidate="$(dirname "${candidate}")"
+  done
+
+  echo "/home/unitree/ros2_ws"
+}
+
+WS_DIR="${DAVID_WS_DIR:-$(resolve_workspace_dir)}"
+PACKAGE_SRC_DIR="${WS_DIR}/src/david_nav"
+ROS_SETUP_FILE="${DAVID_ROS_SETUP_FILE:-/opt/ros/humble/setup.bash}"
+INSTALL_SETUP_FILE="${DAVID_INSTALL_SETUP_FILE:-${WS_DIR}/install/setup.bash}"
+CONFIG_HELPER_BIN="${DAVID_CONFIG_HELPER_BIN:-${SCRIPT_DIR}/scripts/navigation_headless_config.py}"
+EXECUTOR_BIN="${DAVID_EXECUTOR_BIN:-}"
+EXECUTOR_LOCK_FILE="/tmp/david_navigation_executor.lock"
+HEADLESS_CONFIG_FILE="${DAVID_HEADLESS_CONFIG_FILE:-${PACKAGE_SRC_DIR}/config/navigation_headless.yaml}"
+ROS2_BIN="${DAVID_ROS2_BIN:-ros2}"
+PYTHON_BIN="${DAVID_PYTHON_BIN:-python3}"
+HEADLESS_PROFILE="${DAVID_HEADLESS_PROFILE:-}"
+SUDO_PASSWORD="${SUDO_PASSWORD:-123}"
 EXECUTOR_POI_STORE_FILE="${EXECUTOR_POI_STORE_FILE:-}"
 DEFAULT_EXECUTOR_POI_STORE_FILE="${HOME}/.ros/david_nav/poi_store.yaml"
-NAMED_POSES_FILE="${NAMED_POSES_FILE:-/home/agx/semantic_map/named_poses.json}"
-IMU_COMMAND="${IMU_COMMAND:-}"
-LIDAR_COMMAND="${LIDAR_COMMAND:-}"
-LOCALIZATION_COMMAND="${LOCALIZATION_COMMAND:-}"
-NAV2_COMMAND="${NAV2_COMMAND:-}"
-EXECUTOR_COMMAND="${EXECUTOR_COMMAND:-}"
+SEMANTIC_MAP_DIR="${SEMANTIC_MAP_DIR:-/home/unitree/semantic_map}"
+NAMED_POSES_FILE="${NAMED_POSES_FILE:-${SEMANTIC_MAP_DIR}/named_poses.json}"
+NAV2_WAIT_TIMEOUT_SEC=120
+STOP_TERM_TIMEOUT_SEC=5
+STOP_KILL_TIMEOUT_SEC=2
+ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-30}"
 
-declare -a CHILD_PIDS=()
-declare -a CHILD_NAMES=()
-declare -a CHILD_PGIDS=()
-declare -a CLEANUP_PIDS=()
-declare -a CLEANUP_PGIDS=()
-CLEANUP_DONE=false
+safe_source() {
+  local source_file="$1"
+  if [[ ! -f "${source_file}" ]]; then
+    echo "[start_nav_headless] source file not found: ${source_file}" >&2
+    exit 1
+  fi
 
-usage() {
-  cat <<'EOF'
-Usage:
-  start_navigation_headless.sh [--rviz] [--no-realsense] [--no-exploration] [--server-uri URI] [--dry-run]
-  start_navigation_headless.sh [-r] [-s] [-e] [-u URI] [-d]
-
-Behavior:
-  Start IMU, lidar, Lightning localization, Nav2, and navigation_executor in one shell as managed background processes.
-  Press Ctrl+C in this shell to stop every managed process cleanly.
-
-Options:
-  --rviz               Enable RViz. Default: disabled.
-  -r                   Enable RViz.
-  --realsense          Enable Realsense depth-to-scan bridge and disable LiDAR scan bridge. Default: disabled.
-  --no-realsense       Disable Realsense depth-to-scan bridge. LiDAR scan bridge remains enabled.
-  -s                   Disable Realsense depth-to-scan bridge.
-  --exploration        Enable frontier exploration in Nav2. Default: disabled.
-  --no-exploration     Disable frontier exploration.
-  -e                   Disable frontier exploration.
-  --server-uri URI     WebSocket server URI for navigation_executor.py.
-  -u URI               WebSocket server URI for navigation_executor.py.
-  --dry-run            Print commands without starting them.
-  -d                   Print commands without starting them.
-  -h, --help           Show this help.
-
-Environment variables:
-  ROS_DOMAIN_ID_DEFAULT     Default ROS 2 domain ID when ROS_DOMAIN_ID is unset. Default: 30
-  SUDO_PASSWORD            Password used for sudo. Default: 1234
-  SLAM_START_DELAY         Seconds to wait after localization before Nav2/executor. Default: 5
-  SHUTDOWN_GRACE_SECONDS   Seconds to wait before force kill. Default: 5
-  ENABLE_CPU_ONLINE        true/false. Whether to online cpu4-cpu7. Default: true
-  PYTHON_BIN               Python interpreter used for executor preflight checks. Default: python3
-  ROS_SETUP                ROS 2 setup.bash path. Default: /opt/ros/humble/setup.bash
-  LIGHTNING_WORKSPACE      Lightning workspace. Default: /home/agx/lightning_ws
-  AUTO_WORKSPACE           ROS 2 workspace containing david_nav. Default: /home/agx/ros2_ws
-  LOCALIZATION_CONFIG      Lightning localization config. Default: $LIGHTNING_WORKSPACE/src/hoslam_lightning_lm/config/default_c16.yaml
-  LIDAR_INTERFACE          Network interface configured before starting lidar. Default: eno1
-  LIDAR_INTERFACE_IP       IP assigned to LIDAR_INTERFACE. Default: 192.168.1.102
-  NAMED_POSES_FILE         JSON named poses imported for navigation. Default: /home/agx/semantic_map/named_poses.json
-  EXECUTOR_POI_STORE_FILE  Optional path passed to navigation_executor.py --poi-store-file
-EOF
+  set +u
+  # shellcheck disable=SC1090
+  source "${source_file}"
+  set -u
 }
 
-log() {
-  printf '[%s] %s\n' "$SCRIPT_NAME" "$*"
-}
+wait_for_pid_exit() {
+  local pid="$1"
+  local timeout_sec="${2:-5}"
+  local deadline=$((SECONDS + timeout_sec))
 
-parse_short_flags() {
-  local arg="$1"
-  local idx flag
-
-  for ((idx = 1; idx < ${#arg}; idx++)); do
-    flag="${arg:idx:1}"
-    case "$flag" in
-      r)
-        RVIZ=true
-        ;;
-      s)
-        REALSENSE=false
-        ;;
-      e)
-        EXPLORATION=false
-        ;;
-      d)
-        DRY_RUN=true
-        ;;
-      h)
-        usage
-        exit 0
-        ;;
-      *)
-        printf 'Unknown short option: -%s\n' "$flag" >&2
-        usage >&2
-        exit 1
-        ;;
-    esac
+  while kill -0 "${pid}" 2>/dev/null; do
+    if (( SECONDS >= deadline )); then
+      return 1
+    fi
+    sleep 0.2
   done
+
+  return 0
 }
 
-parse_args() {
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --rviz)
-        RVIZ=true
-        ;;
-      --realsense)
-        REALSENSE=true
-        ;;
-      --no-realsense)
-        REALSENSE=false
-        ;;
-      --exploration)
-        EXPLORATION=true
-        ;;
-      --no-exploration)
-        EXPLORATION=false
-        ;;
-      --server-uri)
-        SERVER_URI="${2:-}"
-        shift 2
-        continue
-        ;;
-      --server-uri=*)
-        SERVER_URI="${1#*=}"
-        ;;
-      -u)
-        SERVER_URI="${2:-}"
-        shift 2
-        continue
-        ;;
-      --dry-run)
-        DRY_RUN=true
-        ;;
-      -[!-]*)
-        parse_short_flags "$1"
-        ;;
-      -h|--help)
-        usage
-        exit 0
-        ;;
-      *)
-        printf 'Unknown argument: %s\n' "$1" >&2
-        usage >&2
-        exit 1
-        ;;
-    esac
-    shift
+wait_for_process_group_exit() {
+  local process_group_id="$1"
+  local timeout_sec="${2:-5}"
+  local deadline=$((SECONDS + timeout_sec))
+
+  while kill -0 -- "-${process_group_id}" 2>/dev/null; do
+    if (( SECONDS >= deadline )); then
+      return 1
+    fi
+    sleep 0.2
   done
+
+  return 0
 }
 
-require_command() {
-  local cmd="$1"
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    printf 'Missing required command: %s\n' "$cmd" >&2
-    exit 1
+get_process_group_id() {
+  local pid="$1"
+  ps -o pgid= -p "${pid}" 2>/dev/null | tr -d '[:space:]'
+}
+
+stop_pid_if_running() {
+  local pid="$1"
+  local label="${2:-process}"
+  local signal_name="${3:-TERM}"
+  local term_timeout_sec="${4:-$STOP_TERM_TIMEOUT_SEC}"
+  local kill_timeout_sec="${5:-$STOP_KILL_TIMEOUT_SEC}"
+  local use_process_group="${6:-0}"
+  local process_group_id="${pid}"
+
+  if [[ "${use_process_group}" == "1" ]]; then
+    if [[ -z "${process_group_id}" ]] || ! kill -0 -- "-${process_group_id}" 2>/dev/null; then
+      return 0
+    fi
+  else
+    if [[ -z "${pid}" ]] || ! kill -0 "${pid}" 2>/dev/null; then
+      return 0
+    fi
+  fi
+
+  if [[ "${use_process_group}" == "1" ]]; then
+    echo "[start_nav_headless] stopping ${label} (pgid=${process_group_id}, signal=${signal_name})"
+    kill "-${signal_name}" -- "-${process_group_id}" 2>/dev/null || kill "-${signal_name}" "${pid}" 2>/dev/null || true
+    if ! wait_for_process_group_exit "${process_group_id}" "${term_timeout_sec}"; then
+      echo "[start_nav_headless] ${label} did not exit after SIG${signal_name}, sending SIGKILL (pgid=${process_group_id})" >&2
+      kill -9 -- "-${process_group_id}" 2>/dev/null || kill -9 "${pid}" 2>/dev/null || true
+      wait_for_process_group_exit "${process_group_id}" "${kill_timeout_sec}" || true
+    fi
+  else
+    echo "[start_nav_headless] stopping ${label} (pid=${pid}, signal=${signal_name})"
+    kill "-${signal_name}" "${pid}" 2>/dev/null || true
+    if ! wait_for_pid_exit "${pid}" "${term_timeout_sec}"; then
+      echo "[start_nav_headless] ${label} did not exit after SIG${signal_name}, sending SIGKILL (pid=${pid})" >&2
+      kill -9 "${pid}" 2>/dev/null || true
+      wait_for_pid_exit "${pid}" "${kill_timeout_sec}" || true
+    fi
   fi
 }
 
-require_path() {
-  local path="$1"
-  if [[ ! -e "$path" ]]; then
-    printf 'Missing required path: %s\n' "$path" >&2
-    exit 1
+cleanup_executor_lock() {
+  local lock_pid=""
+
+  if [[ ! -f "${EXECUTOR_LOCK_FILE}" ]]; then
+    return 0
+  fi
+
+  lock_pid="$(tr -d '[:space:]' < "${EXECUTOR_LOCK_FILE}" 2>/dev/null || true)"
+  if [[ -z "${lock_pid}" ]] || ! kill -0 "${lock_pid}" 2>/dev/null; then
+    rm -f "${EXECUTOR_LOCK_FILE}"
   fi
 }
 
-require_python_module() {
-  local module_name="$1"
-  local package_hint="$2"
-
-  if ! "$PYTHON_BIN" -c "import ${module_name}" >/dev/null 2>&1; then
-    printf 'Missing required Python module: %s\n' "$module_name" >&2
-    printf 'Install it with: sudo apt install %s\n' "$package_hint" >&2
-    exit 1
-  fi
+is_zombie() {
+  local pid="$1"
+  [[ -f "/proc/${pid}/status" ]] && grep -q '^State:.*Z' "/proc/${pid}/status" 2>/dev/null
 }
 
-set_default_commands() {
-  local lidar_scan=true
-  if [[ "$REALSENSE" == true ]]; then
-    lidar_scan=false
+stop_stale_executor() {
+  local pid="" pgid=""
+
+  cleanup_executor_lock
+
+  while read -r pid; do
+    [[ -z "${pid}" ]] && continue
+    is_zombie "${pid}" && continue
+    pgid="$(get_process_group_id "${pid}")"
+    if [[ -n "${pgid}" ]]; then
+      stop_pid_if_running "${pgid}" "stale navigation_executor" TERM "${STOP_TERM_TIMEOUT_SEC}" "${STOP_KILL_TIMEOUT_SEC}" 1
+    else
+      stop_pid_if_running "${pid}" "stale navigation_executor"
+    fi
+  done < <(pgrep -f "navigation_executor.py" 2>/dev/null || true)
+
+  if [[ -f "${EXECUTOR_LOCK_FILE}" ]]; then
+    pid="$(tr -d '[:space:]' < "${EXECUTOR_LOCK_FILE}" 2>/dev/null || true)"
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null && ! is_zombie "${pid}"; then
+      pgid="$(get_process_group_id "${pid}")"
+      if [[ -n "${pgid}" ]]; then
+        stop_pid_if_running "${pgid}" "locked navigation_executor" TERM "${STOP_TERM_TIMEOUT_SEC}" "${STOP_KILL_TIMEOUT_SEC}" 1
+      else
+        stop_pid_if_running "${pid}" "locked navigation_executor"
+      fi
+    fi
   fi
 
-  if [[ -z "$IMU_COMMAND" ]]; then
-    IMU_COMMAND="cd ${LIGHTNING_WORKSPACE} && source install/setup.bash && exec ros2 launch wit_imu_ros2 wit_imu.launch.py"
-  fi
-
-  if [[ -z "$LIDAR_COMMAND" ]]; then
-    LIDAR_COMMAND="cd ${LIGHTNING_WORKSPACE} && source install/setup.bash && printf '%s\n' '${SUDO_PASSWORD}' | sudo -S -p '' ifconfig ${LIDAR_INTERFACE} ${LIDAR_INTERFACE_IP} && exec ros2 launch lslidar_driver lslidar_c16_launch.py"
-  fi
-
-  if [[ -z "$LOCALIZATION_COMMAND" ]]; then
-    LOCALIZATION_COMMAND="cd ${LIGHTNING_WORKSPACE} && source install/setup.bash && exec ros2 run lightning run_loc_online --config ${LOCALIZATION_CONFIG}"
-  fi
-
-  if [[ -z "$NAV2_COMMAND" ]]; then
-    NAV2_COMMAND="cd ${AUTO_WORKSPACE} && source install/setup.bash && exec ros2 launch david_nav 2d_david_nav2_bringup.launch.py use_rviz:=${RVIZ} enable_scan_bridge:=${lidar_scan} enable_realsense_scan_bridge:=${REALSENSE} enable_exploration:=${EXPLORATION}"
-  fi
-
-  if [[ -z "$EXECUTOR_COMMAND" ]]; then
-    EXECUTOR_COMMAND="cd ${AUTO_WORKSPACE} && source install/setup.bash && exec ros2 run david_nav navigation_executor.py --server-uri ${SERVER_URI}"
-    EXECUTOR_COMMAND="${EXECUTOR_COMMAND} --poi-store-file $(executor_poi_store_file)"
-  fi
+  cleanup_executor_lock
 }
 
 pin_jetson_clocks() {
   if command -v nvpmodel >/dev/null 2>&1; then
-    log '[cold-start-fix] Setting nvpmodel to MAXN (mode 0)...'
-    if [[ "$DRY_RUN" != true ]]; then
-      printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' nvpmodel -m 0 || \
-        log '[cold-start-fix] WARN: nvpmodel failed'
-    fi
+    echo '[start_nav_headless] [cold-start-fix] Setting nvpmodel to MAXN (mode 0)...'
+    printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' nvpmodel -m 0 || \
+      echo '[start_nav_headless] [cold-start-fix] WARN: nvpmodel failed (need sudo NOPASSWD?)'
   fi
 
   if command -v jetson_clocks >/dev/null 2>&1; then
-    log '[cold-start-fix] Pinning CPU/GPU/EMC clocks to max...'
-    if [[ "$DRY_RUN" != true ]]; then
-      printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' jetson_clocks || \
-        log '[cold-start-fix] WARN: jetson_clocks failed'
-    fi
+    echo '[start_nav_headless] [cold-start-fix] Pinning CPU/GPU/EMC clocks to max...'
+    printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' jetson_clocks || \
+      echo '[start_nav_headless] [cold-start-fix] WARN: jetson_clocks failed (need sudo NOPASSWD?)'
   fi
 }
 
@@ -248,361 +196,262 @@ executor_poi_store_file() {
   printf '%s\n' "${DEFAULT_EXECUTOR_POI_STORE_FILE}"
 }
 
-prepare_poi_store_file() {
+load_named_poses_into_poi_store() {
   local poi_store_file
-
   poi_store_file="$(executor_poi_store_file)"
+  mkdir -p "$(dirname "${poi_store_file}")"
 
-  if [[ "$DRY_RUN" == true ]]; then
-    log "Would import named poses: ${NAMED_POSES_FILE} -> ${poi_store_file}"
-    return 0
+  if [[ ! -f "${NAMED_POSES_FILE}" ]]; then
+    echo "[start_nav_headless] named_poses.json not found: ${NAMED_POSES_FILE}, starting with empty POI store" >&2
+    : > "${poi_store_file}"
+    return
   fi
 
-  "$PYTHON_BIN" - "${NAMED_POSES_FILE}" "${poi_store_file}" <<'PY'
-from __future__ import annotations
-
-import json
-import os
-import sys
-
-import yaml
-
-
-def pose_from_named_pose(item: dict) -> dict:
-    position = item.get("position") or {}
-    return {
-        "frame_id": str(item.get("frame_id") or "map"),
-        "x": float(position.get("x", 0.0)),
-        "y": float(position.get("y", 0.0)),
-        "z": float(position.get("z", 0.0)),
-        "yaw": float(item.get("yaw", 0.0)),
-        "stamp_sec": 0.0,
-    }
-
-
-source_path, target_path = sys.argv[1], sys.argv[2]
-with open(source_path, "r", encoding="utf-8") as handle:
-    named_poses = json.load(handle)
-
-if not isinstance(named_poses, list):
-    raise SystemExit(f"{source_path} must contain a JSON list of named poses")
-
+  "${PYTHON_BIN}" -c "
+import json, yaml, sys
+with open(sys.argv[1]) as f:
+    poses = json.load(f)
 pois = []
-for index, item in enumerate(named_poses, start=1):
-    if not isinstance(item, dict):
-        raise SystemExit(f"{source_path} item {index} is not an object")
-    poi_id = str(item.get("id") or item.get("name") or f"POI_{index:03d}")
-    pose = pose_from_named_pose(item)
-    pois.append(
-        {
-            "id": poi_id,
-            "name": str(item.get("name") or poi_id),
-            "map_pose": pose,
-            "odom_pose": dict(pose),
-            "slam_session_id": "semantic_map",
-        }
-    )
+for p in poses:
+    pose = {
+        'frame_id': p.get('frame_id', 'map'),
+        'x': float(p['position']['x']),
+        'y': float(p['position']['y']),
+        'z': float(p['position']['z']),
+        'yaw': float(p['yaw']),
+        'stamp_sec': 0.0,
+    }
+    pois.append({
+        'id': p['id'],
+        'name': p.get('name', p['id']),
+        'map_pose': pose,
+        'odom_pose': dict(pose, frame_id='odom'),
+        'slam_session_id': 'named_poses',
+    })
+with open(sys.argv[2], 'w') as f:
+    yaml.safe_dump({'pois': pois}, f, allow_unicode=True, sort_keys=False)
+print(f'Loaded {len(pois)} POIs from {sys.argv[1]}')
+" "${NAMED_POSES_FILE}" "${poi_store_file}"
 
-os.makedirs(os.path.dirname(target_path), exist_ok=True)
-tmp_path = f"{target_path}.tmp"
-with open(tmp_path, "w", encoding="utf-8") as handle:
-    yaml.safe_dump({"pois": pois}, handle, allow_unicode=True, sort_keys=False)
-os.replace(tmp_path, target_path)
-PY
-  log "Imported named poses: ${NAMED_POSES_FILE} -> ${poi_store_file}"
+  echo "[start_nav_headless] POI store: ${poi_store_file}"
 }
 
-enable_all_cpus() {
-  local sudo_script
-  read -r -d '' sudo_script <<'EOF' || true
-for cpu in 4 5 6 7; do
-  path="/sys/devices/system/cpu/cpu${cpu}/online"
-  if [ -e "$path" ]; then
-    echo 1 > "$path"
-    echo "enabled ${path}"
-  else
-    echo "skip missing ${path}" >&2
+print_help() {
+  cat <<'EOF'
+Usage: start_navigation_headless.sh [options]
+
+Starts Nav2 bringup + navigation executor in headless mode.
+
+Lightning SLAM is expected to be running independently. This script:
+  1. pins Jetson clocks
+  2. launches 2d_david_nav2_bringup.launch.py (Nav2, no exploration)
+  3. waits for bt_navigator readiness
+  4. starts navigation_executor.py
+
+Options:
+  --config PATH              Unified headless config YAML
+  --profile NAME             Headless config profile name
+  --no-rviz                  Disable RViz in Nav2 bringup (default: enabled)
+  --no-realsense             Disable RealSense scan bridge
+  --realsense                Enable RealSense scan bridge
+  -h, --help                 Show this help
+
+Environment overrides:
+  DAVID_HEADLESS_CONFIG_FILE
+  DAVID_HEADLESS_PROFILE
+  SUDO_PASSWORD
+  ROS_DOMAIN_ID_DEFAULT
+EOF
+}
+
+USE_RVIZ=true
+USE_REALSENSE=true
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      print_help
+      exit 0
+      ;;
+    --config)
+      HEADLESS_CONFIG_FILE="${2:-}"
+      shift 2
+      ;;
+    --config=*)
+      HEADLESS_CONFIG_FILE="${1#*=}"
+      shift
+      ;;
+    --profile)
+      HEADLESS_PROFILE="${2:-}"
+      shift 2
+      ;;
+    --profile=*)
+      HEADLESS_PROFILE="${1#*=}"
+      shift
+      ;;
+    --no-rviz)
+      USE_RVIZ=false
+      shift
+      ;;
+    --rviz)
+      USE_RVIZ=true
+      shift
+      ;;
+    --realsense)
+      USE_REALSENSE=true
+      shift
+      ;;
+    --no-realsense)
+      USE_REALSENSE=false
+      shift
+      ;;
+    *)
+      if [[ "$1" != -* && -z "${HEADLESS_PROFILE}" ]]; then
+        HEADLESS_PROFILE="$1"
+        shift
+      else
+        echo "[start_nav_headless] unknown option: $1" >&2
+        print_help >&2
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+CONFIG_RESOLVE_CMD=(
+  "${PYTHON_BIN}" "${CONFIG_HELPER_BIN}"
+  --config "${HEADLESS_CONFIG_FILE}"
+  --format shell
+)
+if [[ -n "${HEADLESS_PROFILE}" ]]; then
+  CONFIG_RESOLVE_CMD+=(--profile "${HEADLESS_PROFILE}")
+fi
+
+eval "$("${CONFIG_RESOLVE_CMD[@]}")"
+
+SERVER_URI="${HEADLESS_SERVER_URI}"
+SHOW_EXECUTOR_LOGS="${HEADLESS_SHOW_LOGS}"
+NAV2_WAIT_TIMEOUT_SEC="${HEADLESS_NAV2_WAIT_TIMEOUT_SEC}"
+STOP_TERM_TIMEOUT_SEC="${HEADLESS_TERM_TIMEOUT_SEC}"
+STOP_KILL_TIMEOUT_SEC="${HEADLESS_KILL_TIMEOUT_SEC}"
+
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$ROS_DOMAIN_ID_DEFAULT}"
+
+if [[ -z "${EXECUTOR_BIN}" ]]; then
+  EXECUTOR_BIN="${ROS2_BIN} run david_nav navigation_executor.py"
+fi
+
+for required_file in \
+  "${HEADLESS_CONFIG_PATH}" \
+  "${CONFIG_HELPER_BIN}" \
+  "${ROS_SETUP_FILE}" \
+  "${INSTALL_SETUP_FILE}"; do
+  if [[ ! -e "${required_file}" ]]; then
+    echo "[start_nav_headless] missing required file: ${required_file}" >&2
+    exit 1
   fi
 done
-EOF
 
-  if [[ "$ENABLE_CPU_ONLINE" != true ]]; then
-    log 'Skipping CPU online step because ENABLE_CPU_ONLINE is not true'
-    return
-  fi
+safe_source "${ROS_SETUP_FILE}"
+safe_source "${INSTALL_SETUP_FILE}"
 
-  log 'Enabling CPU cores cpu4-cpu7'
-  if [[ "$DRY_RUN" == true ]]; then
-    printf "printf '***' | sudo -S bash -c '<enable cpu4..cpu7>'\n"
-    return
-  fi
+LOG_DIR="${WS_DIR}/log/start_navigation_headless_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "${LOG_DIR}"
 
-  printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' bash -c "$sudo_script"
-}
-
-record_child() {
-  local name="$1"
-  local pid="$2"
-  local pgid="$3"
-  CHILD_NAMES+=("$name")
-  CHILD_PIDS+=("$pid")
-  CHILD_PGIDS+=("$pgid")
-}
-
-append_unique() {
-  local array_name="$1"
-  local value="$2"
-  local existing
-  local -n target_array="$array_name"
-
-  for existing in "${target_array[@]:-}"; do
-    if [[ "$existing" == "$value" ]]; then
-      return 0
-    fi
-  done
-
-  target_array+=("$value")
-}
-
-is_pid_alive() {
-  local pid="$1"
-  kill -0 "$pid" >/dev/null 2>&1
-}
-
-is_pgid_alive() {
-  local pgid="$1"
-  pgrep -g "$pgid" >/dev/null 2>&1
-}
-
-pid_name() {
-  local pid="$1"
-  local idx
-  for idx in "${!CHILD_PIDS[@]}"; do
-    if [[ "${CHILD_PIDS[$idx]}" == "$pid" ]]; then
-      printf '%s' "${CHILD_NAMES[$idx]}"
-      return 0
-    fi
-  done
-  printf 'pid-%s' "$pid"
-}
-
-start_managed_process() {
-  local name="$1"
-  local command="$2"
-  local pid
-  local pgid
-
-  if [[ "$DRY_RUN" == true ]]; then
-    printf '[dry-run] %s\n' "$command"
-    return
-  fi
-
-  log "Starting ${name}"
-  setsid bash -lc "$command" &
-  pid=$!
-  pgid="$(ps -o pgid= -p "$pid" | tr -d '[:space:]')"
-  if [[ -z "$pgid" ]]; then
-    pgid="$pid"
-  fi
-  record_child "$name" "$pid" "$pgid"
-  log "${name} started with pid ${pid}, pgid ${pgid}"
-}
-
-collect_descendant_pids() {
-  local pid="$1"
-  local child
-
-  while read -r child; do
-    [[ -n "$child" ]] || continue
-    printf '%s\n' "$child"
-    collect_descendant_pids "$child"
-  done < <(pgrep -P "$pid" 2>/dev/null || true)
-}
-
-snapshot_cleanup_targets() {
-  local root_pid child_pid pid pgid
-
-  CLEANUP_PIDS=()
-  CLEANUP_PGIDS=()
-
-  for root_pid in "${CHILD_PIDS[@]}"; do
-    append_unique CLEANUP_PIDS "$root_pid"
-    if ! is_pid_alive "$root_pid"; then
-      continue
-    fi
-
-    while read -r child_pid; do
-      [[ -n "$child_pid" ]] || continue
-      append_unique CLEANUP_PIDS "$child_pid"
-    done < <(collect_descendant_pids "$root_pid")
-  done
-
-  for pid in "${CLEANUP_PIDS[@]}"; do
-    if ! is_pid_alive "$pid"; then
-      continue
-    fi
-
-    pgid="$(ps -o pgid= -p "$pid" | tr -d '[:space:]')"
-    if [[ -n "$pgid" ]]; then
-      append_unique CLEANUP_PGIDS "$pgid"
-    fi
-  done
-}
-
-signal_cleanup_targets() {
-  local signal="$1"
-  local pgid pid
-
-  for pgid in "${CLEANUP_PGIDS[@]}"; do
-    if is_pgid_alive "$pgid"; then
-      log "Sending SIG${signal} to process group ${pgid}"
-      kill "-${signal}" -- "-${pgid}" >/dev/null 2>&1 || true
-    fi
-  done
-
-  for pid in "${CLEANUP_PIDS[@]}"; do
-    if is_pid_alive "$pid"; then
-      log "Sending SIG${signal} to pid ${pid}"
-      kill "-${signal}" "$pid" >/dev/null 2>&1 || true
-    fi
-  done
-}
-
-wait_for_shutdown() {
-  local deadline=$((SECONDS + SHUTDOWN_GRACE_SECONDS))
-  local pid any_alive
-
-  while (( SECONDS < deadline )); do
-    any_alive=false
-    for pid in "${CLEANUP_PIDS[@]}"; do
-      if is_pid_alive "$pid"; then
-        any_alive=true
-        break
-      fi
-    done
-    if [[ "$any_alive" == false ]]; then
-      return 0
-    fi
-    sleep 0.2
-  done
-
-  return 1
-}
-
-reap_children() {
-  local pid
-  for pid in "${CHILD_PIDS[@]}"; do
-    wait "$pid" 2>/dev/null || true
-  done
-}
+BRINGUP_PID=""
+BRINGUP_USE_PROCESS_GROUP="0"
 
 cleanup() {
-  if [[ "$CLEANUP_DONE" == true ]]; then
-    return
-  fi
-  CLEANUP_DONE=true
+  local exit_code=$?
+  trap - EXIT HUP INT QUIT TERM
 
-  if ((${#CHILD_PIDS[@]} == 0)); then
-    return
-  fi
+  cleanup_executor_lock
 
-  log 'Stopping managed processes'
-  snapshot_cleanup_targets
-  signal_cleanup_targets TERM
-  if ! wait_for_shutdown; then
-    log "Some processes are still alive after ${SHUTDOWN_GRACE_SECONDS}s"
-    signal_cleanup_targets KILL
-  fi
-  reap_children
+  stop_pid_if_running "${BRINGUP_PID}" "Nav2 bringup" INT "${STOP_TERM_TIMEOUT_SEC}" "${STOP_KILL_TIMEOUT_SEC}" "${BRINGUP_USE_PROCESS_GROUP}"
+
+  exit "${exit_code}"
 }
 
-handle_signal() {
-  local signal_name="$1"
-  log "Received ${signal_name}, shutting down all managed processes"
-  cleanup
-  exit 130
+trap cleanup EXIT HUP INT QUIT TERM
+
+echo "[start_nav_headless] profile: ${HEADLESS_PROFILE}"
+echo "[start_nav_headless] server uri: ${SERVER_URI}"
+echo "[start_nav_headless] rviz: ${USE_RVIZ}"
+echo "[start_nav_headless] realsense: ${USE_REALSENSE}"
+echo "[start_nav_headless] show executor logs: ${SHOW_EXECUTOR_LOGS}"
+echo "[start_nav_headless] ROS_DOMAIN_ID: ${ROS_DOMAIN_ID}"
+echo "[start_nav_headless] logs: ${LOG_DIR}"
+
+stop_stale_executor
+
+pin_jetson_clocks
+load_named_poses_into_poi_store
+
+# --- Nav2 bringup (no exploration) ---
+BRINGUP_CMD=(
+  "${ROS2_BIN}" launch david_nav 2d_david_nav2_bringup.launch.py
+  use_rviz:="${USE_RVIZ}"
+  enable_realsense_scan_bridge:="${USE_REALSENSE}"
+  enable_exploration:=false
+)
+if command -v setsid >/dev/null 2>&1; then
+  setsid "${BRINGUP_CMD[@]}" > >(tee "${LOG_DIR}/nav2_bringup.log") 2>&1 &
+  BRINGUP_USE_PROCESS_GROUP="1"
+else
+  "${BRINGUP_CMD[@]}" > >(tee "${LOG_DIR}/nav2_bringup.log") 2>&1 &
+fi
+BRINGUP_PID=$!
+echo "[start_nav_headless] started Nav2 bringup (pid=${BRINGUP_PID})"
+
+is_bringup_alive() {
+  kill -0 "${BRINGUP_PID}" 2>/dev/null || return 1
+  if [[ -f "/proc/${BRINGUP_PID}/status" ]]; then
+    grep -q '^State:.*Z' "/proc/${BRINGUP_PID}/status" 2>/dev/null && return 1
+  fi
+  return 0
 }
 
-monitor_children() {
-  local exited_pid=0
-  local exit_code=0
-  local name
-
-  if ((${#CHILD_PIDS[@]} == 0)); then
-    return 0
+echo "[start_nav_headless] waiting for Nav2 bt_navigator node..."
+deadline=$((SECONDS + NAV2_WAIT_TIMEOUT_SEC))
+NAV2_READY=false
+while (( SECONDS < deadline )); do
+  if ! is_bringup_alive; then
+    echo "[start_nav_headless] Nav2 bringup exited early, check ${LOG_DIR}/nav2_bringup.log" >&2
+    exit 1
   fi
 
-  set +e
-  wait -n -p exited_pid "${CHILD_PIDS[@]}"
-  exit_code=$?
-  set -e
+  if "${ROS2_BIN}" node list 2>/dev/null | grep -qE '(^|/)bt_navigator$'; then
+    NAV2_READY=true
+    break
+  fi
 
-  name="$(pid_name "$exited_pid")"
-  log "${name} exited with status ${exit_code}"
-  return "$exit_code"
-}
-
-main() {
-  parse_args "$@"
-  export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$ROS_DOMAIN_ID_DEFAULT}"
-  set_default_commands
-
-  require_command bash
-  require_command pgrep
-  require_command ps
-  require_command setsid
-  require_command sudo
-  require_command ifconfig
-  require_command "$PYTHON_BIN"
-  require_path "$ROS_SETUP"
-  require_path "${LIGHTNING_WORKSPACE}/install/setup.bash"
-  require_path "${LOCALIZATION_CONFIG}"
-  require_path "${AUTO_WORKSPACE}/install/setup.bash"
-  require_path "${NAMED_POSES_FILE}"
-  require_python_module yaml python3-yaml
-  require_python_module websockets python3-websockets
-
-  trap 'handle_signal INT' INT
-  trap 'handle_signal TERM' TERM
-  trap cleanup EXIT
-
-  pin_jetson_clocks
-  enable_all_cpus
-  prepare_poi_store_file
-
-  log "Using ROS_DOMAIN_ID=${ROS_DOMAIN_ID}"
-  log "RViz enabled: ${RVIZ}"
-  log "Realsense enabled: ${REALSENSE}"
-  log "Frontier exploration enabled: ${EXPLORATION}"
-  log "Executor target URI: ${SERVER_URI}"
-  log 'Starting all processes in this shell'
-  start_managed_process 'imu' "$IMU_COMMAND"
   sleep 1
-  start_managed_process 'lidar' "$LIDAR_COMMAND"
-  sleep 1
-  start_managed_process 'localization' "$LOCALIZATION_COMMAND"
+done
 
-  if [[ "$DRY_RUN" == true ]]; then
-    log "Skipping ${SLAM_START_DELAY}s wait in dry-run mode"
-  else
-    log "Waiting ${SLAM_START_DELAY}s before starting Nav2 and navigation executor"
-    sleep "$SLAM_START_DELAY"
-  fi
+if [[ "${NAV2_READY}" != true ]]; then
+  echo "[start_nav_headless] Nav2 did not become ready within ${NAV2_WAIT_TIMEOUT_SEC}s" >&2
+  exit 1
+fi
+echo "[start_nav_headless] bt_navigator detected, waiting 10s for lifecycle activation..."
+sleep 10
+if ! is_bringup_alive; then
+  echo "[start_nav_headless] Nav2 bringup died during activation, check ${LOG_DIR}/nav2_bringup.log" >&2
+  exit 1
+fi
+echo "[start_nav_headless] Nav2 is ready."
 
-  start_managed_process 'nav2 bringup' "$NAV2_COMMAND"
-  start_managed_process 'navigation executor' "$EXECUTOR_COMMAND"
+# --- Navigation executor (foreground) ---
+EXECUTOR_CMD=(
+  ${EXECUTOR_BIN}
+  --server-uri "${SERVER_URI}"
+)
 
-  if [[ "$DRY_RUN" == true ]]; then
-    return 0
-  fi
+POI_FILE="$(executor_poi_store_file)"
+if [[ -n "${POI_FILE}" ]]; then
+  EXECUTOR_CMD+=(--poi-store-file "${POI_FILE}")
+fi
 
-  log 'All processes are running in the background of this shell'
-  log 'Press Ctrl+C here to stop imu, lidar, localization, Nav2, and navigation executor together'
+echo "[start_nav_headless] starting navigation_executor."
+echo "[start_nav_headless] Press Ctrl+C to stop everything."
 
-  if ! monitor_children; then
-    log 'A managed process exited unexpectedly, stopping the rest'
-    return 1
-  fi
-}
-
-main "$@"
+"${EXECUTOR_CMD[@]}"
