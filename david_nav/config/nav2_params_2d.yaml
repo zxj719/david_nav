@@ -141,16 +141,18 @@ controller_server:                                  # 局部规划器服务器
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
-      # Motor deadband: any non-zero velocity is raised to at least 0.5.
-      min_vel_x: 0.5
-      min_vel_y: 0.0
-      max_vel_x: 0.8
+      # Keep normal path tracking forward-only.
+      # Reverse motion is reserved for BT recovery BackUp actions, while
+      # min_speed_xy stays at 0.0 so DWB can still rotate in place near goal.
+      min_vel_x: 0.0
+      min_vel_y: 0.00
+      max_vel_x: 0.20
       max_vel_y: 0.0
-      max_vel_theta: 2.5
-      min_vel_theta: 1.7
+      max_vel_theta: 0.50
+      min_vel_theta: 0.10
       min_speed_xy: 0.0
-      max_speed_xy: 0.8
-      min_speed_theta: 1.7
+      max_speed_xy: 0.2                                          # 最大xy方向速度，对齐键盘遥控默认speed=0.2
+      min_speed_theta: 0.10
       # Add high threshold velocity for turtlebot 3 issue.
       # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
       # keyboard_teleop_ros2.py: 10Hz循环下每周期线速度变化0.1、角速度变化0.5
@@ -527,12 +529,13 @@ velocity_smoother:
     # OPEN_LOOP avoids hard dependence on odometry feedback.
     feedback: "OPEN_LOOP"
     # feedback: "CLOSED_LOOP"
-    max_velocity: [0.8, 0.0, 2.5]
-    min_velocity: [-0.8, 0.0, -2.5]
+    max_velocity: [0.2, 0.0, 0.5]
+    min_velocity: [-0.2, 0.0, -0.5]
     max_accel: [1.0, 0.0, 5.0]
     max_decel: [-1.0, 0.0, -5.0]
     # Lightning now publishes odometry directly.
     odom_topic: /lightning/odometry
     odom_duration: 0.1
+    # Keep deadband handling in david_move to avoid double-threshold stop-go motion.
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
