@@ -1,0 +1,22 @@
+# 双通道瓶颈环境（去 top/bottom 版）
+# 在原版基础上去掉每堵墙的 top/bottom，保留 left/right
+# 通道 z 方向无限自由，但 y 方向仍有 20cm 缝
+# 共 4 个 collision box
+#
+# 墙整体 y∈[-0.20,+0.40] z∈[0.65,1.15] (60×50cm)
+# Wall 1 (x=0.40): gap y∈[+0.10,+0.30]  (20cm 宽缝)
+# Wall 2 (x=0.62): gap y∈[-0.10,+0.10]  (20cm 宽缝，y 方向错位 0.10m)
+frame_id: world
+scene_name: double_passage
+description: "Original double-passage geometry with top/bottom removed. Vertical slot windows."
+
+objects:
+  # ====== Wall 1: x=0.40 ======
+  # gap1: y∈[+0.10, +0.30]  (左右两段挡板中间留缝)
+  - {name: wall1_left,   center: [0.40, -0.050, 0.900], size: [0.02, 0.30, 0.50]}
+  - {name: wall1_right,  center: [0.40, +0.350, 0.900], size: [0.02, 0.10, 0.50]}
+
+  # ====== Wall 2: x=0.62 ======
+  # gap2: y∈[-0.10, +0.10]  (错位到中间，强制末端横移)
+  - {name: wall2_left,   center: [0.62, -0.150, 0.900], size: [0.02, 0.10, 0.50]}
+  - {name: wall2_right,  center: [0.62, +0.250, 0.900], size: [0.02, 0.30, 0.50]}

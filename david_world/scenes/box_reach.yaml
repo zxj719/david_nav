@@ -1,0 +1,14 @@
+# 盒子内取物场景（X 继续 +5cm）
+# 前缘 x=0.60, 后缘 x=0.90，盒中心 x=0.75
+# ⚠ 接近 AR5 reach 极限 (0.8m)
+frame_id: world
+scene_name: box_reach
+description: "Box pushed further to reach limit."
+
+objects:
+  - {name: box_back,   center: [0.895, +0.025, 0.875], size: [0.01, 0.55, 0.25]}
+  - {name: box_top,    center: [0.750, +0.025, 0.995], size: [0.30, 0.55, 0.01]}
+  - {name: box_bottom, center: [0.750, +0.025, 0.755], size: [0.30, 0.55, 0.01]}
+  - {name: box_left,   center: [0.750, +0.300, 0.875], size: [0.30, 0.01, 0.25]}
+  - {name: box_right,  center: [0.750, -0.250, 0.875], size: [0.30, 0.01, 0.25]}
+  - {name: target_cube, center: [0.820, +0.050, 0.780], size: [0.04, 0.04, 0.04]}
