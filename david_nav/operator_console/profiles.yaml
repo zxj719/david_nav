@@ -18,7 +18,7 @@ profiles:
       ENABLE_CPU_ONLINE: "true"
 
   navigation_no_explore:
-    command: /home/unitree/ros2_ws/src/david_nav/start_navigation_headless.sh --no-exploration
+    command: /home/unitree/ros2_ws/src/david_nav/start_navigation_headless.sh --profile navigation_no_explore
     description: >
       Navigation without frontier exploration. Use when manually sending
       goals via WebSocket or Foxglove.

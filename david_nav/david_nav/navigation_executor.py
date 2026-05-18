@@ -23,6 +23,7 @@ DEFAULT_GLOBAL_COSTMAP_TOPIC = "/global_costmap/costmap"
 DEFAULT_NAV_GOAL_SNAP_RADIUS = 0.5
 DEFAULT_NAV_GOAL_FALLBACK_SNAP_RADIUS = 1.0
 DEFAULT_NAV_GOAL_CLEARANCE_RADIUS = 0.1
+DEFAULT_RECONNECT_DELAY = 3.0
 
 
 def _log(message: str):
@@ -59,6 +60,7 @@ def _build_help_text() -> str:
             "options:",
             "  --server-uri URI        WebSocket endpoint for /ws/navigation/executor",
             "  --poi-store-file PATH   Local YAML file used to persist executor-owned POIs",
+            "  --reconnect-delay SEC   Delay between WebSocket reconnect attempts (default: 3.0)",
             "  -h, --help              Show this help message and exit",
         ]
     )
@@ -80,6 +82,7 @@ def _parse_cli_args(raw_args):
         "nav_goal_snap_radius": DEFAULT_NAV_GOAL_SNAP_RADIUS,
         "nav_goal_fallback_snap_radius": DEFAULT_NAV_GOAL_FALLBACK_SNAP_RADIUS,
         "nav_goal_clearance_radius": DEFAULT_NAV_GOAL_CLEARANCE_RADIUS,
+        "reconnect_delay": DEFAULT_RECONNECT_DELAY,
     }
     ros_args = []
     i = 0
@@ -91,6 +94,10 @@ def _parse_cli_args(raw_args):
             continue
         if arg == "--poi-store-file" and i + 1 < len(raw_args):
             config["poi_store_file"] = os.path.expanduser(raw_args[i + 1])
+            i += 2
+            continue
+        if arg == "--reconnect-delay" and i + 1 < len(raw_args):
+            config["reconnect_delay"] = float(raw_args[i + 1])
             i += 2
             continue
         ros_args.append(arg)
@@ -203,59 +210,63 @@ async def main_async(raw_args):
         goal_resolver=goal_resolver,
     )
 
-    connection_established = False
-
     try:
-        _log(f"connecting to {config['server_uri']}")
-        async with websockets.connect(config["server_uri"], ping_interval=None) as websocket:
-            connection_established = True
-            _log("connected")
-            heartbeat_task = asyncio.create_task(
-                _send_heartbeat(websocket, config["heartbeat_interval"])
-            )
-            outbound_task = asyncio.create_task(
-                _drain_outbound_queue(websocket, outbound_queue)
-            )
-            loop_closure_task = asyncio.create_task(
-                _watch_loop_closure(
-                    pose_provider,
-                    poi_store,
-                    config["loop_closure_poll_sec"],
-                )
-            )
+        while True:
+            connection_established = False
             try:
-                async for raw_message in websocket:
-                    payload = json.loads(raw_message)
-                    if payload.get("type") == "pong":
-                        continue
-                    if payload.get("type") == "ping":
-                        await websocket.send(json.dumps({"type": "pong"}, ensure_ascii=False))
-                        continue
-                    for outbound in await core.handle_message(payload):
-                        await websocket.send(json.dumps(outbound, ensure_ascii=False))
-            finally:
-                heartbeat_task.cancel()
-                outbound_task.cancel()
-                loop_closure_task.cancel()
-                spin_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await heartbeat_task
-                with contextlib.suppress(asyncio.CancelledError):
-                    await outbound_task
-                with contextlib.suppress(asyncio.CancelledError):
-                    await loop_closure_task
-                with contextlib.suppress(asyncio.CancelledError):
-                    await spin_task
-    except Exception as exc:
-        if connection_established:
-            _log(f"connection closed: {exc}")
-        else:
-            _log(f"connection failed: {exc}")
-        raise
-    else:
-        if connection_established:
-            _log("connection closed")
+                _log(f"connecting to {config['server_uri']}")
+                async with websockets.connect(config["server_uri"], ping_interval=None) as websocket:
+                    connection_established = True
+                    _log("connected")
+                    heartbeat_task = asyncio.create_task(
+                        _send_heartbeat(websocket, config["heartbeat_interval"])
+                    )
+                    outbound_task = asyncio.create_task(
+                        _drain_outbound_queue(websocket, outbound_queue)
+                    )
+                    loop_closure_task = asyncio.create_task(
+                        _watch_loop_closure(
+                            pose_provider,
+                            poi_store,
+                            config["loop_closure_poll_sec"],
+                        )
+                    )
+                    try:
+                        async for raw_message in websocket:
+                            payload = json.loads(raw_message)
+                            if payload.get("type") == "pong":
+                                continue
+                            if payload.get("type") == "ping":
+                                await websocket.send(json.dumps({"type": "pong"}, ensure_ascii=False))
+                                continue
+                            for outbound in await core.handle_message(payload):
+                                await websocket.send(json.dumps(outbound, ensure_ascii=False))
+                    finally:
+                        heartbeat_task.cancel()
+                        outbound_task.cancel()
+                        loop_closure_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await heartbeat_task
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await outbound_task
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await loop_closure_task
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if connection_established:
+                    _log(f"connection closed: {exc}")
+                else:
+                    _log(f"connection failed: {exc}")
+            else:
+                if connection_established:
+                    _log("connection closed")
+            _log(f"reconnecting in {config['reconnect_delay']:.1f}s")
+            await asyncio.sleep(config["reconnect_delay"])
     finally:
+        spin_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await spin_task
         del tf_listener
         node.destroy_node()
         rclpy.shutdown()

@@ -14,7 +14,7 @@ resolve_workspace_dir() {
     candidate="$(dirname "${candidate}")"
   done
 
-  echo "/home/unitree/ros2_ws"
+  echo "${HOME}/ros2_ws"
 }
 
 WS_DIR="${DAVID_WS_DIR:-$(resolve_workspace_dir)}"
@@ -28,10 +28,10 @@ HEADLESS_CONFIG_FILE="${DAVID_HEADLESS_CONFIG_FILE:-${PACKAGE_SRC_DIR}/config/na
 ROS2_BIN="${DAVID_ROS2_BIN:-ros2}"
 PYTHON_BIN="${DAVID_PYTHON_BIN:-python3}"
 HEADLESS_PROFILE="${DAVID_HEADLESS_PROFILE:-}"
-SUDO_PASSWORD="${SUDO_PASSWORD:-123}"
+SUDO_PASSWORD="${SUDO_PASSWORD:-}"
 EXECUTOR_POI_STORE_FILE="${EXECUTOR_POI_STORE_FILE:-}"
 DEFAULT_EXECUTOR_POI_STORE_FILE="${HOME}/.ros/david_nav/poi_store.yaml"
-SEMANTIC_MAP_DIR="${SEMANTIC_MAP_DIR:-/home/unitree/semantic_map}"
+SEMANTIC_MAP_DIR="${SEMANTIC_MAP_DIR:-${HOME}/semantic_map}"
 NAMED_POSES_FILE="${NAMED_POSES_FILE:-${SEMANTIC_MAP_DIR}/named_poses.json}"
 NAV2_WAIT_TIMEOUT_SEC=120
 STOP_TERM_TIMEOUT_SEC=5
@@ -238,22 +238,22 @@ print(f'Loaded {len(pois)} POIs from {sys.argv[1]}')
 
 print_help() {
   cat <<'EOF'
-Usage: start_navigation_headless.sh [options]
+Usage: start_navigation_headless.sh [PROFILE | --profile NAME] [--config PATH]
 
 Starts Nav2 bringup + navigation executor in headless mode.
 
 Lightning SLAM is expected to be running independently. This script:
   1. pins Jetson clocks
-  2. launches 2d_david_nav2_bringup.launch.py (Nav2, no exploration)
+  2. launches 2d_david_nav2_bringup.launch.py (Nav2)
   3. waits for bt_navigator readiness
   4. starts navigation_executor.py
+
+All toggles (rviz, lidar scan bridge, exploration) are controlled
+by the selected headless config profile.
 
 Options:
   --config PATH              Unified headless config YAML
   --profile NAME             Headless config profile name
-  --no-rviz                  Disable RViz in Nav2 bringup (default: enabled)
-  --no-realsense             Disable RealSense scan bridge
-  --realsense                Enable RealSense scan bridge
   -h, --help                 Show this help
 
 Environment overrides:
@@ -263,9 +263,6 @@ Environment overrides:
   ROS_DOMAIN_ID_DEFAULT
 EOF
 }
-
-USE_RVIZ=true
-USE_REALSENSE=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -287,22 +284,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --profile=*)
       HEADLESS_PROFILE="${1#*=}"
-      shift
-      ;;
-    --no-rviz)
-      USE_RVIZ=false
-      shift
-      ;;
-    --rviz)
-      USE_RVIZ=true
-      shift
-      ;;
-    --realsense)
-      USE_REALSENSE=true
-      shift
-      ;;
-    --no-realsense)
-      USE_REALSENSE=false
       shift
       ;;
     *)
@@ -327,7 +308,19 @@ if [[ -n "${HEADLESS_PROFILE}" ]]; then
   CONFIG_RESOLVE_CMD+=(--profile "${HEADLESS_PROFILE}")
 fi
 
-eval "$("${CONFIG_RESOLVE_CMD[@]}")"
+if ! HEADLESS_CONFIG_OUTPUT="$("${CONFIG_RESOLVE_CMD[@]}")"; then
+  echo "[start_nav_headless] failed to resolve headless config (config=${HEADLESS_CONFIG_FILE}, profile='${HEADLESS_PROFILE}')" >&2
+  exit 1
+fi
+eval "${HEADLESS_CONFIG_OUTPUT}"
+
+bool_from_int() {
+  if [[ "${1:-0}" == "1" ]]; then echo true; else echo false; fi
+}
+
+USE_RVIZ="$(bool_from_int "${HEADLESS_USE_RVIZ}")"
+USE_SCAN_BRIDGE="$(bool_from_int "${HEADLESS_ENABLE_SCAN_BRIDGE}")"
+USE_EXPLORATION="$(bool_from_int "${HEADLESS_ENABLE_EXPLORATION}")"
 
 SERVER_URI="${HEADLESS_SERVER_URI}"
 SHOW_EXECUTOR_LOGS="${HEADLESS_SHOW_LOGS}"
@@ -377,7 +370,8 @@ trap cleanup EXIT HUP INT QUIT TERM
 echo "[start_nav_headless] profile: ${HEADLESS_PROFILE}"
 echo "[start_nav_headless] server uri: ${SERVER_URI}"
 echo "[start_nav_headless] rviz: ${USE_RVIZ}"
-echo "[start_nav_headless] realsense: ${USE_REALSENSE}"
+echo "[start_nav_headless] lidar scan bridge: ${USE_SCAN_BRIDGE}"
+echo "[start_nav_headless] exploration: ${USE_EXPLORATION}"
 echo "[start_nav_headless] show executor logs: ${SHOW_EXECUTOR_LOGS}"
 echo "[start_nav_headless] ROS_DOMAIN_ID: ${ROS_DOMAIN_ID}"
 echo "[start_nav_headless] logs: ${LOG_DIR}"
@@ -391,8 +385,8 @@ load_named_poses_into_poi_store
 BRINGUP_CMD=(
   "${ROS2_BIN}" launch david_nav 2d_david_nav2_bringup.launch.py
   use_rviz:="${USE_RVIZ}"
-  enable_realsense_scan_bridge:="${USE_REALSENSE}"
-  enable_exploration:=false
+  enable_scan_bridge:="${USE_SCAN_BRIDGE}"
+  enable_exploration:="${USE_EXPLORATION}"
 )
 if command -v setsid >/dev/null 2>&1; then
   setsid "${BRINGUP_CMD[@]}" > >(tee "${LOG_DIR}/nav2_bringup.log") 2>&1 &
@@ -444,6 +438,7 @@ echo "[start_nav_headless] Nav2 is ready."
 EXECUTOR_CMD=(
   ${EXECUTOR_BIN}
   --server-uri "${SERVER_URI}"
+  --reconnect-delay "${HEADLESS_RECONNECT_DELAY}"
 )
 
 POI_FILE="$(executor_poi_store_file)"

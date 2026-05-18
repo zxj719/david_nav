@@ -59,9 +59,6 @@ def resolve_headless_profile(config, profile_name=None):
         "name": selected_name,
         "enable_exploration": bool(selected.get("enable_exploration", True)),
         "enable_scan_bridge": bool(selected.get("enable_scan_bridge", False)),
-        "enable_realsense_scan_bridge": bool(
-            selected.get("enable_realsense_scan_bridge", True)
-        ),
     }
 
 
@@ -79,7 +76,6 @@ def build_executor_settings(config, profile_name=None):
         "profile": profile["name"],
         "enable_exploration": profile["enable_exploration"],
         "enable_scan_bridge": profile["enable_scan_bridge"],
-        "enable_realsense_scan_bridge": profile["enable_realsense_scan_bridge"],
         "server_uri": str(executor_cfg.get("server_uri", "")).strip(),
         "server_timeout": float(executor_cfg.get("server_timeout", 10.0)),
         "heartbeat_interval": float(executor_cfg.get("heartbeat_interval", 30.0)),

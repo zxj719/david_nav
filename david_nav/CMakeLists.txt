@@ -267,11 +267,6 @@ if(BUILD_TESTING)
   )
 
   ament_add_pytest_test(
-    realsense_nav2_integration_test
-    test/test_realsense_nav2_integration.py
-  )
-
-  ament_add_pytest_test(
     headless_navigation_script_test
     test/test_headless_navigation_script.py
   )
@@ -303,11 +298,6 @@ if(BUILD_TESTING)
   )
   target_compile_features(scan_priority_geometry_test PUBLIC cxx_std_17)
   target_include_directories(scan_priority_geometry_test PUBLIC include)
-
-  ament_add_pytest_test(
-    realsense_cpu_monitor_test
-    test/test_realsense_cpu_monitor.py
-  )
 endif()
 
 ament_package()

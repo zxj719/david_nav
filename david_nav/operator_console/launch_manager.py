@@ -336,21 +336,8 @@ class LaunchManagerHandler(BaseHTTPRequestHandler):
             if name not in self.profiles:
                 self._send_json({"ok": False, "error": f"Unknown profile: {name}"}, 404)
                 return
-            body = self._read_body()
+            self._read_body()
             proc = self.manager.get_or_create(name)
-
-            # Allow overriding options via request body
-            if body:
-                cfg = self.profiles[name]
-                command = cfg["command"]
-                if body.get("no_exploration"):
-                    command += " --no-exploration"
-                if body.get("no_realsense"):
-                    command += " --no-realsense"
-                if body.get("rviz"):
-                    command += " --rviz"
-                proc.command = command
-
             result = proc.start()
             status_code = 200 if result.get("ok") else 409
             self._send_json(result, status_code)

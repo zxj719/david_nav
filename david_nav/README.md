@@ -5,7 +5,7 @@
 - 基于 Nav2 的 2D 导航
 - 基于 frontier 的自主探索
 - 与外部 Lightning SLAM 地图/里程计话题对接
-- 使用 Realsense depth-to-scan 或激光点云桥接做局部避障输入
+- 使用激光点云桥接做局部避障输入
 - 面向现场调参与问题定位的 RViz 可视化与调试工具
 
 这个仓库目前更适合作为研发与现场调试用导航仓库，而不是“已经完全闭环、无人干预即可稳定完成建图”的成品系统。
@@ -53,15 +53,11 @@
 - `/tf`
 - `/tf_static`
 
-局部避障输入可以来自两种桥接方式：
-
-- Livox 点云转 `/scan`
-- Realsense 深度图转 `/scan`
+局部避障输入由 Livox 点云转 `/scan` 提供。
 
 相关 launch：
 
 - [2d_david_nav2_bringup.launch.py](/home/unitree/ros2_ws/src/david_nav/launch/2d_david_nav2_bringup.launch.py)
-- [realsense_depth_to_scan.launch.py](/home/unitree/ros2_ws/src/david_nav/launch/realsense_depth_to_scan.launch.py)
 
 ### 4. David 控制链路
 
@@ -90,7 +86,6 @@
 
 - `nav2_bringup`
 - `pointcloud_to_laserscan`
-- `depthimage_to_laserscan`
 - `david_cmd`
 - `david_sim`
 - 外部 Lightning SLAM 系统
@@ -119,8 +114,6 @@ ros2 launch david_nav 2d_david_nav2_bringup.launch.py use_rviz:=true
 
 - `enable_scan_bridge:=true`
   使用 Livox 点云转 `/scan`
-- `enable_realsense_scan_bridge:=true`
-  使用 Realsense 深度图转 `/scan`
 - `enable_exploration:=true`
   启动 frontier explorer
 
@@ -135,24 +128,7 @@ ros2 launch david_nav david_auto_explore.launch.py
 默认行为：
 
 - `use_rviz:=true`
-- `enable_realsense_scan_bridge:=true`
-
-### 4. 单独启动 Realsense depth-to-scan
-
-适合单独验证 Realsense 深度桥接是否正常：
-
-```bash
-ros2 launch david_nav realsense_depth_to_scan.launch.py
-```
-
-默认输入话题：
-
-- `/camera/camera/depth/image_rect_raw`
-- `/camera/camera/depth/camera_info`
-
-默认输出话题：
-
-- `/scan`
+- `enable_scan_bridge:=true`
 
 ## 常用运行方式
 
@@ -177,16 +153,6 @@ ros2 launch david_nav 2d_david_nav2_bringup.launch.py \
 ```bash
 ros2 launch david_nav david_auto_explore.launch.py \
   use_rviz:=true
-```
-
-### 场景 C：验证 Realsense 局部避障输入
-
-目标：只看 depth-to-scan 是否把近场障碍稳定转成 `/scan`。
-
-建议：
-
-```bash
-ros2 launch david_nav realsense_depth_to_scan.launch.py
 ```
 
 ## 关键配置文件
@@ -253,7 +219,7 @@ ros2 launch david_nav realsense_depth_to_scan.launch.py
 
 1. 机器人尚不能在完全无人干预下稳定完成一次自主建图
 2. 3D LiDAR 前端地面点和地图燥点问题仍会影响建图质量
-3. 动态障碍物处理仍不充分，主要依赖 Realsense 与较快重规划来缓解
+3. 动态障碍物处理仍不充分，主要依赖较快重规划来缓解
 4. 机器人被误判进入障碍物后的脱困机制仍不完整
 5. 电梯门等特殊材质环境下仍可能出现 frontier 误引导
 6. 建图完成后自动返回初始点能力尚未完全闭环

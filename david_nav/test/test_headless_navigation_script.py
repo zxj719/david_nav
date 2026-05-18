@@ -117,20 +117,9 @@ def test_headless_navigation_defaults_to_relocation_nav2_and_executor_uri(tmp_pa
     assert "run_loc_online --config" in result.stdout
     assert "2d_david_nav2_bringup.launch.py use_rviz:=false" in result.stdout
     assert "enable_scan_bridge:=true" in result.stdout
-    assert "enable_realsense_scan_bridge:=false" in result.stdout
     assert "enable_exploration:=false" in result.stdout
     assert "navigation_executor.py --server-uri ws://192.168.123.102:8101/ws/navigation/executor" in result.stdout
     assert "--poi-store-file" in result.stdout
-
-
-def test_headless_navigation_flags_toggle_rviz_realsense_and_exploration(tmp_path):
-    result = _run_script(tmp_path, "--rviz", "--realsense", "--exploration", "--dry-run")
-
-    assert result.returncode == 0
-    assert "2d_david_nav2_bringup.launch.py use_rviz:=true" in result.stdout
-    assert "enable_scan_bridge:=false" in result.stdout
-    assert "enable_realsense_scan_bridge:=true" in result.stdout
-    assert "enable_exploration:=true" in result.stdout
 
 
 def test_headless_navigation_short_server_uri_override_updates_executor_command(tmp_path):

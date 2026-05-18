@@ -23,7 +23,6 @@ def generate_launch_description():
     explorer_params_file = LaunchConfiguration('explorer_params_file')
     enable_exploration = LaunchConfiguration('enable_exploration')
     enable_scan_bridge = LaunchConfiguration('enable_scan_bridge')
-    enable_realsense_scan_bridge = LaunchConfiguration('enable_realsense_scan_bridge')
     enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
     map_warmup_min_live_area_m2 = LaunchConfiguration('map_warmup_min_live_area_m2')
     map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
@@ -42,7 +41,6 @@ def generate_launch_description():
             'enable_exploration': enable_exploration,
             'explorer_params_file': explorer_params_file,
             'enable_scan_bridge': enable_scan_bridge,
-            'enable_realsense_scan_bridge': enable_realsense_scan_bridge,
             'enable_map_warmup_spin': enable_map_warmup_spin,
             'map_warmup_min_live_area_m2': map_warmup_min_live_area_m2,
             'map_warmup_angular_speed': map_warmup_angular_speed,
@@ -88,13 +86,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'enable_scan_bridge',
-            default_value='false',
-            description='Launch pointcloud_to_laserscan to publish /scan from lidar.',
-        ),
-        DeclareLaunchArgument(
-            'enable_realsense_scan_bridge',
             default_value='true',
-            description='Launch depthimage_to_laserscan to publish /scan from Realsense depth.',
+            description='Launch pointcloud_to_laserscan to publish /scan from lidar.',
         ),
         DeclareLaunchArgument(
             'enable_map_warmup_spin',

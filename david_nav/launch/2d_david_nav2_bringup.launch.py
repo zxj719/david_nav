@@ -8,7 +8,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration, PythonExpression
+from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterFile
 from launch_ros.parameter_descriptions import ParameterValue
@@ -28,20 +28,13 @@ def generate_launch_description():
     explorer_params_file = LaunchConfiguration('explorer_params_file')
     collision_monitor_params_file = LaunchConfiguration('collision_monitor_params_file')
     enable_scan_bridge = LaunchConfiguration('enable_scan_bridge')
-    enable_realsense_scan_bridge = LaunchConfiguration('enable_realsense_scan_bridge')
     enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
     map_warmup_min_live_area_m2 = LaunchConfiguration('map_warmup_min_live_area_m2')
     map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
     nav_to_pose_bt_xml = LaunchConfiguration('nav_to_pose_bt_xml')
     nav_through_poses_bt_xml = LaunchConfiguration('nav_through_poses_bt_xml')
     log_level = LaunchConfiguration('log_level')
-    scan_observation_active = PythonExpression([
-        "'true' if ('",
-        enable_scan_bridge,
-        "' == 'true' or '",
-        enable_realsense_scan_bridge,
-        "' == 'true') else 'false'",
-    ])
+    scan_observation_active = enable_scan_bridge
     configured_nav2_params = RewrittenYaml(
         source_file=params_file,
         param_rewrites={
@@ -199,13 +192,6 @@ def generate_launch_description():
         condition=IfCondition(enable_scan_bridge),
     )
 
-    realsense_depth_to_scan_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_david_nav, 'launch', 'realsense_depth_to_scan.launch.py')
-        ),
-        condition=IfCondition(enable_realsense_scan_bridge),
-    )
-
     map_warmup_spin_node = Node(
         package='david_nav',
         executable='map_warmup_spin',
@@ -336,11 +322,6 @@ def generate_launch_description():
             description='Launch pointcloud_to_laserscan to publish /scan from lidar.',
         ),
         DeclareLaunchArgument(
-            'enable_realsense_scan_bridge',
-            default_value='false',
-            description='Launch depthimage_to_laserscan to publish /scan from Realsense depth.',
-        ),
-        DeclareLaunchArgument(
             'enable_map_warmup_spin',
             default_value='false',
             description='Rotate in place until the first live SLAM map grows to a usable size.',
@@ -363,7 +344,6 @@ def generate_launch_description():
         robot_state_publisher_node,
         base_alias_tf_node,
         pointcloud_to_scan_node,
-        realsense_depth_to_scan_launch,
         controller_server_node,
         smoother_server_node,
         planner_server_node,

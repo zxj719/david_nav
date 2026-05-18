@@ -25,7 +25,6 @@ def _format_shell(runtime):
         f"HEADLESS_PROFILE={shlex.quote(runtime['profile'])}",
         f"HEADLESS_ENABLE_EXPLORATION={'1' if runtime['enable_exploration'] else '0'}",
         f"HEADLESS_ENABLE_SCAN_BRIDGE={'1' if runtime['enable_scan_bridge'] else '0'}",
-        f"HEADLESS_ENABLE_REALSENSE_SCAN_BRIDGE={'1' if runtime['enable_realsense_scan_bridge'] else '0'}",
         f"HEADLESS_SERVER_URI={shlex.quote(runtime['server_uri'])}",
         f"HEADLESS_NAV2_WAIT_TIMEOUT_SEC={runtime['nav2_wait_timeout_sec']}",
         f"HEADLESS_SLAM_START_DELAY_SEC={runtime['slam_start_delay_sec']}",

@@ -7,14 +7,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-30}"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
-AUTO_WORKSPACE="${AUTO_WORKSPACE:-/home/unitree/ros2_ws}"
-SEMANTIC_MAP_DIR="${SEMANTIC_MAP_DIR:-/home/unitree/semantic_map}"
+AUTO_WORKSPACE="${AUTO_WORKSPACE:-${HOME}/ros2_ws}"
+SEMANTIC_MAP_DIR="${SEMANTIC_MAP_DIR:-${HOME}/semantic_map}"
 POSE_FILE="${POSE_FILE:-${SEMANTIC_MAP_DIR}/named_poses.json}"
-BAG_ROOT="${BAG_ROOT:-/home/unitree/rosbags}"
+BAG_ROOT="${BAG_ROOT:-${HOME}/rosbags}"
 BAG_NAME="${BAG_NAME:-}"
 TARGET="${TARGET:-}"
-RVIZ=false
-REALSENSE=true
+RVIZ=true
 START_BRINGUP=true
 RECORD_BAG=true
 WAIT_FOR_NAV_READY=true
@@ -107,7 +106,7 @@ Usage:
 
 Behavior:
   Source the local ROS environment, optionally launch david_nav 2D Nav2 bringup,
-  start a debug rosbag, then navigate to a pose from /home/unitree/semantic_map/named_poses.json.
+  start a debug rosbag, then navigate to a pose from ${HOME}/semantic_map/named_poses.json.
   Without a TARGET, the terminal will show a numbered pose list for selection.
 
   Lightning SLAM is expected to be running independently. This script does not start
@@ -115,11 +114,10 @@ Behavior:
 
 Options:
   --target TARGET           Pose id, pose name, or all
-  --pose-file PATH          Named pose JSON. Default: /home/unitree/semantic_map/named_poses.json
+  --pose-file PATH          Named pose JSON. Default: ${HOME}/semantic_map/named_poses.json
   --no-bringup              Skip david_nav Nav2 bringup and only do bag + navigation
   --rviz                    Launch RViz with 2d_david_nav2_bringup.launch.py. Default: disabled.
   --no-rviz                 Disable RViz in bringup
-  --no-realsense            Disable Realsense depth-to-scan bridge in bringup
   --nav-ready-timeout SEC   Wait timeout for bt_navigator readiness. Default: 120
   --skip-nav-ready-wait     Do not wait for bt_navigator before bag + navigation
   --result-timeout-sec SEC  Timeout for each Nav2 navigation result. Default: 300
@@ -142,10 +140,10 @@ Options:
 Environment variables:
   ROS_DOMAIN_ID_DEFAULT     Default ROS 2 domain ID when ROS_DOMAIN_ID is unset. Default: 30
   ROS_SETUP                 ROS setup.bash path. Default: /opt/ros/humble/setup.bash
-  AUTO_WORKSPACE            ROS 2 workspace containing david_nav. Default: /home/unitree/ros2_ws
-  SEMANTIC_MAP_DIR          Directory containing named_poses.json. Default: /home/unitree/semantic_map
+  AUTO_WORKSPACE            ROS 2 workspace containing david_nav. Default: ${HOME}/ros2_ws
+  SEMANTIC_MAP_DIR          Directory containing named_poses.json. Default: ${HOME}/semantic_map
   POSE_FILE                 Full named pose JSON path
-  BAG_ROOT                  Output root for rosbag folders. Default: /home/unitree/rosbags
+  BAG_ROOT                  Output root for rosbag folders. Default: ${HOME}/rosbags
   NAVIGATOR_BIN             Optional executable path for semantic_pose_navigator.py
   EXPECTED_NAV2_FRAME       Expected controller/costmap frame. Default: map
   EXPECTED_DWB_TRANSFORM_TOLERANCE
@@ -207,12 +205,6 @@ parse_args() {
         ;;
       --no-rviz)
         RVIZ=false
-        ;;
-      --realsense)
-        REALSENSE=true
-        ;;
-      --no-realsense)
-        REALSENSE=false
         ;;
       --nav-ready-timeout)
         NAV_READY_TIMEOUT_SEC="${2:-}"
@@ -626,7 +618,7 @@ main() {
   local -a bringup_cmd=(
     "$ROS2_BIN" launch david_nav 2d_david_nav2_bringup.launch.py
     use_rviz:="$RVIZ"
-    enable_realsense_scan_bridge:="$REALSENSE"
+    enable_scan_bridge:=true
     enable_exploration:=false
   )
   local -a bag_cmd=(

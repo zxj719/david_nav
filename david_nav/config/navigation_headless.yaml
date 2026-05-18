@@ -3,18 +3,11 @@ default_profile: navigation
 profiles:
   navigation:
     enable_exploration: true
-    enable_scan_bridge: false
-    enable_realsense_scan_bridge: true
+    enable_scan_bridge: true
 
   navigation_no_explore:
     enable_exploration: false
-    enable_scan_bridge: false
-    enable_realsense_scan_bridge: true
-
-  navigation_lidar:
-    enable_exploration: true
     enable_scan_bridge: true
-    enable_realsense_scan_bridge: false
 
 cleanup:
   process_matchers:
@@ -22,8 +15,8 @@ cleanup:
     - ros2 launch david_nav david_auto_explore.launch.py
     - navigation_executor.py
     - static_transform_publisher.*map.*odom
-  term_timeout_sec: 5
-  kill_timeout_sec: 2
+  term_timeout_sec: 10
+  kill_timeout_sec: 3
 
 launch:
   use_rviz: false
@@ -31,7 +24,7 @@ launch:
   slam_start_delay_sec: 5
 
 executor:
-  server_uri: ws://127.0.0.1:8101/ws/navigation/executor
+  server_uri: ws://172.16.22.205:8101/ws/navigation/executor
   server_timeout: 10.0
   heartbeat_interval: 30.0
   reconnect_delay: 3.0

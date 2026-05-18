@@ -19,16 +19,22 @@ def _transform_pose(transform: Transform2D, pose: PoseRecord) -> PoseRecord:
 
 
 class LocalPoiStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, source_path: Path | None = None):
         self.path = Path(path)
+        self.source_path = Path(source_path) if source_path is not None else None
         self._pois: dict[str, StoredPoi] = {}
 
     def load(self) -> None:
         self._pois = {}
-        if not self.path.exists():
+        if self.source_path is not None:
+            self._load_from(self.source_path)
+        self._load_from(self.path)
+
+    def _load_from(self, path: Path) -> None:
+        if not path.exists():
             return
 
-        with self.path.open("r", encoding="utf-8") as handle:
+        with path.open("r", encoding="utf-8") as handle:
             payload = yaml.safe_load(handle) or {}
 
         items = payload.get("pois", []) if isinstance(payload, dict) else payload

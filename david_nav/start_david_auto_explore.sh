@@ -4,7 +4,6 @@ set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
 RVIZ=true
-REALSENSE=true
 DRY_RUN=false
 SUDO_PASSWORD="${SUDO_PASSWORD:-123}"
 SLAM_START_DELAY="${SLAM_START_DELAY:-5}"
@@ -16,7 +15,7 @@ SLAM_WORKSPACE="/home/unitree/lightning-lm-livox"
 AUTO_WORKSPACE="/home/unitree/ros2_ws"
 STOP_WORKSPACE="/home/unitree/ros2_ws/src/david_cmd"
 UNITREE_CHANNEL_NAME="${UNITREE_CHANNEL_NAME:-enP8p1s0}"
-FALLBACK_KILL_REGEX="${FALLBACK_KILL_REGEX:-ros2 launch david_nav david_auto_explore.launch.py|run_slam_online|static_transform_publisher 0 0 0 0 0 0 map odom|frontier_explorer_cpp|collision_monitor|david_move|david_sdk_worker|controller_server|planner_server|bt_navigator|behavior_server|lifecycle_manager|map_warmup_spin|realsense_depth_to_scan|depthimage_to_laserscan_node|pointcloud_to_laserscan_node|rviz2}"
+FALLBACK_KILL_REGEX="${FALLBACK_KILL_REGEX:-ros2 launch david_nav david_auto_explore.launch.py|run_slam_online|static_transform_publisher 0 0 0 0 0 0 map odom|frontier_explorer_cpp|collision_monitor|david_move|david_sdk_worker|controller_server|planner_server|bt_navigator|behavior_server|lifecycle_manager|map_warmup_spin|pointcloud_to_laserscan_node|rviz2}"
 TF_COMMAND="${TF_COMMAND:-}"
 SLAM_COMMAND="${SLAM_COMMAND:-}"
 AUTO_COMMAND="${AUTO_COMMAND:-}"
@@ -30,8 +29,8 @@ CLEANUP_DONE=false
 usage() {
   cat <<'EOF'
 Usage:
-  start_david_auto_explore.sh [--no-rviz] [--no-realsense] [--dry-run]
-  start_david_auto_explore.sh [-r] [-s] [-d]
+  start_david_auto_explore.sh [--no-rviz] [--dry-run]
+  start_david_auto_explore.sh [-r] [-d]
 
 Behavior:
   Start TF, slam2, and auto in one shell as managed background processes.
@@ -41,9 +40,6 @@ Options:
   --rviz            Enable RViz (default).
   --no-rviz         Disable RViz.
   -r                Disable RViz.
-  --realsense       Enable Realsense obstacle avoidance (default).
-  --no-realsense    Disable Realsense depth-to-scan bridge.
-  -s                Disable Realsense depth-to-scan bridge.
   --dry-run         Print commands without starting them.
   -d                Print commands without starting them.
   -h, --help        Show this help.
@@ -51,8 +47,6 @@ Options:
 Shortcuts:
   davidgo              Same as start_david_auto_explore.sh
   davidgo -r           No RViz
-  davidgo -s           No Realsense
-  davidgo -rs          No RViz and no Realsense
   davidgo -d           Dry run
 
 Environment variables:
@@ -80,9 +74,6 @@ parse_short_flags() {
       r)
         RVIZ=false
         ;;
-      s)
-        REALSENSE=false
-        ;;
       d)
         DRY_RUN=true
         ;;
@@ -107,12 +98,6 @@ parse_args() {
         ;;
       --no-rviz)
         RVIZ=false
-        ;;
-      --realsense)
-        REALSENSE=true
-        ;;
-      --no-realsense)
-        REALSENSE=false
         ;;
       --dry-run)
         DRY_RUN=true
@@ -160,7 +145,7 @@ set_default_commands() {
   fi
 
   if [[ -z "$AUTO_COMMAND" ]]; then
-    AUTO_COMMAND="cd ${AUTO_WORKSPACE} && source install/setup.bash && exec ros2 launch david_nav david_auto_explore.launch.py use_rviz:=${RVIZ} enable_realsense_scan_bridge:=${REALSENSE}"
+    AUTO_COMMAND="cd ${AUTO_WORKSPACE} && source install/setup.bash && exec ros2 launch david_nav david_auto_explore.launch.py use_rviz:=${RVIZ}"
   fi
 
   if [[ -z "$STOP_COMMAND" ]]; then
