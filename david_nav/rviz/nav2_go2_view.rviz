@@ -4,9 +4,10 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /TF1
         - /TF1/Frames1
       Splitter Ratio: 0.5
-    Tree Height: 375
+    Tree Height: 399
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -77,211 +78,41 @@ Visualization Manager:
         All Enabled: false
         base:
           Value: true
+        base_footprint:
+          Value: true
         base_link:
           Value: true
-        camera_color_frame:
+        chassis_root:
           Value: true
-        camera_color_optical_frame:
+        imu_link:
           Value: true
-        camera_depth_frame:
+        laser_link:
           Value: true
-        camera_depth_optical_frame:
-          Value: true
-        camera_link:
-          Value: false
-        head_link:
-          Value: false
-        imu_in_pelvis:
-          Value: false
-        imu_in_torso:
-          Value: false
-        left_ankle_pitch_link:
-          Value: false
-        left_ankle_roll_link:
-          Value: false
-        left_elbow_link:
-          Value: false
-        left_hand_index_0_link:
-          Value: false
-        left_hand_index_1_link:
-          Value: false
-        left_hand_middle_0_link:
-          Value: false
-        left_hand_middle_1_link:
-          Value: false
-        left_hand_palm_link:
-          Value: false
-        left_hand_thumb_0_link:
-          Value: false
-        left_hand_thumb_1_link:
-          Value: false
-        left_hand_thumb_2_link:
-          Value: false
-        left_hip_pitch_link:
-          Value: false
-        left_hip_roll_link:
-          Value: false
-        left_hip_yaw_link:
-          Value: false
-        left_knee_link:
-          Value: false
-        left_shoulder_pitch_link:
-          Value: false
-        left_shoulder_roll_link:
-          Value: false
-        left_shoulder_yaw_link:
-          Value: false
-        left_wrist_pitch_link:
-          Value: false
-        left_wrist_roll_link:
-          Value: false
-        left_wrist_yaw_link:
-          Value: false
-        logo_link:
-          Value: false
         map:
           Value: true
-        mid360_link:
-          Value: false
         odom:
           Value: true
-        pelvis_contour_link:
-          Value: false
-        right_ankle_pitch_link:
-          Value: false
-        right_ankle_roll_link:
-          Value: false
-        right_elbow_link:
-          Value: false
-        right_hand_index_0_link:
-          Value: false
-        right_hand_index_1_link:
-          Value: false
-        right_hand_middle_0_link:
-          Value: false
-        right_hand_middle_1_link:
-          Value: false
-        right_hand_palm_link:
-          Value: false
-        right_hand_thumb_0_link:
-          Value: false
-        right_hand_thumb_1_link:
-          Value: false
-        right_hand_thumb_2_link:
-          Value: false
-        right_hip_pitch_link:
-          Value: false
-        right_hip_roll_link:
-          Value: false
-        right_hip_yaw_link:
-          Value: false
-        right_knee_link:
-          Value: false
-        right_shoulder_pitch_link:
-          Value: false
-        right_shoulder_roll_link:
-          Value: false
-        right_shoulder_yaw_link:
-          Value: false
-        right_wrist_pitch_link:
-          Value: false
-        right_wrist_roll_link:
-          Value: false
-        right_wrist_yaw_link:
-          Value: false
-        torso_link:
-          Value: false
-        waist_roll_link:
-          Value: false
-        waist_support_link:
-          Value: false
-        waist_yaw_link:
-          Value: false
-      Marker Scale: 0.30000001192092896
+        world:
+          Value: true
+      Marker Scale: 1
       Name: TF
       Show Arrows: false
       Show Axes: true
       Show Names: true
       Tree:
-        map:
-          odom:
-            base:
-              base_link:
-                {}
-              imu_in_pelvis:
-                {}
-              left_hip_pitch_link:
-                left_hip_roll_link:
-                  left_hip_yaw_link:
-                    left_knee_link:
-                      left_ankle_pitch_link:
-                        left_ankle_roll_link:
-                          {}
-              pelvis_contour_link:
-                {}
-              right_hip_pitch_link:
-                right_hip_roll_link:
-                  right_hip_yaw_link:
-                    right_knee_link:
-                      right_ankle_pitch_link:
-                        right_ankle_roll_link:
-                          {}
-              waist_yaw_link:
-                waist_roll_link:
-                  torso_link:
-                    camera_link:
-                      camera_color_frame:
-                        camera_color_optical_frame:
-                          {}
-                      camera_depth_frame:
-                        camera_depth_optical_frame:
-                          {}
-                    head_link:
-                      {}
-                    imu_in_torso:
-                      {}
-                    left_shoulder_pitch_link:
-                      left_shoulder_roll_link:
-                        left_shoulder_yaw_link:
-                          left_elbow_link:
-                            left_wrist_roll_link:
-                              left_wrist_pitch_link:
-                                left_wrist_yaw_link:
-                                  left_hand_palm_link:
-                                    left_hand_index_0_link:
-                                      left_hand_index_1_link:
-                                        {}
-                                    left_hand_middle_0_link:
-                                      left_hand_middle_1_link:
-                                        {}
-                                    left_hand_thumb_0_link:
-                                      left_hand_thumb_1_link:
-                                        left_hand_thumb_2_link:
-                                          {}
-                    logo_link:
-                      {}
-                    mid360_link:
-                      {}
-                    right_shoulder_pitch_link:
-                      right_shoulder_roll_link:
-                        right_shoulder_yaw_link:
-                          right_elbow_link:
-                            right_wrist_roll_link:
-                              right_wrist_pitch_link:
-                                right_wrist_yaw_link:
-                                  right_hand_palm_link:
-                                    right_hand_index_0_link:
-                                      right_hand_index_1_link:
-                                        {}
-                                    right_hand_middle_0_link:
-                                      right_hand_middle_1_link:
-                                        {}
-                                    right_hand_thumb_0_link:
-                                      right_hand_thumb_1_link:
-                                        right_hand_thumb_2_link:
-                                          {}
-                    waist_support_link:
-                      {}
+        world:
+          map:
+            odom:
+              base:
+                base_link:
+                  base_footprint:
+                    {}
+                  chassis_root:
+                    {}
+                  imu_link:
+                    {}
+                  laser_link:
+                    {}
       Update Interval: 0
       Value: true
     - Alpha: 0.75
@@ -441,9 +272,7 @@ Visualization Manager:
       Enabled: true
       Name: Frontiers
       Namespaces:
-        frontier_cells: true
-        frontier_centroids: true
-        frontier_goals: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -488,7 +317,7 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Angle: 3.914997100830078
+      Angle: 3.939997673034668
       Class: rviz_default_plugins/TopDownOrtho
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
@@ -498,11 +327,11 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 180.9499053955078
+      Scale: 201.02357482910156
       Target Frame: map
       Value: TopDownOrtho (rviz_default_plugins)
-      X: 2.134753942489624
-      Y: 0.3994201123714447
+      X: 1.8229694366455078
+      Y: -4.566688060760498
     Saved: ~
 Window Geometry:
   Displays:
@@ -510,7 +339,7 @@ Window Geometry:
   Height: 736
   Hide Left Dock: true
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000044700000286fc0200000005fb000000100044006900730070006c006100790073000000003d000001fa000000c900fffffffb0000001200530065006c0065006300740069006f006e00000001ba000000a00000005c00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073000000017e0000005c0000005c00fffffffb0000000a0056006900650077007300000001b7000000c2000000a400fffffffb0000000800540069006d0065000000023d000000860000003900ffffff000004ba0000028600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000001000000000000044700000286fc0200000005fb000000100044006900730070006c006100790073000000003d00000212000000c900fffffffb0000001200530065006c0065006300740069006f006e00000001ba000000a00000005c00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073000000017e0000005c0000005c00fffffffb0000000a0056006900650077007300000001b7000000c2000000a400fffffffb0000000800540069006d006500000002550000006e0000003900ffffff000004ba0000028600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Time:

@@ -33,6 +33,8 @@ def generate_launch_description():
             "dry_run": LaunchConfiguration("dry_run"),
             # 左臂偏移（暂用 0，等用户测后填）
             "joint_offsets_deg": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            # 左臂 home 位姿（SDK 坐标，度）：与 SRDF home 匹配
+            "home_pose_deg": [145.00, 90.00, -90.00, 100.00, 90.00, 0.00, 0.00],
         }],
     )
 
@@ -52,6 +54,8 @@ def generate_launch_description():
             "dry_run": LaunchConfiguration("dry_run"),
             # 右臂偏移：joint_1 需要 -90°，其他 0
             "joint_offsets_deg": [-90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            # 右臂 home 位姿（SDK 坐标，度）：与 SRDF home 匹配
+            "home_pose_deg": [-60.01, 90.00, 90.00, 99.99, -90.01, 5.00, -0.00],
         }],
     )
 

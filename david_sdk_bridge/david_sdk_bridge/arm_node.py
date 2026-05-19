@@ -37,6 +37,7 @@ class ArmNode(Node):
         self.declare_parameter("dry_run", False)
         self.declare_parameter("power_on_at_start", False)
         self.declare_parameter("joint_offsets_deg", [0.0]*7)  # 安全默认 false
+        self.declare_parameter("home_pose_deg", [0.0]*7)  # home pose in SDK coords (deg)
 
         self.side = self.get_parameter("side").value
         self.robot_ip = self.get_parameter("robot_ip").value
@@ -53,6 +54,11 @@ class ArmNode(Node):
         if len(offs_deg) != 7:
             offs_deg = [0.0]*7
         self.joint_offsets_rad = [_math.radians(d) for d in offs_deg]
+
+        home_deg = list(self.get_parameter("home_pose_deg").value)
+        if len(home_deg) != 7:
+            home_deg = [0.0]*7
+        self._home_sdk_rad = [_math.radians(d) for d in home_deg]
 
         self.joint_names = [f"{self.prefix}{i}" for i in range(1, 8)]
         self.get_logger().info(
@@ -128,8 +134,9 @@ class ArmNode(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.name = list(self.joint_names)
         try:
-            if self.dry_run:
-                msg.position = [0.0] * 7
+            if self.dry_run or self.robot is None:
+                # 发 home (SDK->URDF after +offset),让 RViz 启动即显示真机起始姿态
+                msg.position = [self._home_sdk_rad[i] + self.joint_offsets_rad[i] for i in range(7)]
             else:
                 q = self.robot.jointPos(self.ec)
                 msg.position = [float(q[i]) + self.joint_offsets_rad[i] for i in range(7)]

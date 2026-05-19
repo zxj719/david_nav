@@ -7,7 +7,7 @@ Architecture:
   - RSP listens /joint_states for TF, MoveIt listens /joint_states for planning_scene
 """
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command, FindExecutable
@@ -89,7 +89,10 @@ def generate_launch_description():
         ],
     )
 
+    # 延迟 3 秒启动 jsp/move_group/rviz, 等 sdk_bridge 先发出 /joint_states_arms
+    delayed = TimerAction(period=3.0, actions=[jsp, move_group, rviz])
+
     return LaunchDescription([
         dry_run_arg, rviz_arg,
-        rsp, jsp, sdk_bridge, move_group, rviz,
+        rsp, sdk_bridge, delayed,
     ])

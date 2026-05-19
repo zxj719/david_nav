@@ -42,261 +42,597 @@
     <child link="base_link"/>
   </joint>
 
-  <link name="base_link">
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <geometry>
-        <mesh filename="package://david_description/meshes/base_link.STL" />
-      </geometry>
-      <material name="">
-        <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
-      </material>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <geometry>
-        <mesh filename="package://david_description/meshes/base_link.STL" />
-      </geometry>
-    </collision>
-  </link>
-  <link name="Link1">
+  <link
+    name="base_link">
     <inertial>
-      <origin xyz="-0.202039565147879 -0.172049849724767 0.0306313441543072" rpy="0 0 0" />
-      <mass value="0.44965271177211" />
-      <inertia ixx="0.00128470912324812" ixy="0.00034902991074274" ixz="0.00107870988542442" iyy="0.00771694212486205" iyz="-0.000113469153421682" izz="0.0072162945878979" />
+      <origin
+        xyz="-0.00678833192239824 0.0112922235097502 0.192024472226852"
+        rpy="0 0 0" />
+      <mass
+        value="22.4651142385164" />
+      <inertia
+        ixx="0.316084185789068"
+        ixy="0.00344807472608025"
+        ixz="7.57940625715299E-05"
+        iyy="0.352338662018876"
+        iyz="-6.03188751172417E-06"
+        izz="0.653462535849378" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/Link1.STL" />
+        <mesh
+          filename="package://david_description/meshes/base_link.STL" />
       </geometry>
-      <material name="">
-        <color rgba="0.109803921568627 0.109803921568627 0.109803921568627 1" />
+      <material
+        name="">
+        <color
+          rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
       </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/Link1.STL" />
+        <mesh
+          filename="package://david_description/meshes/base_link.STL" />
       </geometry>
     </collision>
   </link>
-  <joint name="Joint1" type="revolute">
-    <origin xyz="0.158960837882583 0.188016398930589 0.335999999999998" rpy="0 0 0" />
-    <parent link="base_link" />
-    <child link="Link1" />
-    <axis xyz="0 1 0" />
-    <limit lower="0" upper="1.5707" effort="0" velocity="0" />
+  <link
+    name="Link1">
+    <inertial>
+      <origin
+        xyz="-0.202039565147879 -0.172049849724767 0.0306313441543073"
+        rpy="0 0 0" />
+      <mass
+        value="0.44965271177211" />
+      <inertia
+        ixx="0.00128470912324812"
+        ixy="0.00034902991074274"
+        ixz="0.00107870988542442"
+        iyy="0.00771694212486205"
+        iyz="-0.000113469153421682"
+        izz="0.00721629458789789" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://david_description/meshes/Link1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.109803921568627 0.109803921568627 0.109803921568627 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://david_description/meshes/Link1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="Joint1"
+    type="revolute">
+    <origin
+      xyz="0.15896 0.18802 0.336"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="Link1" />
+    <axis
+      xyz="0 1 0" />
+    <limit lower="0" upper="1.5707" effort="10" velocity="3" />
   </joint>
-  <link name="Link2">
+  <link
+    name="Link2">
     <inertial>
-      <origin xyz="0.138829249156696 -0.167259509982906 0.0178579160279987" rpy="0 0 0" />
-      <mass value="0.383838870890663" />
-      <inertia ixx="0.00113157026255617" ixy="-0.000140917880014611" ixz="-0.00109816533056624" iyy="0.00742305933437009" iyz="-1.10417526920647E-05" izz="0.00778795286740181" />
+      <origin
+        xyz="0.138829249156696 -0.167259509982906 0.0178579160279987"
+        rpy="0 0 0" />
+      <mass
+        value="0.383838870890663" />
+      <inertia
+        ixx="0.00113157026255617"
+        ixy="-0.000140917880014611"
+        ixz="-0.00109816533056625"
+        iyy="0.00742305933437008"
+        iyz="-1.10417526920647E-05"
+        izz="0.0077879528674018" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/Link2.STL" />
+        <mesh
+          filename="package://david_description/meshes/Link2.STL" />
       </geometry>
-      <material name="">
-        <color rgba="0.109803921568627 0.109803921568627 0.109803921568627 1" />
+      <material
+        name="">
+        <color
+          rgba="0.109803921568627 0.109803921568627 0.109803921568627 1" />
       </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/Link2.STL" />
+        <mesh
+          filename="package://david_description/meshes/Link2.STL" />
       </geometry>
     </collision>
   </link>
-  <joint name="Joint2" type="revolute">
-    <origin xyz="-0.395002505835281 -0.0177249999999986 0.0630318997321883" rpy="0 0 0" />
-    <parent link="Link1" />
-    <child link="Link2" />
-    <axis xyz="0 1 0" />
-    <limit lower="-3.14159" upper="0" effort="0" velocity="0" />
+  <joint
+    name="Joint2"
+    type="revolute">
+    <origin
+      xyz="-0.395 -0.017725 0.063032"
+      rpy="0 0 0" />
+    <parent
+      link="Link1" />
+    <child
+      link="Link2" />
+    <axis
+      xyz="0 1 0" />
+    <limit lower="-3.14159" upper="0" effort="10" velocity="3" />
   </joint>
-  <link name="Link3">
+  <link
+    name="Link3">
     <inertial>
-      <origin xyz="-2.50414661433218E-05 -0.123379081269978 0.0470958513424468" rpy="0 0 0" />
-      <mass value="0.760517445677976" />
-      <inertia ixx="0.00387493576261154" ixy="-1.10875208005893E-07" ixz="-5.43861425070414E-07" iyy="0.00464825167728482" iyz="0.000413487549979699" izz="0.00273231267607635" />
+      <origin
+        xyz="-2.50414661433079E-05 -0.123379081269978 0.0470958513424469"
+        rpy="0 0 0" />
+      <mass
+        value="0.760517445677975" />
+      <inertia
+        ixx="0.00387493576261154"
+        ixy="-1.10875208005715E-07"
+        ixz="-5.4386142507058E-07"
+        iyy="0.00464825167728482"
+        iyz="0.0004134875499797"
+        izz="0.00273231267607635" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/Link3.STL" />
+        <mesh
+          filename="package://david_description/meshes/Link3.STL" />
       </geometry>
-      <material name="">
-        <color rgba="0.109803921568627 0.109803921568627 0.109803921568627 1" />
+      <material
+        name="">
+        <color
+          rgba="0.109803921568627 0.109803921568627 0.109803921568627 1" />
       </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/Link3.STL" />
+        <mesh
+          filename="package://david_description/meshes/Link3.STL" />
       </geometry>
     </collision>
   </link>
-  <joint name="Joint3" type="revolute">
-    <origin xyz="0.320000000000001 -0.0237250000000076 0.05901429787681" rpy="0 0 0" />
-    <parent link="Link2" />
-    <child link="Link3" />
-    <axis xyz="0 1 0" />
-    <limit lower="-1.57" upper="1.57" effort="0" velocity="0" />
+  <joint
+    name="Joint3"
+    type="revolute">
+    <origin
+      xyz="0.32 -0.023725 0.059014"
+      rpy="0 0 0" />
+    <parent
+      link="Link2" />
+    <child
+      link="Link3" />
+    <axis
+      xyz="0 1 0" />
+    <limit lower="-0.785" upper="0.785" effort="10" velocity="3" />
   </joint>
-  <link name="Link4">
+  <link
+    name="Link4">
     <inertial>
-      <origin xyz="-0.107334204334299 0.00026172637681011 0.168065916512494" rpy="0 0 0" />
-      <mass value="3.27516013736829" />
-      <inertia ixx="0.0482024141719925" ixy="-5.29126803519716E-06" ixz="0.000251472583392775" iyy="0.023806779471349" iyz="1.80531229961742E-05" izz="0.0302726053901636" />
+      <origin
+        xyz="0.00823141245324069 -3.06849391957364E-05 0.147134632960986"
+        rpy="0 0 0" />
+      <mass
+        value="8.73520467499097" />
+      <inertia
+        ixx="0.0507592634984378"
+        ixy="1.4079254023283E-05"
+        ixz="-0.0001419117242809"
+        iyy="0.0690081876011854"
+        iyz="-2.10746439527347E-05"
+        izz="0.0476817801229589" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/Link4.STL" />
+        <mesh
+          filename="package://david_description/meshes/Link4.STL" />
       </geometry>
-      <material name="">
-        <color rgba="0 0.501960784313725 1 1" />
+      <material
+        name="">
+        <color
+          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/Link4.STL" />
+        <mesh
+          filename="package://david_description/meshes/Link4.STL" />
       </geometry>
     </collision>
   </link>
-  <joint name="Joint4" type="revolute">
-    <origin xyz="0 -0.147675 0.167499999998591" rpy="0 0 0" />
-    <parent link="Link3" />
-    <child link="Link4" />
-    <axis xyz="0 0 1" />
+  <joint
+    name="Joint4"
+    type="revolute">
+    <origin
+      xyz="0 -0.14768 0.1675"
+      rpy="0 0 0" />
+    <parent
+      link="Link3" />
+    <child
+      link="Link4" />
+    <axis
+      xyz="0 0 1" />
     <limit lower="-3.14" upper="3.14" effort="0" velocity="0" />
   </joint>
-
-  <link name="left_wheel_link">
+  <link
+    name="left_arm_fixed_link">
     <inertial>
-      <origin xyz="-1.9661E-08 -0.021544 -2.4872E-06" rpy="0 0 0" />
-      <mass value="0.27239" />
-      <inertia ixx="0.00035405" ixy="4.2891E-11" ixz="4.7853E-11" iyy="0.00063712" iyz="-2.3169E-09" izz="0.00035405" />
+      <origin
+        xyz="0.000124267513019166 -0.0421778471919518 3.73864984559713E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.664016072331186" />
+      <inertia
+        ixx="0.000901407819944928"
+        ixy="2.97776738891625E-06"
+        ixz="-7.07892443009872E-07"
+        iyy="0.000795443875852145"
+        iyz="1.15770909998871E-06"
+        izz="0.000891372962775411" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/left_wheel_link.STL" />
+        <mesh
+          filename="package://david_description/meshes/left_arm_fixed_link.STL" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/left_wheel_link.STL" />
+        <mesh
+          filename="package://david_description/meshes/left_arm_fixed_link.STL" />
       </geometry>
     </collision>
   </link>
-  <joint name="left_wheel_joint" type="continuous">
-    <origin xyz="-0.0010392 0.29442 0.024" rpy="0 0 0" />
-    <parent link="base_link" />
-    <child link="left_wheel_link" />
-    <axis xyz="0 -1 0" />
-    <limit lower="0" upper="0" effort="0" velocity="0" />
+  <joint
+    name="left_arm_fixed_joint"
+    type="fixed">
+    <origin
+      xyz="0 0.1325 0.276"
+      rpy="0 0 0" />
+    <parent
+      link="Link4" />
+    <child
+      link="left_arm_fixed_link" />
+    <axis
+      xyz="0 0 0" />
   </joint>
-  <link name="right_wheel_link">
+  <link
+    name="right_arm_fixed_link">
     <inertial>
-      <origin xyz="2.0184E-08 0.022944 -2.4864E-06" rpy="0 0 0" />
-      <mass value="0.27239" />
-      <inertia ixx="0.00035405" ixy="4.5545E-11" ixz="-4.7824E-11" iyy="0.00063712" iyz="2.3108E-09" izz="0.00035405" />
+      <origin
+        xyz="0.000124267378050935 0.0421778472665904 -3.73866710307036E-05"
+        rpy="0 0 0" />
+      <mass
+        value="0.664016076750115" />
+      <inertia
+        ixx="0.000901407832156918"
+        ixy="-2.97776612649877E-06"
+        ixz="7.07891045887821E-07"
+        iyy="0.000795443880405313"
+        iyz="1.15771220177083E-06"
+        izz="0.00089137295541438" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/right_wheel_link.STL" />
+        <mesh
+          filename="package://david_description/meshes/right_arm_fixed_link.STL" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/right_wheel_link.STL" />
+        <mesh
+          filename="package://david_description/meshes/right_arm_fixed_link.STL" />
       </geometry>
     </collision>
   </link>
-  <joint name="right_wheel_joint" type="continuous">
-    <origin xyz="-0.0010392 -0.29798 0.024" rpy="0 0 0" />
-    <parent link="base_link" />
-    <child link="right_wheel_link" />
-    <axis xyz="0 1 0" />
-    <limit lower="0" upper="0" effort="0" velocity="0" />
+  <joint
+    name="right_arm_fixed_joint"
+    type="fixed">
+    <origin
+      xyz="0 -0.1325 0.276"
+      rpy="0 0 0" />
+    <parent
+      link="Link4" />
+    <child
+      link="right_arm_fixed_link" />
+    <axis
+      xyz="0 0 0" />
   </joint>
-  <link name="lidar_link">
+  <link
+    name="left_wheel_link">
     <inertial>
-      <origin xyz="-0.0018976 -0.0012985 -0.016509" rpy="0 0 0" />
-      <mass value="0.9232" />
-      <inertia ixx="0.00113" ixy="6.1503E-07" ixz="-2.5293E-05" iyy="0.0011025" iyz="-3.1487E-05" izz="0.0013628" />
+      <origin
+        xyz="-1.9660960389195E-08 -0.0215436228721595 -2.48718292941708E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.272387982807766" />
+      <inertia
+        ixx="0.000354050438511621"
+        ixy="4.28905169820876E-11"
+        ixz="4.78531137335922E-11"
+        iyy="0.000637120767161904"
+        iyz="-2.31687133017645E-09"
+        izz="0.00035405432582222" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/lidar_link.STL" />
+        <mesh
+          filename="package://david_description/meshes/left_wheel_link.STL" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/lidar_link.STL" />
+        <mesh
+          filename="package://david_description/meshes/left_wheel_link.STL" />
       </geometry>
     </collision>
   </link>
-  <joint name="lidar_joint" type="fixed">
-    <origin xyz="0.35098 -0.0010836 0.349" rpy="0 0 0" />
-    <parent link="base_link" />
-    <child link="lidar_link" />
-    <axis xyz="0 0 0" />
+  <joint
+    name="left_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.0010392 0.29442 0.024"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="left_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
   </joint>
-  <link name="imu_link">
+  <link
+    name="right_wheel_link">
     <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <mass value="0" />
-      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+      <origin
+        xyz="2.01838019240656E-08 0.0229440987977794 -2.48637469098256E-06"
+        rpy="0 0 0" />
+      <mass
+        value="0.272387983874311" />
+      <inertia
+        ixx="0.000354050440979772"
+        ixy="4.55453750651313E-11"
+        ixz="-4.78235536489941E-11"
+        iyy="0.000637120765320742"
+        iyz="2.31077385129627E-09"
+        izz="0.000354054337277639" />
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/imu_link.STL" />
+        <mesh
+          filename="package://david_description/meshes/right_wheel_link.STL" />
       </geometry>
-      <material name="">
-        <color rgba="1 1 1 1" />
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
       </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/imu_link.STL" />
+        <mesh
+          filename="package://david_description/meshes/right_wheel_link.STL" />
       </geometry>
     </collision>
   </link>
-  <joint name="imu_joint" type="fixed">
-    <origin xyz="-0.0010392 -0.0010836 0.2061" rpy="0 0 0" />
-    <parent link="base_link" />
-    <child link="imu_link" />
-    <axis xyz="0 0 0" />
+  <joint
+    name="right_wheel_joint"
+    type="continuous">
+    <origin
+      xyz="-0.0010392 -0.29798 0.024"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="right_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+    <limit
+      lower="0"
+      upper="0"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="lidar_link">
+    <inertial>
+      <origin
+        xyz="-0.00189760855668492 -0.00129849773397321 -0.0165094617435957"
+        rpy="0 0 0" />
+      <mass
+        value="0.92319700040443" />
+      <inertia
+        ixx="0.00112999766641741"
+        ixy="6.15031794400961E-07"
+        ixz="-2.52934595530455E-05"
+        iyy="0.00110249980637296"
+        iyz="-3.14870304057444E-05"
+        izz="0.00136276971925309" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://david_description/meshes/lidar_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://david_description/meshes/lidar_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="lidar_joint"
+    type="fixed">
+    <origin
+      xyz="0.35098 -0.0010836 0.349"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="lidar_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="imu_link">
+    <inertial>
+      <origin
+        xyz="-3.87275714152947E-18 -2.41127189104141E-18 0.000213973987707866"
+        rpy="0 0 0" />
+      <mass
+        value="0.0260716042797142" />
+      <inertia
+        ixx="5.89755407384917E-06"
+        ixy="-3.32040049676639E-21"
+        ixz="4.56390122675113E-20"
+        iyy="4.95308953044343E-06"
+        iyz="-2.69171599177089E-23"
+        izz="1.02480159664032E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://david_description/meshes/imu_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://david_description/meshes/imu_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="imu_joint"
+    type="fixed">
+    <origin
+      xyz="-0.0010392 -0.0010836 0.2061"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="imu_link" />
+    <axis
+      xyz="0 0 0" />
   </joint>
   
 
   <!-- install a left arm -->
   <joint name="left_arm_connect" type="fixed">
-    <parent link="Link4"/>  <!-- robot_a的根连杆 -->
-    <child link="AR5-5_08L-W4C4A6-ZY2_base"/>   <!-- robot_b的根连杆 -->
-    <origin xyz="0 0.1047 0.276" rpy="-1.570 0 0"/>
+    <parent link="left_arm_fixed_link"/>  <!-- robot_a鐨勬牴杩炴潌 -->
+    <child link="AR5-5_08L-W4C4A6-ZY2_base"/>   <!-- robot_b鐨勬牴杩炴潌 -->
+    <origin xyz="0 0 0" rpy="-1.570 0 0"/>
   </joint>
 
   <!--base-->
@@ -542,14 +878,14 @@
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/hand_base_link.STL" />
+        <mesh filename="package://david_description/meshes/left_hand/hand_base_link.STL" />
       </geometry>
       <material name="silver" />
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="package://david_description/meshes/hand_base_link.STL" />
+        <mesh filename="package://david_description/meshes/left_hand/hand_base_link.STL" />
       </geometry>
     </collision>
   </link>
@@ -633,6 +969,7 @@
     <child link="left_pinky_middle" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.57" effort="1" velocity="1" />
+    <mimic joint="left_pinky_mcp_pitch" multiplier="1.0" offset="0" />
   </joint>
   <link name="left_pinky_distal">
     <inertial>
@@ -742,6 +1079,7 @@
     <child link="left_ring_middle" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.57" effort="1" velocity="1" />
+    <mimic joint="left_ring_mcp_pitch" multiplier="1.0" offset="0" />
   </joint>
   <link name="left_ring_distal">
     <inertial>
@@ -851,6 +1189,7 @@
     <child link="left_middle_middle" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.57" effort="1" velocity="1" />
+    <mimic joint="left_middle_mcp_pitch" multiplier="1.0" offset="0" />
   </joint>
   <link name="left_middle_distal">
     <inertial>
@@ -960,6 +1299,7 @@
     <child link="left_index_middle" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.57" effort="1" velocity="1" />
+    <mimic joint="left_index_mcp_pitch" multiplier="1.0" offset="0" />
   </joint>
   <link name="left_index_distal">
     <inertial>
@@ -1096,6 +1436,7 @@
     <child link="left_thumb_proximal" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.05" effort="1" velocity="1" />
+    <mimic joint="left_thumb_cmc_pitch" multiplier="1.33" offset="0" />
   </joint>
   <link name="left_thumb_distal">
     <inertial>
@@ -1128,9 +1469,9 @@
 
   <!-- install a right arm -->
   <joint name="right_arm_connect" type="fixed">
-    <parent link="Link4"/>  <!-- robot_a的根连杆 -->
-    <child link="AR5-5_08R-W4C4A6-ZY2_base"/>   <!-- robot_b的根连杆 -->
-    <origin xyz="0 -0.1047 0.276" rpy="1.570 0 0"/>
+    <parent link="right_arm_fixed_link"/>  <!-- robot_a鐨勬牴杩炴潌 -->
+    <child link="AR5-5_08R-W4C4A6-ZY2_base"/>   <!-- robot_b鐨勬牴杩炴潌 -->
+    <origin xyz="0 0 0" rpy="1.570 0 0"/>
   </joint>
 
   <link name="AR5-5_08R-W4C4A6-ZY2_base">
@@ -1563,6 +1904,7 @@
       upper="1.57"
       effort="1"
       velocity="1" />
+    <mimic joint="pinky_mcp_pitch" multiplier="1.0" offset="0" />
   </joint>
   <link
     name="pinky_distal">
@@ -1783,6 +2125,7 @@
       upper="1.57"
       effort="1"
       velocity="1" />
+    <mimic joint="ring_mcp_pitch" multiplier="1.0" offset="0" />
   </joint>
   <link
     name="ring_distal">
@@ -2003,6 +2346,7 @@
       upper="1.57"
       effort="1"
       velocity="1" />
+    <mimic joint="middle_mcp_pitch" multiplier="1.0" offset="0" />
   </joint>
   <link
     name="middle_distal">
@@ -2223,6 +2567,7 @@
       upper="1.57"
       effort="1"
       velocity="1" />
+    <mimic joint="index_mcp_pitch" multiplier="1.0" offset="0" />
   </joint>
   <link
     name="index_distal">
@@ -2497,6 +2842,7 @@
       upper="1.05"
       effort="1"
       velocity="1" />
+    <mimic joint="thumb_cmc_pitch" multiplier="1.33" offset="0" />
   </joint>
   <link
     name="thumb_distal">
@@ -2557,5 +2903,21 @@
       offset="0" />
   </joint>
 
+
+
+  <!-- TCP frames for grasping (Stage 0: z=0.22m from flan; flan->fingertip measured 28cm) -->
+  <link name="left_tcp"/>
+  <joint name="left_tcp_joint" type="fixed">
+    <parent link="AR5-5_08L-W4C4A6-ZY2_flan_link"/>
+    <child link="left_tcp"/>
+    <origin xyz="0 0 0.22" rpy="0 0 0"/>
+  </joint>
+
+  <link name="right_tcp"/>
+  <joint name="right_tcp_joint" type="fixed">
+    <parent link="AR5-5_08R-W4C4A6-ZY2_flan_link"/>
+    <child link="right_tcp"/>
+    <origin xyz="0 0 0.22" rpy="0 0 0"/>
+  </joint>
 
 </robot>
