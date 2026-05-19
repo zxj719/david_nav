@@ -177,12 +177,21 @@ def generate_launch_description():
             ('scan', '/scan'),
         ],
         parameters=[{
-            'target_frame': 'base',
+            # 2026-05-18: target_frame 从 'base' (=base_link 别名) 改成
+            # 'base_footprint'。base_link 是 IMU 对齐帧 (+X = 机身左，+Y = 机身后)，
+            # 非 REP-105；只有 base_footprint 是 +X = 物理前。在 base_link 系
+            # 下做 ±π/2 角度过滤捕的是机身"左半圆"，不是"前半圆"。
+            # 参考 david_nav/urdf/david.urdf 第 14、30 行的 TF 链注释。
+            'target_frame': 'base_footprint',
             'transform_tolerance': 0.1,
-            'min_height': -0.0,
+            # 2026-05-18: min_height 抬到 0.10m。base_footprint 在地面 (z=0)，
+            # 改完后只看 ≥10cm 高的点 ⇒ 滤掉地面反射、机身底部自影、低洼小物。
+            # 副作用：高度 < 10cm 的障碍（线缆、小台阶、矮挡板）会被忽略。
+            'min_height': 0.10,
             'max_height': 1.0,
-            'angle_min': -3.14159,
-            'angle_max': 3.14159,
+            # 前向 180° (-π/2 .. +π/2)，在 base_footprint 系下精确对应机身正前方半圆。
+            'angle_min': -1.5708,
+            'angle_max': 1.5708,
             'angle_increment': 0.0087,
             'scan_time': 0.1,
             'range_min': 0.3,

@@ -163,7 +163,12 @@ controller_server:                                  # 局部规划器服务器
       decel_lim_x: -1.0
       decel_lim_y: 0.0
       decel_lim_theta: -5.0
-      vx_samples: 15
+      # 2026-05-18: 从 15 改成 5。粒度从 0.013 m/s 变 0.05 m/s。
+      # 70kg 重载下实测：cmd=0.10/0.15 跟踪率仅 30%/47%，DWB 选这种"不可达低速"
+      # 会让 david_move 死区抬升到 0.20 ⇒ 命令-反馈失配触发 CLOSED_LOOP smoother 抑振。
+      # 改 5 后样本为 [0, 0.05, 0.10, 0.15, 0.20]，DWB 更倾向选 0(原地转/停) 或 0.20(全速)。
+      # 保留 vx=0 让 RotateToGoal critic 仍能采到"原地旋转"轨迹。
+      vx_samples: 5
       vy_samples: 1
       vtheta_samples: 20
       sim_time: 1.2
@@ -274,9 +279,14 @@ local_costmap:
           raytrace_min_range: 0.2
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        enabled: False
+        # 2026-05-18 保守路线：开启 inflation 并改半径到 0.40 (≥ inscribed 0.375)。
+        # 机身矩形 0.95×0.75 m ⇒ inscribed = min(0.475, 0.375) = 0.375。
+        # 旧值 (enabled=False, radius=0.20) 让规划器没有任何安全 buffer。
+        # 注意：开启后局部 costmap 在窄道里可能出现"贴障 abort"，
+        # 若现场有 < 0.80m 的门或夹缝，再调 cost_scaling_factor 让代价更"温柔"。
+        enabled: True
         cost_scaling_factor: 10.0              # 可能会影响路径太长的计算
-        inflation_radius: 0.20                # 保持局部控制稍松一些，减少窄处贴边 abort
+        inflation_radius: 0.40
       # voxel_layer:
       #   plugin: "nav2_costmap_2d::VoxelLayer"
       #   enabled: True
@@ -351,9 +361,13 @@ global_costmap:
           raytrace_min_range: 0.2
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        enabled: False                      # 启用膨胀层
+        # 2026-05-18 保守路线：开启 inflation 并改半径到 0.40 (≥ inscribed 0.375)。
+        # 旧值 (enabled=False, radius=0.30) 不真正应用 inflation，
+        # 让全局路径可以贴着 lethal 走，机身角擦不过去时会 abort。
+        # 现在 inflation 真正生效，全局路径会主动绕开 0.40m 内的障碍。
+        enabled: True
         cost_scaling_factor: 1.5             # 可能会影响路径太长的计算
-        inflation_radius: 0.3               # 与机器人半径一致，让全局路径更早绕开障碍
+        inflation_radius: 0.40
       always_send_full_costmap: True
 
 # map_server / amcl：
@@ -526,15 +540,20 @@ velocity_smoother:
     use_sim_time: false
     smoothing_frequency: 10.0
     scale_velocities: False
-    # OPEN_LOOP avoids hard dependence on odometry feedback.
-    feedback: "OPEN_LOOP"
-    # feedback: "CLOSED_LOOP"
+    # CLOSED_LOOP since 2026-05-18: enabled after the wheeltec_robot_node
+    # serial parser was fixed (Get_Sensor_Data_New drain-all-available),
+    # lifting /odom from ~4Hz to ~22Hz and removing cross-run sign reversals
+    # on angular commands. See docs/report/2026-05-18-velocity-repeatability.md §10.
+    feedback: "CLOSED_LOOP"
+    # feedback: "OPEN_LOOP"
     max_velocity: [0.2, 0.0, 0.5]
     min_velocity: [-0.2, 0.0, -0.5]
     max_accel: [1.0, 0.0, 5.0]
     max_decel: [-1.0, 0.0, -5.0]
-    # Lightning now publishes odometry directly.
-    odom_topic: /lightning/odometry
+    # Use the wheeltec wheel-encoder odom (was /lightning/odometry — that
+    # topic only exists when the Unitree Go2 SLAM stack is running; the
+    # current Wheeltec C50C base publishes encoder-derived twist on /odom).
+    odom_topic: /odom
     odom_duration: 0.1
     # Keep deadband handling in david_move to avoid double-threshold stop-go motion.
     deadband_velocity: [0.0, 0.0, 0.0]

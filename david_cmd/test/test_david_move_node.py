@@ -138,7 +138,10 @@ def test_stationary_nav2_yaw_is_lifted_to_turning_deadzone(rclpy_initialized):
 
 
 def test_moving_yaw_uses_lower_arc_deadzone(rclpy_initialized):
-    bridge = make_bridge(max_linear_x=0.40)
+    """Legacy behaviour: when min_angular_z is explicitly set, arc motion
+    lifts small angular commands. Documents that the deadzone-lift code
+    path still works when the parameter is non-zero."""
+    bridge = make_bridge(max_linear_x=0.40, min_angular_z=0.20)
 
     try:
         msg = Twist()
@@ -149,6 +152,45 @@ def test_moving_yaw_uses_lower_arc_deadzone(rclpy_initialized):
 
         assert output.linear.x == pytest.approx(0.20)
         assert output.angular.z == pytest.approx(-0.20)
+    finally:
+        bridge.destroy_node()
+
+
+def test_arc_motion_passes_small_angular_through_by_default(rclpy_initialized):
+    """Default-config regression: with DEFAULT_MIN_ANGULAR_Z=0.0, DWB's small
+    path-tracking corrections (e.g. +0.026 rad/s during forward motion) must
+    pass through unchanged. The old default 0.20 amplified them 5x and
+    caused the controller to oscillate (see drift_run1 recording)."""
+    bridge = make_bridge(max_linear_x=0.40, min_angular_z=0.0)
+
+    try:
+        msg = Twist()
+        msg.linear.x = 0.20
+        msg.angular.z = 0.026
+
+        output = bridge.sanitize_twist(msg)
+
+        assert output.linear.x == pytest.approx(0.20)
+        assert output.angular.z == pytest.approx(0.026, abs=1e-6)
+    finally:
+        bridge.destroy_node()
+
+
+def test_stationary_yaw_still_lifts_after_arc_default_change(rclpy_initialized):
+    """Regression: even with the new MIN_ANGULAR_Z=0.0 arc default, a
+    stationary in-place rotation must still get lifted to
+    min_stationary_angular_z so the robot actually moves."""
+    bridge = make_bridge(min_angular_z=0.0, min_stationary_angular_z=0.35)
+
+    try:
+        msg = Twist()
+        msg.linear.x = 0.0
+        msg.angular.z = 0.05  # small, above stationary threshold 0.025
+
+        output = bridge.sanitize_twist(msg)
+
+        assert output.linear.x == 0.0
+        assert output.angular.z == pytest.approx(0.35)
     finally:
         bridge.destroy_node()
 

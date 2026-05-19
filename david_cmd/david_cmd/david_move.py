@@ -15,7 +15,13 @@ DEFAULT_OUTPUT_TOPIC = "/cmd_vel"
 DEFAULT_TIMEOUT = 2.0
 DEFAULT_MIN_LINEAR_X = 0.20
 DEFAULT_MAX_LINEAR_X = 0.20
-DEFAULT_MIN_ANGULAR_Z = 0.20
+# 2026-05-18: 弧形运动（linear.x != 0）下的角速度地板。从 0.20 → 0.0。
+# 原值会把 DWB 跟踪路径时的小角速度修正（如 +0.026 rad/s）放大到 ±0.20，
+# 导致直行段被强制 "5 倍放大" 的左右摆动 ⇒ DWB 后续反向纠正 ⇒ 极化采样
+# (-0.5 / 0 / +0.5)，机器人偏左偏右往返。带线速度时差速本就无需克服静摩擦。
+# 详见 /tmp/nav_drift/drift_run1_*.csv 和当日记录。
+DEFAULT_MIN_ANGULAR_Z = 0.0
+# 原地转向地板保留 0.35（静止时确实需要克服静摩擦才能起步）。
 DEFAULT_MIN_STATIONARY_ANGULAR_Z = 0.35
 DEFAULT_STATIONARY_ANGULAR_THRESHOLD = 0.025
 DEFAULT_MAX_ANGULAR_Z = 0.50

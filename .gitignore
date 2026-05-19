@@ -22,3 +22,12 @@ log/
 *.tmp
 *.swp
 *~
+
+# Local backups (timestamped manual snapshots, e.g. foo.py.bak_home_20260518_171247)
+*.bak_*
+
+# Local ruvector database artefacts
+ruvector.db
+
+# Vendored third-party firmware reference (large, kept locally only)
+david_cmd/docs/3.STM32*

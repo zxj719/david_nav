@@ -47,6 +47,7 @@ setup(
             "wheeltec_base_eval = david_cmd.wheeltec_base_eval:main",
             "wheeltec_imu_cmd_probe = david_cmd.wheeltec_imu_cmd_probe:main",
             "wheeltec_micro_eval = david_cmd.wheeltec_micro_eval:main",
+            "wheeltec_velocity_loop_eval = david_cmd.wheeltec_velocity_loop_eval:main",
         ],
     },
 )
