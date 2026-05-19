@@ -261,11 +261,46 @@ def generate_launch_description():
         }],
     )
 
+    # Plan D (2026-05-19): david_move publishes to /cmd_vel_raw, then
+    # cmd_vel_separator hard-switches between pure-linear and pure-angular
+    # before forwarding to /cmd_vel (consumed by wheeltec_robot_node).
+    # See docs/report/2026-05-18-nav2-left-drift-david-move-deadzone.md for
+    # the chain before this change.
     david_move_node = Node(
         package='david_cmd',
         executable='david_move',
         name='david_move',
         output='screen',
+        parameters=[{
+            # Plan D: redirect david_move output so cmd_vel_separator can
+            # impose strict v/omega mutex before the wheeltec serial driver.
+            'output_cmd_vel_topic': '/cmd_vel_raw',
+            # 2026-05-19 fix: lift david_move's own forward cap from the
+            # 0.20 default. Must match DWB max_vel_x / max_speed_xy and
+            # velocity_smoother max_velocity[0]. Otherwise this is the
+            # last layer that clamps back down to 0.20.
+            'max_linear_x': 0.50,
+            # Static-friction kickoff floor for in-place rotation stays.
+            'min_stationary_angular_z': 0.35,
+        }],
+    )
+
+    cmd_vel_separator_node = Node(
+        package='david_nav',
+        executable='cmd_vel_separator',
+        name='cmd_vel_separator',
+        output='screen',
+        parameters=[{
+            'input_topic': '/cmd_vel_raw',
+            'output_topic': '/cmd_vel',
+            # Normalisation references. Mirror velocity_smoother /
+            # DWB max speeds so the mutex decision uses the same scale.
+            'v_max_ref': 0.50,
+            'w_max_ref': 0.50,
+            'hysteresis_margin': 0.10,
+            'min_norm_threshold': 0.05,
+            'timeout_sec': 0.5,
+        }],
     )
 
     return LaunchDescription([
@@ -367,4 +402,5 @@ def generate_launch_description():
         collision_monitor_node,
         collision_monitor_lifecycle_manager,
         david_move_node,
+        cmd_vel_separator_node,
     ])

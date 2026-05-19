@@ -160,6 +160,12 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  david_nav/cmd_vel_separator.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME cmd_vel_separator
+)
+
+install(PROGRAMS
   david_nav/monitor_nav2_frontier_cpu.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME monitor_nav2_frontier_cpu
