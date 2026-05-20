@@ -1,0 +1,10 @@
+# Grasp templates for different objects (Stage 3.a + 4)
+# 示例(待 Stage 3.a 实现时填充):
+
+water_bottle:
+  pre_grasp_offset_xyz: [0.0, 0.0, 0.05]     # 接近点(物体上方 5cm)
+  grasp_offset_rpy: [0.0, 1.5708, 0.0]        # 末端 z 朝水平
+  hand_pose_open:  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  hand_pose_grasp: [180, 128, 200, 200, 200, 200, 128, 128, 128, 128]
+  torque_limit: 80
+  effort_threshold: 30

@@ -1,0 +1,6 @@
+# Pick safety limits
+max_velocity_scaling: 0.3
+max_acceleration_scaling: 0.3
+reach_max_xy: 0.75
+reach_max_z_high: 1.20
+reach_min_z: 0.40

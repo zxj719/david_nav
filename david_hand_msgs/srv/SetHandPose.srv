@@ -1,0 +1,5 @@
+# Set all 10 hand joint positions
+int32[] pose  # length=10, each value 0-255 (0=open, 255=closed)
+---
+bool success
+string message

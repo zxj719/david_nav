@@ -9,29 +9,29 @@
     <joint name="Joint1">
       <command_interface name="position"/>
       <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+          <param name="initial_value">0.3316</param>
+        </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="Joint2">
       <command_interface name="position"/>
       <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+          <param name="initial_value">-0.5934</param>
+        </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="Joint3">
       <command_interface name="position"/>
       <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+          <param name="initial_value">0.2618</param>
+        </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="Joint4">
       <command_interface name="position"/>
       <state_interface name="position">
-        <param name="initial_value">0.0</param>
-      </state_interface>
+          <param name="initial_value">0.0000</param>
+        </state_interface>
       <state_interface name="velocity"/>
     </joint>
     <joint name="left_wheel_joint">

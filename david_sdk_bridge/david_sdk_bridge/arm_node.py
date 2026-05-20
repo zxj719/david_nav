@@ -17,6 +17,38 @@ from control_msgs.action import FollowJointTrajectory
 
 from david_sdk_bridge import setup_sdk_path  # noqa: F401
 
+# L10 hand integration (Stage 1.a)
+import sys as _sys
+_sys.path.insert(0, "/home/agx/wheelhumanoidrobot/workspace_arm/Arm_skills")
+try:
+    from l10_hand_control import L10HandController, PRESETS as _HAND_PRESETS_RAW, JOINT_NAMES as _HAND_JOINT_NAMES
+    _HAND_AVAILABLE = True
+except Exception as _e:
+    _HAND_AVAILABLE = False
+    _HAND_IMPORT_ERROR = str(_e)
+    _HAND_PRESETS_RAW = {}
+    _HAND_JOINT_NAMES = [f"hand_j{i}" for i in range(10)]
+
+# A 留下的 PRESETS 命名和实际硬件方向相反(可能用旧固件)。
+# 在 arm_node 这层 override,对调用者(ROS service)统一暴露语义正确的命名。
+# 实测对应:
+#   实际"张开"  ← A 的 "grasp" = [180,128,200,200,200,200,128,128,128,128]
+#   实际"闭合"  ← A 的 "open"  = [0]*10
+#   半握       ← A 的 "mid"   = [128]*10
+#   抓取姿(初始值,需现场标定): pitch 约 80,yaw 居中
+_HAND_PRESETS = {
+    "open":  [255, 128, 255, 255, 255, 255, 128, 128, 128, 128],  # 五指完全张开(pitch 推到极限,yaw 居中)
+    "close": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],                      # 五指收紧(握拳)
+    "half":  [128, 128, 128, 128, 128, 128, 128, 128, 128, 128],  # 半握
+    "grasp": [160, 128, 160, 160, 160, 160, 128, 128, 128, 128], # 抓取姿(矿泉水瓶,现场标定 2026-05-19):pitch 160 稳定套住瓶身
+}
+
+try:
+    from david_hand_msgs.srv import SetHandPose, SetHandPreset
+    _HAND_SRV_AVAILABLE = True
+except Exception:
+    _HAND_SRV_AVAILABLE = False
+
 if platform.machine() == "aarch64":
     from Release.linux.arm import xCoreSDK_python
 else:
@@ -38,6 +70,7 @@ class ArmNode(Node):
         self.declare_parameter("power_on_at_start", False)
         self.declare_parameter("joint_offsets_deg", [0.0]*7)  # 安全默认 false
         self.declare_parameter("home_pose_deg", [0.0]*7)  # home pose in SDK coords (deg)
+        self.declare_parameter("hand_slave_id", 0)  # 0x27 right / 0x28 left, 0 = disable hand
 
         self.side = self.get_parameter("side").value
         self.robot_ip = self.get_parameter("robot_ip").value
@@ -73,9 +106,36 @@ class ArmNode(Node):
         self._power_lock = threading.Lock()
 
         if not self.dry_run:
-            self._connect()  # 只连接，不上电
-            if self.power_on_at_start:
-                self._power_on()
+            try:
+                self._connect()
+                if self.power_on_at_start:
+                    self._power_on()
+            except Exception as e:
+                # 真机不在 / 网络不通 / SDK 拒绝: 自动 fallback,RViz 仍显示 home
+                self.get_logger().warn(
+                    f"[{self.side}] connect failed ({type(e).__name__}: {e}); "
+                    f"fallback to mock mode (RViz shows home; Execute will be rejected)"
+                )
+                self.dry_run = True
+                self.robot = None
+
+        # === Stage 1.a: L10 hand integration (share robot) ===
+        self.hand = None
+        slave_id = int(self.get_parameter("hand_slave_id").value)
+        if slave_id != 0 and self.robot is not None and _HAND_AVAILABLE:
+            try:
+                self.hand = L10HandController(self.robot_ip, self.local_ip, slave_id)
+                self.hand.robot = self.robot  # SHARE: skip hand.connect() to avoid double-connect
+                self.get_logger().info(
+                    f"[{self.side}] L10 hand integrated (slave_id=0x{slave_id:02X}, share robot)"
+                )
+            except Exception as e:
+                self.get_logger().warn(f"[{self.side}] L10 hand init failed: {e}")
+                self.hand = None
+        elif slave_id != 0 and not _HAND_AVAILABLE:
+            self.get_logger().warn(f"[{self.side}] hand disabled: L10HandController import failed ({_HAND_IMPORT_ERROR})")
+        elif slave_id != 0 and self.robot is None:
+            self.get_logger().warn(f"[{self.side}] hand disabled: robot is None (mock mode)")
 
         self.js_pub = self.create_publisher(JointState, "/joint_states_arms", 10)
         self.state_timer = self.create_timer(1.0 / self.state_pub_hz, self._publish_joint_state)
@@ -92,6 +152,115 @@ class ArmNode(Node):
         self.get_logger().info(
             f"[{self.side}] action server: {self.controller_name}/follow_joint_trajectory"
         )
+
+        # === Stage 1.a: hand set_pose10 service ===
+        if self.hand is not None and _HAND_SRV_AVAILABLE:
+            _hand_cbg = ReentrantCallbackGroup()
+            self._hand_set_pose_srv = self.create_service(
+                SetHandPose,
+                f"/{self.side}_hand/set_pose10",
+                self._cb_hand_set_pose10,
+                callback_group=_hand_cbg,
+            )
+            self._hand_preset_srv = self.create_service(
+                SetHandPreset,
+                f"/{self.side}_hand/preset",
+                self._cb_hand_preset,
+                callback_group=_hand_cbg,
+            )
+            self._hand_state_pub = self.create_publisher(
+                JointState, f"/{self.side}_hand/state", 10
+            )
+            self._hand_state_timer = self.create_timer(
+                0.5, self._publish_hand_state, callback_group=_hand_cbg
+            )  # 2 Hz (Modbus 极限)
+            self.get_logger().info(
+                f"[{self.side}] hand services: /{self.side}_hand/set_pose10  /{self.side}_hand/preset"
+            )
+            self.get_logger().info(
+                f"[{self.side}] hand state topic: /{self.side}_hand/state (2 Hz, pose+effort+vel)"
+            )
+        elif self.hand is not None:
+            self.get_logger().warn(f"[{self.side}] hand srv unavailable; rebuild david_hand_msgs")
+
+    def _cb_hand_set_pose10(self, request, response):
+        try:
+            pose = list(request.pose)
+            if len(pose) != 10:
+                response.success = False
+                response.message = f"pose must be length 10, got {len(pose)}"
+                return response
+            self.hand.set_all_pose(pose)
+            ok = self.hand.write_pose_if_needed()
+            response.success = bool(ok)
+            response.message = f"set_all_pose ok={ok}"
+        except Exception as e:
+            response.success = False
+            response.message = f"{type(e).__name__}: {e}"
+        return response
+
+    def _cb_hand_preset(self, request, response):
+        try:
+            name = str(request.name).strip().lower()
+            if name not in _HAND_PRESETS:
+                response.success = False
+                response.message = f"unknown preset '{name}'; available: {list(_HAND_PRESETS.keys())}"
+                return response
+            pose = list(_HAND_PRESETS[name])
+            self.hand.set_all_pose(pose)
+            ok = self.hand.write_pose_if_needed()
+            response.success = bool(ok)
+            response.message = f"preset='{name}' pose={pose} ok={ok}"
+        except Exception as e:
+            response.success = False
+            response.message = f"{type(e).__name__}: {e}"
+        return response
+
+    def _publish_hand_state(self):
+        """2 Hz 发布灵巧手 pose/effort/velocity 状态(Stage 1.c).
+
+        Modbus 读取偶尔错位,用 3 帧中位数滤波消除毛刺。
+        """
+        if self.hand is None or self.hand.robot is None:
+            return
+        try:
+            ok = self.hand.read_state_once()
+            if not ok:
+                return
+            pose = [int(x) for x in self.hand.state_pose]
+            effort = [int(x) for x in self.hand.state_effort]
+            vel_attr = (getattr(self.hand, "state_vel", None)
+                        or getattr(self.hand, "state_velocity", None)
+                        or getattr(self.hand, "state_speed", None) or [0]*10)
+            vel = [int(x) for x in vel_attr]
+
+            # 3 帧滑动中位数滤波
+            if not hasattr(self, "_hand_state_buf"):
+                self._hand_state_buf = {"pose": [], "effort": [], "vel": []}
+            buf = self._hand_state_buf
+            buf["pose"].append(pose);   buf["pose"]   = buf["pose"][-3:]
+            buf["effort"].append(effort); buf["effort"] = buf["effort"][-3:]
+            buf["vel"].append(vel);     buf["vel"]    = buf["vel"][-3:]
+
+            def median(lst_of_lists, n=10):
+                out = []
+                for i in range(n):
+                    vals = sorted(arr[i] for arr in lst_of_lists)
+                    out.append(vals[len(vals)//2])
+                return out
+
+            msg = JointState()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.name = list(_HAND_JOINT_NAMES)
+            msg.position = [float(x) for x in median(buf["pose"])]
+            msg.effort   = [float(x) for x in median(buf["effort"])]
+            msg.velocity = [float(x) for x in median(buf["vel"])]
+            self._hand_state_pub.publish(msg)
+        except Exception as e:
+            self.get_logger().warn(
+                f"[{self.side}] hand state read failed: {e}",
+                throttle_duration_sec=5.0,
+            )
 
     def _connect(self):
         self.get_logger().info(f"[{self.side}] connecting...")

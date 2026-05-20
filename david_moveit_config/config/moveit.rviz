@@ -7,13 +7,13 @@ Panels:
         - /Global Options1
         - /Status1
         - /MotionPlanning1
+        - /MotionPlanning1/Planned Path1
       Splitter Ratio: 0.5
-    Tree Height: 555
+    Tree Height: 140
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
-    Expanded:
-      - /Publish Point1
+    Expanded: ~
     Name: Tool Properties
     Splitter Ratio: 0.5886790156364441
   - Class: rviz_common/Views
@@ -54,6 +54,387 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /robot_description
       Enabled: true
+      Links:
+        AR5-5_08L-W4C4A6-ZY2_base:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08L-W4C4A6-ZY2_flan_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        AR5-5_08L-W4C4A6-ZY2_link1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08L-W4C4A6-ZY2_link2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08L-W4C4A6-ZY2_link3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08L-W4C4A6-ZY2_link4:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08L-W4C4A6-ZY2_link5:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08L-W4C4A6-ZY2_link6:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08L-W4C4A6-ZY2_link7:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08R-W4C4A6-ZY2_base:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08R-W4C4A6-ZY2_flan_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        AR5-5_08R-W4C4A6-ZY2_link1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08R-W4C4A6-ZY2_link2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08R-W4C4A6-ZY2_link3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08R-W4C4A6-ZY2_link4:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08R-W4C4A6-ZY2_link5:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08R-W4C4A6-ZY2_link6:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        AR5-5_08R-W4C4A6-ZY2_link7:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        Link1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        Link2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        Link3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        Link4:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        index_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        index_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        index_middle:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        index_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_arm_fixed_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_hand_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_index_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_index_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_index_middle:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_index_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_middle_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_middle_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_middle_middle:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_middle_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_pinky_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_pinky_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_pinky_middle:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_pinky_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_ring_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_ring_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_ring_middle:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_ring_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_tcp:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        left_thumb_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_thumb_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_thumb_metacarpals_base1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_thumb_metacarpals_base2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_thumb_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        left_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        lidar_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        middle_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        middle_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        middle_middle:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        middle_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        pinky_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        pinky_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        pinky_middle:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        pinky_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_arm_fixed_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_hand_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        right_tcp:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        right_wheel_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        ring_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        ring_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        ring_middle:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        ring_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        thumb_distal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        thumb_metacarpals:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        thumb_metacarpals_base1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        thumb_metacarpals_base2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        thumb_proximal:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        world:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
       Mass Properties:
         Inertia: false
         Mass: false
@@ -102,17 +483,392 @@ Visualization Manager:
         Color Enabled: false
         Interrupt Display: false
         Links:
+          AR5-5_08L-W4C4A6-ZY2_base:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_flan_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+          AR5-5_08L-W4C4A6-ZY2_link1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link3:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link4:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link5:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link6:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link7:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_base:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_flan_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+          AR5-5_08R-W4C4A6-ZY2_link1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link3:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link4:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link5:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link6:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link7:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
           All Links Enabled: true
           Expand Joint Details: false
           Expand Link Details: false
           Expand Tree: false
           Link Tree Style: Links in Alphabetic Order
+          Link1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          Link2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          Link3:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          Link4:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          base_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          imu_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          index_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          index_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          index_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          index_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_arm_fixed_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_hand_base_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_index_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_index_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_index_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_index_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_middle_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_middle_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_middle_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_middle_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_pinky_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_pinky_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_pinky_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_pinky_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_ring_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_ring_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_ring_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_ring_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_tcp:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+          left_thumb_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_thumb_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_thumb_metacarpals_base1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_thumb_metacarpals_base2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_thumb_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_wheel_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          lidar_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          middle_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          middle_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          middle_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          middle_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          pinky_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          pinky_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          pinky_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          pinky_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          right_arm_fixed_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          right_hand_base_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          right_tcp:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+          right_wheel_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          ring_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          ring_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          ring_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          ring_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_metacarpals_base1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_metacarpals_base2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          world:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
         Loop Animation: false
         Robot Alpha: 0.25
         Robot Color: 150; 50; 150
         Show Robot Collision: false
         Show Robot Visual: true
-        Show Trail: true
+        Show Trail: false
         State Display Time: 0.05 s
         Trail Step Size: 15
         Trajectory Topic: /display_planned_path
@@ -123,6 +879,7 @@ Visualization Manager:
         Show Manipulability: false
         Show Manipulability Index: false
         Show Weight Limit: false
+        TextHeight: 0.07999999821186066
       Planning Request:
         Colliding Link Color: 255; 0; 0
         Goal State Alpha: 1
@@ -138,8 +895,7 @@ Visualization Manager:
       Planning Scene Topic: /monitored_planning_scene
       Robot Description: robot_description
       Scene Geometry:
-        Alpha: 0.9
-        Scene Alpha: 0.9
+        Scene Alpha: 0.8999999761581421
         Scene Color: 50; 230; 50
         Scene Display Time: 0.20000000298023224
         Show Scene Geometry: true
@@ -148,11 +904,386 @@ Visualization Manager:
       Scene Robot:
         Attached Body Color: 150; 50; 150
         Links:
+          AR5-5_08L-W4C4A6-ZY2_base:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_flan_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+          AR5-5_08L-W4C4A6-ZY2_link1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link3:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link4:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link5:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link6:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08L-W4C4A6-ZY2_link7:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_base:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_flan_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+          AR5-5_08R-W4C4A6-ZY2_link1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link3:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link4:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link5:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link6:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          AR5-5_08R-W4C4A6-ZY2_link7:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
           All Links Enabled: true
           Expand Joint Details: false
           Expand Link Details: false
           Expand Tree: false
           Link Tree Style: Links in Alphabetic Order
+          Link1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          Link2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          Link3:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          Link4:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          base_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          imu_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          index_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          index_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          index_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          index_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_arm_fixed_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_hand_base_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_index_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_index_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_index_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_index_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_middle_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_middle_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_middle_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_middle_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_pinky_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_pinky_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_pinky_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_pinky_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_ring_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_ring_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_ring_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_ring_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_tcp:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+          left_thumb_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_thumb_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_thumb_metacarpals_base1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_thumb_metacarpals_base2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_thumb_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_wheel_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          lidar_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          middle_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          middle_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          middle_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          middle_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          pinky_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          pinky_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          pinky_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          pinky_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          right_arm_fixed_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          right_hand_base_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          right_tcp:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+          right_wheel_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          ring_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          ring_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          ring_middle:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          ring_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_distal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_metacarpals:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_metacarpals_base1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_metacarpals_base2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          thumb_proximal:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          world:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
         Robot Alpha: 1
         Show Robot Collision: false
         Show Robot Visual: false
@@ -188,25 +1319,28 @@ Visualization Manager:
       Focal Point:
         X: 0
         Y: 0
-        Z: 0.6
+        Z: 0.6000000238418579
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5
+      Pitch: 0.05000000819563866
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 0.785398163397448
+      Yaw: 0.7453981637954712
     Saved: ~
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 900
+  Height: 1055
   Hide Left Dock: false
   Hide Right Dock: false
   MotionPlanning:
     collapsed: false
+  MotionPlanning - Trajectory Slider:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd0000000100000000000002b4000003c5fc0200000006fb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000004100fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e0067010000003d000001880000017d00fffffffb000000100044006900730070006c00610079007301000001cb000000c9000000c900fffffffb0000001200530065006c0065006300740069006f006e010000029a0000005c0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007301000002fc0000005c0000005c00fffffffb0000000a00560069006500770073010000035e000000a4000000a400ffffff000002be000003c500000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Tool Properties:
@@ -215,4 +1349,4 @@ Window Geometry:
     collapsed: false
   Width: 1400
   X: 100
-  Y: 60
+  Y: 27

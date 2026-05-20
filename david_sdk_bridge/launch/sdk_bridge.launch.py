@@ -35,6 +35,7 @@ def generate_launch_description():
             "joint_offsets_deg": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             # 左臂 home 位姿（SDK 坐标，度）：与 SRDF home 匹配
             "home_pose_deg": [145.00, 90.00, -90.00, 100.00, 90.00, 0.00, 0.00],
+            "hand_slave_id": 0x28,  # left = 40
         }],
     )
 
@@ -56,6 +57,7 @@ def generate_launch_description():
             "joint_offsets_deg": [-90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             # 右臂 home 位姿（SDK 坐标，度）：与 SRDF home 匹配
             "home_pose_deg": [-60.01, 90.00, 90.00, 99.99, -90.01, 5.00, -0.00],
+            "hand_slave_id": 0x27,  # right = 39
         }],
     )
 

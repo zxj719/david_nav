@@ -630,9 +630,9 @@
 
   <!-- install a left arm -->
   <joint name="left_arm_connect" type="fixed">
-    <parent link="left_arm_fixed_link"/>  <!-- robot_a鐨勬牴杩炴潌 -->
-    <child link="AR5-5_08L-W4C4A6-ZY2_base"/>   <!-- robot_b鐨勬牴杩炴潌 -->
-    <origin xyz="0 0 0" rpy="-1.570 0 0"/>
+    <parent link="left_arm_fixed_link"/>  <!-- robot_a的根连杆 -->
+    <child link="AR5-5_08L-W4C4A6-ZY2_base"/>   <!-- robot_b的根连杆 -->
+    <origin xyz="0 -0.09 0" rpy="-1.570 0 0"/>
   </joint>
 
   <!--base-->
@@ -969,7 +969,7 @@
     <child link="left_pinky_middle" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.57" effort="1" velocity="1" />
-    <mimic joint="left_pinky_mcp_pitch" multiplier="1.0" offset="0" />
+  <mimic joint="left_pinky_mcp_pitch" multiplier="1" offset="0"/>
   </joint>
   <link name="left_pinky_distal">
     <inertial>
@@ -1079,7 +1079,7 @@
     <child link="left_ring_middle" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.57" effort="1" velocity="1" />
-    <mimic joint="left_ring_mcp_pitch" multiplier="1.0" offset="0" />
+  <mimic joint="left_ring_mcp_pitch" multiplier="1" offset="0"/>
   </joint>
   <link name="left_ring_distal">
     <inertial>
@@ -1189,7 +1189,7 @@
     <child link="left_middle_middle" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.57" effort="1" velocity="1" />
-    <mimic joint="left_middle_mcp_pitch" multiplier="1.0" offset="0" />
+  <mimic joint="left_middle_mcp_pitch" multiplier="1" offset="0"/>
   </joint>
   <link name="left_middle_distal">
     <inertial>
@@ -1299,7 +1299,7 @@
     <child link="left_index_middle" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.57" effort="1" velocity="1" />
-    <mimic joint="left_index_mcp_pitch" multiplier="1.0" offset="0" />
+  <mimic joint="left_index_mcp_pitch" multiplier="1" offset="0"/>
   </joint>
   <link name="left_index_distal">
     <inertial>
@@ -1436,7 +1436,6 @@
     <child link="left_thumb_proximal" />
     <axis xyz="0 1 0" />
     <limit lower="0" upper="1.05" effort="1" velocity="1" />
-    <mimic joint="left_thumb_cmc_pitch" multiplier="1.33" offset="0" />
   </joint>
   <link name="left_thumb_distal">
     <inertial>
@@ -1469,9 +1468,9 @@
 
   <!-- install a right arm -->
   <joint name="right_arm_connect" type="fixed">
-    <parent link="right_arm_fixed_link"/>  <!-- robot_a鐨勬牴杩炴潌 -->
-    <child link="AR5-5_08R-W4C4A6-ZY2_base"/>   <!-- robot_b鐨勬牴杩炴潌 -->
-    <origin xyz="0 0 0" rpy="1.570 0 0"/>
+    <parent link="right_arm_fixed_link"/>  <!-- robot_a的根连杆 -->
+    <child link="AR5-5_08R-W4C4A6-ZY2_base"/>   <!-- robot_b的根连杆 -->
+    <origin xyz="0 0.09 0" rpy="1.570 0 0"/>
   </joint>
 
   <link name="AR5-5_08R-W4C4A6-ZY2_base">
@@ -1904,7 +1903,7 @@
       upper="1.57"
       effort="1"
       velocity="1" />
-    <mimic joint="pinky_mcp_pitch" multiplier="1.0" offset="0" />
+  <mimic joint="pinky_mcp_pitch" multiplier="1" offset="0"/>
   </joint>
   <link
     name="pinky_distal">
@@ -2125,7 +2124,7 @@
       upper="1.57"
       effort="1"
       velocity="1" />
-    <mimic joint="ring_mcp_pitch" multiplier="1.0" offset="0" />
+  <mimic joint="ring_mcp_pitch" multiplier="1" offset="0"/>
   </joint>
   <link
     name="ring_distal">
@@ -2346,7 +2345,7 @@
       upper="1.57"
       effort="1"
       velocity="1" />
-    <mimic joint="middle_mcp_pitch" multiplier="1.0" offset="0" />
+  <mimic joint="middle_mcp_pitch" multiplier="1" offset="0"/>
   </joint>
   <link
     name="middle_distal">
@@ -2567,7 +2566,7 @@
       upper="1.57"
       effort="1"
       velocity="1" />
-    <mimic joint="index_mcp_pitch" multiplier="1.0" offset="0" />
+  <mimic joint="index_mcp_pitch" multiplier="1" offset="0"/>
   </joint>
   <link
     name="index_distal">
@@ -2842,7 +2841,6 @@
       upper="1.05"
       effort="1"
       velocity="1" />
-    <mimic joint="thumb_cmc_pitch" multiplier="1.33" offset="0" />
   </joint>
   <link
     name="thumb_distal">
