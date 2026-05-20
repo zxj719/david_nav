@@ -5,7 +5,13 @@ set -euo pipefail
 SCRIPT_NAME="$(basename "$0")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-30}"
+# 2026-05-20: default changed 30 → 0 to match the rest of the robot
+# stack (lightning loc, wheeltec, lslidar all run in domain 0 by default).
+# When .sh forced domain 30, nav2 + RViz couldn't hear lightning's
+# map→odom TF and the user saw "frame map does not exist" / no map.
+# Set ROS_DOMAIN_ID in your shell BEFORE invoking this script if you
+# really need a non-default domain — we honour an externally-set value.
+ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-0}"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
 AUTO_WORKSPACE="${AUTO_WORKSPACE:-${HOME}/ros2_ws}"
 SEMANTIC_MAP_DIR="${SEMANTIC_MAP_DIR:-${HOME}/semantic_map}"
@@ -145,7 +151,7 @@ Options:
   --                        Forward the remaining args to semantic_pose_navigator.py
 
 Environment variables:
-  ROS_DOMAIN_ID_DEFAULT     Default ROS 2 domain ID when ROS_DOMAIN_ID is unset. Default: 30
+  ROS_DOMAIN_ID_DEFAULT     Default ROS 2 domain ID when ROS_DOMAIN_ID is unset. Default: 0
   ROS_SETUP                 ROS setup.bash path. Default: /opt/ros/humble/setup.bash
   AUTO_WORKSPACE            ROS 2 workspace containing david_nav. Default: ${HOME}/ros2_ws
   SEMANTIC_MAP_DIR          Directory containing named_poses.json. Default: ${HOME}/semantic_map
