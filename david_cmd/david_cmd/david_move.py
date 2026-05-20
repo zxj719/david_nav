@@ -90,6 +90,12 @@ class DavidMoveNode(Node):
 
         self.latest_twist = zero_twist()
         self.last_cmd_time = self.get_clock().now() - Duration(seconds=3600.0)
+        # Track whether we've already announced the stale-stop, so we publish
+        # zero exactly once on entering stale and then go silent — that frees
+        # /cmd_vel_raw (and downstream /cmd_vel) for manual teleop when nav2
+        # is idle. Starts True so a freshly-launched bridge is silent until
+        # the first real cmd arrives.
+        self._stale_stop_sent = True
 
         self.cmd_publisher = self.create_publisher(Twist, self.output_topic, 10)
         self.create_subscription(
@@ -118,6 +124,7 @@ class DavidMoveNode(Node):
         """Store the latest sanitized safe velocity command."""
         self.latest_twist = self.sanitize_twist(msg)
         self.last_cmd_time = self.get_clock().now()
+        self._stale_stop_sent = False
 
     def sanitize_twist(self, msg):
         """Limit commands for the differential Wheeltec base."""
@@ -151,16 +158,26 @@ class DavidMoveNode(Node):
 
         return self.min_angular_z
 
-    def current_command(self):
-        """Return the command that should be published now."""
+    def is_stale(self):
+        """Return True if no fresh input has arrived within the timeout."""
+        if self.cmd_vel_timeout <= 0.0:
+            return False
         age = (self.get_clock().now() - self.last_cmd_time).nanoseconds / 1e9
-        if self.cmd_vel_timeout > 0.0 and age > self.cmd_vel_timeout:
-            return zero_twist()
-        return self.latest_twist
+        return age > self.cmd_vel_timeout
 
     def publish_current_command(self):
-        """Publish either the latest fresh command or a zero timeout command."""
-        self.cmd_publisher.publish(self.current_command())
+        """Forward fresh nav input, otherwise emit one stop then stay silent.
+
+        Going silent on stale releases /cmd_vel_raw so manual teleop (which
+        publishes directly to /cmd_vel) is not overwritten by a 50 Hz zero
+        stream while nav2 has nothing to say.
+        """
+        if self.is_stale():
+            if not self._stale_stop_sent:
+                self.cmd_publisher.publish(zero_twist())
+                self._stale_stop_sent = True
+            return
+        self.cmd_publisher.publish(self.latest_twist)
 
     def publish_zero(self):
         """Publish one explicit stop command."""

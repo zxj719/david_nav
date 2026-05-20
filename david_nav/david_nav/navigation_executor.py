@@ -11,6 +11,7 @@ from functools import wraps
 
 DEFAULT_SERVER_URI = "ws://172.16.21.205:8100/ws/navigation/executor"
 DEFAULT_POI_STORE_FILE = os.path.expanduser("~/.ros/david_nav/poi_store.yaml")
+DEFAULT_POSE_FILE_SOURCE = os.path.expanduser("~/semantic_map/named_poses.json")
 DEFAULT_HEARTBEAT_INTERVAL = 30.0
 DEFAULT_LOOP_CLOSURE_POLL_SEC = 1.0
 DEFAULT_ACTION_NAME = "/navigate_to_pose"
@@ -53,13 +54,14 @@ def _patch_asyncio_for_legacy_websockets():
 def _build_help_text() -> str:
     return "\n".join(
         [
-            "usage: navigation_executor.py [--server-uri URI] [--poi-store-file PATH] [ROS args...]",
+            "usage: navigation_executor.py [--server-uri URI] [--poi-store-file PATH] [--pose-file PATH] [ROS args...]",
             "",
             "Robot-side WebSocket navigation executor for david_nav.",
             "",
             "options:",
             "  --server-uri URI        WebSocket endpoint for /ws/navigation/executor",
             "  --poi-store-file PATH   Local YAML file used to persist executor-owned POIs",
+            "  --pose-file PATH        named_poses.json to import into the POI store at startup",
             "  --reconnect-delay SEC   Delay between WebSocket reconnect attempts (default: 3.0)",
             "  -h, --help              Show this help message and exit",
         ]
@@ -70,6 +72,7 @@ def _parse_cli_args(raw_args):
     config = {
         "server_uri": DEFAULT_SERVER_URI,
         "poi_store_file": DEFAULT_POI_STORE_FILE,
+        "pose_file": None,
         "heartbeat_interval": DEFAULT_HEARTBEAT_INTERVAL,
         "loop_closure_poll_sec": DEFAULT_LOOP_CLOSURE_POLL_SEC,
         "action_name": DEFAULT_ACTION_NAME,
@@ -96,6 +99,10 @@ def _parse_cli_args(raw_args):
             config["poi_store_file"] = os.path.expanduser(raw_args[i + 1])
             i += 2
             continue
+        if arg == "--pose-file" and i + 1 < len(raw_args):
+            config["pose_file"] = os.path.expanduser(raw_args[i + 1])
+            i += 2
+            continue
         if arg == "--reconnect-delay" and i + 1 < len(raw_args):
             config["reconnect_delay"] = float(raw_args[i + 1])
             i += 2
@@ -103,6 +110,42 @@ def _parse_cli_args(raw_args):
         ros_args.append(arg)
         i += 1
     return config, ros_args
+
+
+def _populate_poi_store_from_named_poses_json(poi_store, json_path: str) -> int:
+    from david_nav.navigation_types import PoseRecord
+
+    with open(json_path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    if isinstance(payload, dict):
+        items = payload.get("poses") or payload.get("named_poses") or []
+    else:
+        items = payload
+
+    count = 0
+    for entry in items:
+        if not isinstance(entry, dict):
+            continue
+        position = entry.get("position", {}) or {}
+        pose_id = str(entry["id"])
+        name = str(entry.get("name", pose_id))
+        frame_id = str(entry.get("frame_id", "map"))
+        x = float(position.get("x", 0.0))
+        y = float(position.get("y", 0.0))
+        z = float(position.get("z", 0.0))
+        yaw = float(entry.get("yaw", 0.0))
+        map_pose = PoseRecord(frame_id, x, y, z, yaw, 0.0)
+        odom_pose = PoseRecord("odom", x, y, z, yaw, 0.0)
+        poi_store.upsert_marked_poi(
+            poi_id=pose_id,
+            name=name,
+            map_pose=map_pose,
+            odom_pose=odom_pose,
+            slam_session_id="named_poses",
+        )
+        count += 1
+    return count
 
 
 async def _send_heartbeat(websocket, interval_sec: float):
@@ -171,6 +214,15 @@ async def main_async(raw_args):
     poi_store = LocalPoiStore(config["poi_store_file"])
     if hasattr(poi_store, "load"):
         poi_store.load()
+
+    if config["pose_file"]:
+        if not os.path.exists(config["pose_file"]):
+            _log(f"pose file not found: {config['pose_file']}")
+        else:
+            loaded = _populate_poi_store_from_named_poses_json(
+                poi_store, config["pose_file"]
+            )
+            _log(f"loaded {loaded} POIs from {config['pose_file']}")
 
     core = None
     outbound_queue: asyncio.Queue = asyncio.Queue()

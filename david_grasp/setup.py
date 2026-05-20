@@ -22,7 +22,7 @@ setup(
     entry_points={
         "console_scripts": [
             # Stage 3-5 入口将逐步填充
-            # "pick_at_pose = david_grasp.pick_at_pose:main",
+            "pick_at_pose = david_grasp.pick_at_pose:main",
             # "force_grasp = david_grasp.force_grasp:main",
             # "vision_pick = david_grasp.vision_pick:main",
             # "grasp_pipeline = david_grasp.grasp_pipeline:main",

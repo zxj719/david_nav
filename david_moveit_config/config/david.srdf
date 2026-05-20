@@ -3,10 +3,10 @@
 
   <!-- Planning Groups -->
   <group name="left_arm">
-    <chain base_link="Link4" tip_link="left_tcp"/>
+    <chain base_link="Link4" tip_link="AR5-5_08L-W4C4A6-ZY2_flan_link"/>
   </group>
   <group name="right_arm">
-    <chain base_link="Link4" tip_link="right_tcp"/>
+    <chain base_link="Link4" tip_link="AR5-5_08R-W4C4A6-ZY2_flan_link"/>
   </group>
   <group name="both_arms">
     <group name="left_arm"/>

@@ -1,4 +1,4 @@
-default_profile: navigation
+default_profile: navigation_no_explore
 
 profiles:
   navigation:
@@ -30,4 +30,4 @@ executor:
   reconnect_delay: 3.0
   nav_event_timeout: 15.0
   show_logs: true
-  record_bag: false
+  record_bag: true
