@@ -9,8 +9,17 @@ collision_monitor:
     base_shift_correction: True
     stop_pub_timeout: 0.3
 
-    # Use footprint-based time-to-collision gating so in-place turning for
-    # behind-goal recovery is not blocked by a fixed forward stop zone.
+    # 2026-05-20: TEMPORARILY NEUTERED to unblock in-place rotation.
+    # collision_monitor was braking the chassis when DWB asked for pure
+    # ω cmds (footprint sweep through scan returns near the body during
+    # rotation). nav2_collision_monitor REQUIRES at least one polygon
+    # entity to configure successfully (polygons:[] makes it fail to
+    # init and never expose its lifecycle service ⇒ lifecycle_manager
+    # gets stuck "Waiting for service collision_monitor/get_state").
+    # Workaround: keep the Approach polygon registered but disabled, and
+    # disable its scan source too. The node configures OK, the lifecycle
+    # advances, and /cmd_vel_smoothed pipes through to /cmd_vel_safe
+    # untouched. Restore enabled:True after the TF / brake plumbing is sorted.
     polygons: ["Approach"]
     Approach:
       type: "polygon"
@@ -21,10 +30,10 @@ collision_monitor:
       max_points: 6
       visualize: True
       polygon_pub_topic: "collision_monitor/approach_polygon"
-      enabled: True
+      enabled: False
 
     observation_sources: ["scan"]
     scan:
       type: "scan"
       topic: "/scan"
-      enabled: True
+      enabled: False

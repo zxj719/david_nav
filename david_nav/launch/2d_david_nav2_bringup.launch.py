@@ -8,7 +8,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterFile
 from launch_ros.parameter_descriptions import ParameterValue
@@ -28,6 +28,7 @@ def generate_launch_description():
     explorer_params_file = LaunchConfiguration('explorer_params_file')
     collision_monitor_params_file = LaunchConfiguration('collision_monitor_params_file')
     enable_scan_bridge = LaunchConfiguration('enable_scan_bridge')
+    enable_collision_monitor = LaunchConfiguration('enable_collision_monitor')
     enable_map_warmup_spin = LaunchConfiguration('enable_map_warmup_spin')
     map_warmup_min_live_area_m2 = LaunchConfiguration('map_warmup_min_live_area_m2')
     map_warmup_angular_speed = LaunchConfiguration('map_warmup_angular_speed')
@@ -247,6 +248,7 @@ def generate_launch_description():
         name='collision_monitor',
         output='screen',
         parameters=[collision_monitor_params_file, {'use_sim_time': use_sim_time}],
+        condition=IfCondition(enable_collision_monitor),
     )
 
     collision_monitor_lifecycle_manager = Node(
@@ -259,6 +261,7 @@ def generate_launch_description():
             'autostart': True,
             'node_names': ['collision_monitor'],
         }],
+        condition=IfCondition(enable_collision_monitor),
     )
 
     # Plan D (2026-05-19): david_move publishes to /cmd_vel_raw, then
@@ -275,10 +278,16 @@ def generate_launch_description():
             # Plan D: redirect david_move output so cmd_vel_separator can
             # impose strict v/omega mutex before the wheeltec serial driver.
             'output_cmd_vel_topic': '/cmd_vel_raw',
-            # 2026-05-19 fix: lift david_move's own forward cap from the
-            # 0.20 default. Must match DWB max_vel_x / max_speed_xy and
-            # velocity_smoother max_velocity[0]. Otherwise this is the
-            # last layer that clamps back down to 0.20.
+            # 2026-05-20: when collision_monitor is disabled via launch arg,
+            # /cmd_vel_safe is never published. Point david_move directly
+            # at /cmd_vel_smoothed (velocity_smoother's output) so the chain
+            # doesn't break. PythonExpression returns the topic string.
+            'input_cmd_vel_topic': PythonExpression([
+                "'cmd_vel_safe' if '",
+                enable_collision_monitor,
+                "' == 'true' else 'cmd_vel_smoothed'",
+            ]),
+            # 2026-05-20: 与 DWB / smoother 同步从 0.70 降到 0.50（实跑过冲）。
             'max_linear_x': 0.50,
             # Static-friction kickoff floor for in-place rotation stays.
             'min_stationary_angular_z': 0.35,
@@ -293,6 +302,7 @@ def generate_launch_description():
         parameters=[{
             'input_topic': '/cmd_vel_raw',
             'output_topic': '/cmd_vel',
+            'odom_topic': '/odom',
             # Normalisation references. Mirror velocity_smoother /
             # DWB max speeds so the mutex decision uses the same scale.
             'v_max_ref': 0.50,
@@ -300,6 +310,24 @@ def generate_launch_description():
             'hysteresis_margin': 0.10,
             'min_norm_threshold': 0.05,
             'timeout_sec': 0.5,
+            'publish_hz': 20.0,
+            # ---- Plan D: active brake on input-dead transitions ----
+            # When DWB stops asking for motion but odom still shows
+            # significant velocity, output a proportional reverse cmd
+            # to dump the PI integrator wind-up. This is what kills the
+            # 0.3-0.7 m terminal overshoot from binary 0.7 output.
+            # max_brake_w bumped to 0.50 — unit test showed 0.30 was not
+            # enough to overcome the angular PI wind-up.
+            'brake_enabled': True,
+            'k_brake': 1.0,
+            'max_brake_v': 0.30,
+            'max_brake_w': 0.50,
+            'brake_release_v': 0.05,
+            'brake_release_w': 0.10,
+            'brake_timeout': 2.0,
+            # 2026-05-20: angle brake — 切角阈值 45° → 30° (caster overshoot
+            # 实测在 nav 跑动时比 45° 余量小)
+            'angle_brake_threshold_deg': 30.0,
         }],
     )
 
@@ -347,6 +375,16 @@ def generate_launch_description():
             'enable_exploration',
             default_value='false',
             description='Launch frontier explorer after Nav2 bringup',
+        ),
+        DeclareLaunchArgument(
+            'enable_collision_monitor',
+            default_value='false',
+            description=(
+                'Launch nav2 collision_monitor + its lifecycle manager. '
+                'When false, david_move reads /cmd_vel_smoothed directly and '
+                'no obstacle-gating happens. Set false to unblock in-place '
+                'rotation while caster-related issues are being debugged.'
+            ),
         ),
         DeclareLaunchArgument(
             'explorer_params_file',
