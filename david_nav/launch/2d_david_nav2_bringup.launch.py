@@ -232,13 +232,26 @@ def generate_launch_description():
         ],
     )
 
-    rviz_node = Node(
+    # 2026-05-20: delay RViz start by `rviz_delay_sec` so nav2 lifecycle
+    # has time to fully Activate before RViz starts subscribing. Without
+    # this, RViz subscribes to /global_costmap/costmap / /lightning/grid_map
+    # before they're publishing (lifecycle still Configuring) — the
+    # subscription connects but no data ever arrives in the early window,
+    # and depending on QoS it can stay empty until RViz is restarted.
+    # Default 12 s is conservative: nav2 lifecycle typically completes
+    # in 6-10 s on this hardware.
+    rviz_delay_sec = LaunchConfiguration('rviz_delay_sec')
+    rviz_inner_node = Node(
         package='rviz2',
         executable='rviz2',
         name='rviz2',
         arguments=['-d', rviz_config],
         parameters=[{'use_sim_time': use_sim_time}],
         output='screen',
+    )
+    rviz_node = TimerAction(
+        period=rviz_delay_sec,
+        actions=[rviz_inner_node],
         condition=IfCondition(use_rviz),
     )
 
@@ -384,6 +397,16 @@ def generate_launch_description():
                 'When false, david_move reads /cmd_vel_smoothed directly and '
                 'no obstacle-gating happens. Set false to unblock in-place '
                 'rotation while caster-related issues are being debugged.'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'rviz_delay_sec',
+            default_value='12.0',
+            description=(
+                'Seconds to wait after launch before starting RViz. Lets '
+                'nav2 lifecycle fully Activate first so all costmap / plan '
+                'topics are publishing by the time RViz subscribes. '
+                'Set to 0 for immediate start (old behaviour).'
             ),
         ),
         DeclareLaunchArgument(

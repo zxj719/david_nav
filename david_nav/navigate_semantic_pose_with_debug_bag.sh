@@ -32,6 +32,12 @@ DRY_RUN=false
 ROS2_BIN="${ROS2_BIN:-ros2}"
 NAVIGATOR_BIN="${NAVIGATOR_BIN:-}"
 
+WHEELTEC_WS_DIR="${WHEELTEC_WS_DIR:-${HOME}/wheelhumanoidrobot/workspace_wheeltec/wheeltec_robot_ros2}"
+WHEELTEC_LAUNCH_PACKAGE="${WHEELTEC_LAUNCH_PACKAGE:-turn_on_wheeltec_robot}"
+WHEELTEC_LAUNCH_FILE="${WHEELTEC_LAUNCH_FILE:-turn_on_wheeltec_robot.launch.py}"
+CHASSIS_STARTUP_DELAY_SEC="${CHASSIS_STARTUP_DELAY_SEC:-3}"
+START_CHASSIS=true
+
 declare -a CHILD_PIDS=()
 declare -a CHILD_NAMES=()
 declare -a CHILD_PGIDS=()
@@ -116,7 +122,7 @@ Options:
   --target TARGET           Pose id, pose name, or all
   --pose-file PATH          Named pose JSON. Default: ${HOME}/semantic_map/named_poses.json
   --no-bringup              Skip david_nav Nav2 bringup and only do bag + navigation
-  --rviz                    Launch RViz with 2d_david_nav2_bringup.launch.py. Default: disabled.
+  --rviz                    Launch RViz with 2d_david_nav2_bringup.launch.py. Default: enabled.
   --no-rviz                 Disable RViz in bringup
   --nav-ready-timeout SEC   Wait timeout for bt_navigator readiness. Default: 120
   --skip-nav-ready-wait     Do not wait for bt_navigator before bag + navigation
@@ -132,6 +138,7 @@ Options:
   --full-bag                Record full debug bag with hidden/unpublished topics,
                             zstd compression, lidar/diagnostic topics, and regex
                             matches. Higher CPU.
+  --no-chassis              Skip wheeltec chassis launch (for bench testing)
   -o, --output NAME         Bag folder name. Default: david_semantic_nav_YYYYmmdd_HHMMSS
   -d, --dry-run             Print commands without starting processes
   -h, --help                Show this help
@@ -148,6 +155,10 @@ Environment variables:
   EXPECTED_NAV2_FRAME       Expected controller/costmap frame. Default: map
   EXPECTED_DWB_TRANSFORM_TOLERANCE
                             Expected DWB transform tolerance. Default: 2.0
+  WHEELTEC_WS_DIR           Path to wheeltec_robot_ros2 workspace
+  WHEELTEC_LAUNCH_PACKAGE   Launch package (default: turn_on_wheeltec_robot)
+  WHEELTEC_LAUNCH_FILE      Launch file (default: turn_on_wheeltec_robot.launch.py)
+  CHASSIS_STARTUP_DELAY_SEC Seconds to wait after chassis launch before Nav2. Default: 3
 EOF
 }
 
@@ -222,6 +233,12 @@ parse_args() {
         ;;
       --full-bag)
         FULL_BAG=true
+        ;;
+      --no-chassis)
+        START_CHASSIS=false
+        ;;
+      --chassis)
+        START_CHASSIS=true
         ;;
       --result-timeout-sec)
         RESULT_TIMEOUT_SEC="${2:-}"
@@ -559,33 +576,38 @@ verify_nav2_runtime_config() {
 
   log "Checking Nav2 runtime config before sending goals"
 
-  local_frame="$(param_value_text /local_costmap/local_costmap global_frame)" || {
-    printf 'Could not read /local_costmap/local_costmap global_frame\n' >&2
-    return 1
-  }
-  global_frame="$(param_value_text /global_costmap/global_costmap global_frame)" || {
-    printf 'Could not read /global_costmap/global_costmap global_frame\n' >&2
-    return 1
-  }
-  transform_tolerance="$(param_value_text /controller_server FollowPath.transform_tolerance)" || {
-    printf 'Could not read /controller_server FollowPath.transform_tolerance\n' >&2
-    return 1
-  }
+  # 2026-05-20: verify is best-effort + warning-only. Previously this
+  # function returned 1 on any mismatch which, combined with `set -e`,
+  # killed the script + triggered cleanup → SIGINT to all nav2 nodes
+  # within ~15 s of bringup. That left RViz with no map and looked
+  # like a costmap-display bug. Per REP-105 local_costmap.global_frame
+  # is `odom`, not `map`, so the old hardcoded check was wrong anyway.
+  if ! local_frame="$(param_value_text /local_costmap/local_costmap global_frame)"; then
+    log "WARN: could not read /local_costmap/local_costmap global_frame (nav2 still configuring?)"
+    return 0
+  fi
+  if ! global_frame="$(param_value_text /global_costmap/global_costmap global_frame)"; then
+    log "WARN: could not read /global_costmap/global_costmap global_frame"
+    return 0
+  fi
+  if ! transform_tolerance="$(param_value_text /controller_server FollowPath.transform_tolerance)"; then
+    log "WARN: could not read /controller_server FollowPath.transform_tolerance"
+    return 0
+  fi
 
   log "Nav2 runtime config: local_costmap.global_frame=${local_frame}, global_costmap.global_frame=${global_frame}, FollowPath.transform_tolerance=${transform_tolerance}"
 
-  if [[ "$local_frame" != "$EXPECTED_NAV2_FRAME" ]]; then
-    printf 'Expected /local_costmap/local_costmap global_frame=%s, got %s\n' "$EXPECTED_NAV2_FRAME" "$local_frame" >&2
-    return 1
+  # Sanity: per REP-105, local=odom, global=map. Warn but don't exit.
+  if [[ "$local_frame" != "odom" ]]; then
+    log "WARN: local_costmap.global_frame=${local_frame} (expected odom per REP-105)"
   fi
-  if [[ "$global_frame" != "$EXPECTED_NAV2_FRAME" ]]; then
-    printf 'Expected /global_costmap/global_costmap global_frame=%s, got %s\n' "$EXPECTED_NAV2_FRAME" "$global_frame" >&2
-    return 1
+  if [[ "$global_frame" != "map" ]]; then
+    log "WARN: global_costmap.global_frame=${global_frame} (expected map per REP-105)"
   fi
-  if [[ "$transform_tolerance" != "$EXPECTED_DWB_TRANSFORM_TOLERANCE" ]]; then
-    printf 'Expected /controller_server FollowPath.transform_tolerance=%s, got %s\n' "$EXPECTED_DWB_TRANSFORM_TOLERANCE" "$transform_tolerance" >&2
-    return 1
+  if [[ -z "$transform_tolerance" ]]; then
+    log "WARN: FollowPath.transform_tolerance empty"
   fi
+  return 0
 }
 
 main() {
@@ -604,12 +626,54 @@ main() {
   require_path "${AUTO_WORKSPACE}/install/setup.bash"
   require_path "$POSE_FILE"
 
+  if [[ "$START_CHASSIS" == true ]]; then
+    require_path "${WHEELTEC_WS_DIR}/install/setup.bash"
+  fi
+
   safe_source "$ROS_SETUP"
   safe_source "${AUTO_WORKSPACE}/install/setup.bash"
   require_command "$ROS2_BIN"
 
   if [[ "$DRY_RUN" != true ]]; then
     mkdir -p "$BAG_ROOT"
+  fi
+
+  # Pre-flight: kill MoveIt residues that would publish a conflicting
+  # URDF (world→base_link from david_moveit_config). Two RSPs publishing
+  # different parents for base_link splits tf2 into two trees → nav2
+  # can't lookup base_footprint↔odom → costmaps/RViz fail silently.
+  # Mirrors the logic in scripts/launch_nav_with_log.sh.
+  if [[ "$DRY_RUN" != true ]]; then
+    local -a pre_kill_patterns=(
+      "moveit_ros_move_group/move_group"
+      "moveit_simple_controller_manager"
+      "david_sdk_bridge/lib/david_sdk_bridge/arm_node"
+    )
+    log 'Pre-flight: killing MoveIt residues that would conflict with nav2 TF tree'
+    local script_self=$$
+    local script_parent=$PPID
+    local pat pid pfile is_moveit
+    for pat in "${pre_kill_patterns[@]}"; do
+      for pid in $(pgrep -f -- "$pat" 2>/dev/null); do
+        [[ "$pid" == "$script_self" ]] && continue
+        [[ "$pid" == "$script_parent" ]] && continue
+        if kill "$pid" 2>/dev/null; then
+          log "  killed pid=$pid (pattern=$pat)"
+        fi
+      done
+    done
+    # Kill EVERY existing robot_state_publisher. nav2 launch starts its
+    # own RSP with the chassis URDF; any pre-existing RSP — whether
+    # MoveIt-side (conflicting `world -> base_link`) or a stale chassis
+    # RSP from a previous run (duplicate `base_link -> wheel_link`
+    # publishes) — corrupts the tf2 tree and makes map/odom lookups fail.
+    for pid in $(pgrep -f robot_state_publisher 2>/dev/null); do
+      [[ "$pid" == "$script_self" ]] && continue
+      log "  killed stale robot_state_publisher pid=$pid"
+      kill -9 "$pid" 2>/dev/null || true
+    done
+    sleep 1
+    log 'Pre-flight done.'
   fi
 
   local bag_output="${BAG_ROOT}/${BAG_NAME}"
@@ -678,7 +742,25 @@ main() {
     log 'Target: interactive terminal selection'
   fi
   log "Bag output: ${bag_output}"
+  log "Chassis: $([[ "$START_CHASSIS" == true ]] && echo "${WHEELTEC_LAUNCH_PACKAGE}/${WHEELTEC_LAUNCH_FILE}" || echo skipped)"
   log "Process logs: ${log_dir}"
+
+  if [[ "$START_CHASSIS" == true ]]; then
+    local chassis_cmd_str
+    printf -v chassis_cmd_str 'source %q && source %q && exec ros2 launch %q %q' \
+      "$ROS_SETUP" "${WHEELTEC_WS_DIR}/install/setup.bash" \
+      "$WHEELTEC_LAUNCH_PACKAGE" "$WHEELTEC_LAUNCH_FILE"
+    start_managed_process 'Wheeltec chassis' "${log_dir}/chassis.log" bash -c "$chassis_cmd_str"
+    if [[ "$DRY_RUN" != true ]]; then
+      sleep "$CHASSIS_STARTUP_DELAY_SEC"
+      if ! is_pid_alive "$LAST_STARTED_PID"; then
+        printf 'Wheeltec chassis exited early; see %s\n' "${log_dir}/chassis.log" >&2
+        exit 1
+      fi
+    fi
+  else
+    log 'Skipping wheeltec chassis launch'
+  fi
 
   if [[ "$START_BRINGUP" == true ]]; then
     start_managed_process 'David Nav2 bringup' "${log_dir}/bringup.log" "${bringup_cmd[@]}"

@@ -65,19 +65,18 @@ for pat in "${PRE_KILL_PATTERNS[@]}"; do
     fi
   done
 done
-# Also kill any robot_state_publisher whose URDF param file mentions
-# david_moveit_config (= MoveIt-side RSP, conflicts with chassis RSP).
+# Kill EVERY existing robot_state_publisher. nav2 launch starts its own
+# RSP with the chassis URDF; any pre-existing RSP is either:
+#   - a MoveIt-side RSP (loads david_moveit_config URDF, conflicts via
+#     `world -> base_link` joint)
+#   - OR a stale chassis-side RSP from a previous nav2 launch that
+#     didn't exit cleanly (two chassis RSPs ⇒ duplicate `base_link ->
+#     wheel_link` /tf publishes ⇒ tf2 tree corruption / "no map frame")
+# Either way, removing them lets the launch's own RSP own /tf cleanly.
 for pid in $(pgrep -f robot_state_publisher 2>/dev/null); do
   [[ "$pid" == "$SELF_PID" ]] && continue
-  pfile=""
-  # /proc/<pid>/cmdline is null-separated — tr to newlines and grep
-  if [[ -r "/proc/$pid/cmdline" ]]; then
-    pfile=$(tr '\0' '\n' < "/proc/$pid/cmdline" | grep -E '^/tmp/launch_params_' | head -1)
-  fi
-  if [[ -n "$pfile" ]] && grep -q "david_moveit_config" "$pfile" 2>/dev/null; then
-    echo "[launch_nav_with_log]   killed MoveIt-side RSP pid=$pid (params=$pfile)" >&2
-    kill -9 "$pid" 2>/dev/null || true
-  fi
+  echo "[launch_nav_with_log]   killed stale robot_state_publisher pid=$pid" >&2
+  kill -9 "$pid" 2>/dev/null || true
 done
 sleep 1
 echo "[launch_nav_with_log] pre-flight done." >&2
