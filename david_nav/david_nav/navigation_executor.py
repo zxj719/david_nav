@@ -6,6 +6,7 @@ import contextlib
 import json
 import os
 import sys
+import time
 from functools import wraps
 
 
@@ -166,6 +167,50 @@ async def _spin_ros_node(node, spin_once_fn, interval_sec: float = 0.01):
         await asyncio.sleep(interval_sec)
 
 
+def _format_status_line(core, pose_provider) -> str:
+    state = getattr(core.state, "value", str(core.state))
+    task = core.active_task
+    if task is not None:
+        poi = task.target_id
+        phase = task.phase
+        d2g = f"{task.remaining_distance:.2f}m"
+    else:
+        poi = "-"
+        phase = "-"
+        d2g = "-"
+    try:
+        p = pose_provider.current_map_pose()
+        pose_str = f"x={p.x:.2f} y={p.y:.2f} yaw={p.yaw:.2f}rad"
+    except Exception as exc:
+        pose_str = f"pose=n/a ({type(exc).__name__})"
+    return (
+        f"STATUS state={state} poi={poi} phase={phase} d2g={d2g} {pose_str}"
+    )
+
+
+async def _print_status_loop(core, pose_provider, interval_sec: float):
+    # Periodic heartbeat + immediate transition print. Compares the
+    # (state, poi, phase) tuple against the previous tick — any change
+    # prints right away so terminal shows transitions without waiting
+    # for the next interval tick.
+    last_key = None
+    last_print_time = 0.0
+    poll_sec = min(interval_sec, 0.25)
+    while True:
+        await asyncio.sleep(poll_sec)
+        task = core.active_task
+        key = (
+            getattr(core.state, "value", str(core.state)),
+            task.target_id if task else None,
+            task.phase if task else None,
+        )
+        now = time.monotonic()
+        if key != last_key or (now - last_print_time) >= interval_sec:
+            _log(_format_status_line(core, pose_provider))
+            last_key = key
+            last_print_time = now
+
+
 async def _watch_loop_closure(pose_provider, poi_store, poll_sec: float):
     last_transform = None
     while True:
@@ -262,6 +307,14 @@ async def main_async(raw_args):
         goal_resolver=goal_resolver,
     )
 
+    status_task = asyncio.create_task(
+        _print_status_loop(
+            core,
+            pose_provider,
+            float(config.get("status_print_interval_sec", 2.0)),
+        )
+    )
+
     try:
         while True:
             connection_established = False
@@ -317,8 +370,11 @@ async def main_async(raw_args):
             await asyncio.sleep(config["reconnect_delay"])
     finally:
         spin_task.cancel()
+        status_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await spin_task
+        with contextlib.suppress(asyncio.CancelledError):
+            await status_task
         del tf_listener
         node.destroy_node()
         rclpy.shutdown()

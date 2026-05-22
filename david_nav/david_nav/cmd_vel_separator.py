@@ -136,6 +136,13 @@ class CmdVelSeparator(Node):
         # than coasting alone.
         self.declare_parameter('angle_brake_enabled', True)
         self.declare_parameter('angle_brake_threshold_deg', 45.0)
+        # ---- params: aligned linear-lock ----
+        # When the robot is already pointing within `linear_lock_angle_deg`
+        # of the goal, the LINEAR ↔ ANGULAR mutex is biased toward LINEAR
+        # so DWB's small ω corrections (which DWB intends as a "curve while
+        # advancing") don't keep flipping the binary output. Pick a value
+        # comparable to angle_brake_threshold_deg.
+        self.declare_parameter('linear_lock_angle_deg', 30.0)
         # ---- params: silent-on-idle ----
         # When the separator is in IDLE with no recent DWB input, stop
         # publishing /cmd_vel altogether after a grace period so external
@@ -184,6 +191,9 @@ class CmdVelSeparator(Node):
         self.angle_brake_enabled = bool(self.get_parameter('angle_brake_enabled').value)
         self.angle_brake_threshold = math.radians(
             float(self.get_parameter('angle_brake_threshold_deg').value)
+        )
+        self.linear_lock_angle = math.radians(
+            float(self.get_parameter('linear_lock_angle_deg').value)
         )
         self.silent_on_idle = bool(self.get_parameter('silent_on_idle').value)
         self.idle_grace_sec = float(self.get_parameter('idle_grace_sec').value)
@@ -320,13 +330,34 @@ class CmdVelSeparator(Node):
 
     # --------------- helpers ---------------
     def _pick_goal_source(self):
-        """Return the most current goal (plan preferred when fresh)."""
+        """Return the most current goal.
+
+        Priority: fresh /plan > /goal_pose > stale /plan.
+
+        2026-05-21: previously a /plan goal older than `plan_max_age_sec`
+        was discarded → fall through to /goal_pose. But when the goal
+        was sent via NavigateToPose action (e.g. semantic_pose_navigator),
+        /goal_pose is never published → `_latest_goal_from_topic = None`
+        → goal_brake silently stops firing exactly when the robot is
+        closing on the goal (planner_server slows / stops replanning
+        near goal, /plan ages out, but the goal POSITION hasn't moved!).
+        Fix: keep the last-known /plan goal as a stable "last-known goal"
+        even when the plan itself is stale.
+        """
         now = self.get_clock().now()
-        if self._latest_goal_from_plan is not None and self._latest_goal_from_plan_stamp is not None:
+        plan_goal = self._latest_goal_from_plan
+        topic_goal = self._latest_goal_from_topic
+        if plan_goal is not None and self._latest_goal_from_plan_stamp is not None:
             plan_age = (now - self._latest_goal_from_plan_stamp).nanoseconds * 1e-9
             if plan_age <= self.plan_max_age_sec:
-                return self._latest_goal_from_plan, 'plan'
-        return self._latest_goal_from_topic, 'goal_pose'
+                return plan_goal, 'plan'
+        if topic_goal is not None:
+            return topic_goal, 'goal_pose'
+        # Final fallback: stale /plan goal is still better than nothing —
+        # goal position doesn't change just because planner stopped publishing.
+        if plan_goal is not None:
+            return plan_goal, 'plan_stale'
+        return None, 'none'
 
     def _compute_goal_angle_dist(self):
         """Return (angle_rad_signed, dist_m) or (None, None) if unavailable.
@@ -531,11 +562,28 @@ class CmdVelSeparator(Node):
             else:
                 # Normal mutex selection.
                 self._brake_start_t = None
+                # B: "aligned linear-lock". When robot is already roughly facing
+                # the goal (|a2g| < linear_lock_angle, default 30°), small ω
+                # corrections from DWB should NOT pull us out of LINEAR mode.
+                # Without this, DWB at a2g≈-4° kept flip-flopping between
+                # (0.25, 0) and (0.25, -0.5) every tick, and our binary
+                # mutex translated each flip into "kill forward / kill rot",
+                # so the robot rotated in place forever instead of advancing.
+                aligned = (self._latest_angle is not None
+                           and abs(self._latest_angle) < self.linear_lock_angle)
                 if prev_mode in (Mode.IDLE, Mode.BRAKE_LINEAR, Mode.BRAKE_ANGULAR):
-                    self.mode = Mode.ANGULAR if ang_norm >= lin_norm else Mode.LINEAR
+                    if aligned and lin_norm >= self.min_norm_threshold:
+                        # We're aligned: don't go ANGULAR just because DWB
+                        # also asked for a small ω. Pick LINEAR straight.
+                        self.mode = Mode.LINEAR
+                    else:
+                        self.mode = Mode.ANGULAR if ang_norm >= lin_norm else Mode.LINEAR
                 elif prev_mode == Mode.LINEAR:
-                    if ang_norm > lin_norm + self.hysteresis_margin:
+                    if not aligned and ang_norm > lin_norm + self.hysteresis_margin:
                         self.mode = Mode.ANGULAR
+                    # else: stay LINEAR even if ang_norm > lin_norm + margin,
+                    # because we're already aligned and small ω from DWB is
+                    # just noise/path-curve which we explicitly drop.
                 elif prev_mode == Mode.ANGULAR:
                     if lin_norm > ang_norm + self.hysteresis_margin:
                         self.mode = Mode.LINEAR

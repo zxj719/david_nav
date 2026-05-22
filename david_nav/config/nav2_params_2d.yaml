@@ -118,12 +118,12 @@ controller_server:                                  # 局部规划器服务器
     # Progress checker parameters
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      # David often spends its first several seconds rotating onto the path before
-      # it can build meaningful forward displacement, so keep Nav2 from
-      # aborting too early and let frontier_explorer's higher-level stuck logic
-      # decide when we are truly not making progress.
+      # SimpleProgressChecker 只看平移位移。David 上臂+caster 让原地旋转能
+      # 占 15-25s（小电机 + 高惯量），所以 20s 太紧，30s 也偶尔不够。
+      # 抬到 40s：单段 rotation-only 即使非常慢也不会被 nav2 abort，真正
+      # stuck 由更上层（frontier_explorer / 任务层）判定。
       required_movement_radius: 0.15
-      movement_time_allowance: 20.0
+      movement_time_allowance: 40.0
     # Goal checker parameters
     precise_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -318,7 +318,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         # 2026-05-19 Plan D：禁用 inflation（用户保证起点→终点无障碍）。
-        enabled: true
+        enabled: false
         cost_scaling_factor: 10.0
         inflation_radius: 0.20
       # voxel_layer:
@@ -408,7 +408,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         # 2026-05-19 Plan D：禁用，且已从 plugins 列表移除。保留配置以便回滚。
-        enabled: true
+        enabled: false
         cost_scaling_factor: 1.5
         inflation_radius: 0.20
       always_send_full_costmap: True

@@ -79,7 +79,9 @@ class NavigationExecutorCore:
             try:
                 poi = self.poi_store.get_required(command.target_id)
             except KeyError:
-                self.state = ExecutorState.IDLE
+                # 同 handle_bridge_event 的 error 分支：落 ERROR，避免
+                # server 误判成到点。下次 navigate_to 进来时被 STARTING 覆盖。
+                self.state = ExecutorState.ERROR
                 self.active_task = None
                 return [
                     build_error_event(
@@ -92,7 +94,7 @@ class NavigationExecutorCore:
                 await self.bridge.cancel_current()
             resolved_goal = self.goal_resolver.resolve_initial_goal(poi)
             if resolved_goal is None:
-                self.state = ExecutorState.IDLE
+                self.state = ExecutorState.ERROR
                 self.active_task = None
                 return [
                     build_error_event(
@@ -122,15 +124,19 @@ class NavigationExecutorCore:
             if self.active_task.request_id != command.request_id:
                 return []
             await self.bridge.cancel_current()
-            self.state = ExecutorState.IDLE
-            paused = build_progress_event(
-                self.active_task.request_id,
-                self.active_task.sub_id,
-                self.active_task.remaining_distance,
-                "paused",
-            )
+            # abort 归入 ERROR：上层主动中止本质上等价于"这次导航没完成"，
+            # 不能让 server 看到 IDLE+progress(paused) 之后误判成到点。
+            # 同时回 on_error 而不是 on_progress，让 server 显式拿到"导航失败"。
+            outbound = [
+                build_error_event(
+                    self.active_task.request_id,
+                    self.active_task.sub_id,
+                    "导航失败：上层 abort_navigation 中止",
+                )
+            ]
+            self.state = ExecutorState.ERROR
             self.active_task = None
-            return [paused]
+            return outbound
         if command.action == "mark_current_poi":
             outbound = [build_mark_poi_ack(command.request_id, command.sub_id)]
             try:
@@ -195,7 +201,7 @@ class NavigationExecutorCore:
                         )
                     ]
                     self.active_task = None
-                    self.state = ExecutorState.IDLE
+                    self.state = ExecutorState.ERROR
                     return outbound
                 self.active_task.phase = "to_anchor"
                 self.active_task.current_goal_poi = self.active_task.anchor_poi
@@ -224,6 +230,9 @@ class NavigationExecutorCore:
                 )
             ]
             self.active_task = None
-            self.state = ExecutorState.IDLE
+            # 把 ERROR 和 IDLE 区分开：server 如果只看 state 字段，
+            # 之前 abort/aborted/timeout 全部落回 IDLE，server 误以为是到点。
+            # 现在落到 ERROR，下一次 navigate_to 命令进来时由 STARTING 覆盖。
+            self.state = ExecutorState.ERROR
             return outbound
         return []

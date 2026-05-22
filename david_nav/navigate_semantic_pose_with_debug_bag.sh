@@ -20,6 +20,14 @@ BAG_ROOT="${BAG_ROOT:-${HOME}/rosbags}"
 BAG_NAME="${BAG_NAME:-}"
 TARGET="${TARGET:-}"
 RVIZ=true
+# 2026-05-21: scan_bridge (pointcloud_to_laserscan) now defaults OFF in .sh,
+# matching the user's preferred direct `ros2 launch ... enable_scan_bridge:=false`.
+# Turning the bridge on subscribes to /lightning/loc/aligned_scan (PointCloud2),
+# republishes /scan (LaserScan). When SLAM isn't actively publishing the source
+# cloud, the bridge just idles; but in some runs it adds CPU and TF traffic for
+# no benefit. Enable explicitly with --scan-bridge when /scan is needed by some
+# downstream (e.g. enabled obstacle_layer + scan source).
+SCAN_BRIDGE=false
 START_BRINGUP=true
 RECORD_BAG=true
 WAIT_FOR_NAV_READY=true
@@ -129,6 +137,8 @@ Options:
   --pose-file PATH          Named pose JSON. Default: ${HOME}/semantic_map/named_poses.json
   --no-bringup              Skip david_nav Nav2 bringup and only do bag + navigation
   --rviz                    Launch RViz with 2d_david_nav2_bringup.launch.py. Default: enabled.
+  --scan-bridge             Run pointcloud_to_laserscan (PC2 → /scan). Default: OFF.
+  --no-scan-bridge          Explicitly disable scan_bridge (already the default).
   --no-rviz                 Disable RViz in bringup
   --nav-ready-timeout SEC   Wait timeout for bt_navigator readiness. Default: 120
   --skip-nav-ready-wait     Do not wait for bt_navigator before bag + navigation
@@ -222,6 +232,12 @@ parse_args() {
         ;;
       --no-rviz)
         RVIZ=false
+        ;;
+      --scan-bridge)
+        SCAN_BRIDGE=true
+        ;;
+      --no-scan-bridge)
+        SCAN_BRIDGE=false
         ;;
       --nav-ready-timeout)
         NAV_READY_TIMEOUT_SEC="${2:-}"
@@ -688,7 +704,7 @@ main() {
   local -a bringup_cmd=(
     "$ROS2_BIN" launch david_nav 2d_david_nav2_bringup.launch.py
     use_rviz:="$RVIZ"
-    enable_scan_bridge:=true
+    enable_scan_bridge:="$SCAN_BRIDGE"
     enable_exploration:=false
   )
   local -a bag_cmd=(
