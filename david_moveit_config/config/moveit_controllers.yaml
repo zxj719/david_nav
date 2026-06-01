@@ -30,3 +30,8 @@ moveit_simple_controller_manager:
       - AR5-5_08R-W4C4A6-ZY2_joint_5
       - AR5-5_08R-W4C4A6-ZY2_joint_6
       - AR5-5_08R-W4C4A6-ZY2_joint_7
+
+trajectory_execution:
+  allowed_execution_duration_scaling: 5.0    # default 1.2; bumped: arm_node + race-fix prelude makes exec slower than planner expects
+  allowed_goal_duration_margin: 2.0          # default 0.5
+  allowed_start_tolerance: 0.05              # default 0.01; lenient on start mismatch

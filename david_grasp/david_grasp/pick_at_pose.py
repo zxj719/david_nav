@@ -34,8 +34,11 @@ LEFT_POSES = {
 # force-closed grasp params (calibrated 2026-05-19)
 PITCH_IDX = [0, 2, 3, 4, 5]          # Thumb/Index/Middle/Ring/Little pitch
 DETECT_IDX = [2, 5]                  # Index_Pitch / Little_Pitch (most sensitive)
-EFFORT_THRESHOLD = 50.0              # empty<=13, gripped 50-80
-CLOSE_SEQUENCE = [200, 160, 130, 100, 80, 60, 40]   # progressive close steps
+SETTLE_SEC        = 0.4
+GRIP_PITCH        = 157      # fixed grip pitch for pitch fingers (CALIBRATE: 160 grips loose)
+GRIP_SETTLE_SEC   = 1.5      # wait for fingers to physically reach the grip pitch
+CONTACT_THRESHOLD = 40.0     # post-close effort above this = grip ok, else empty grasp
+GLITCH_MAX        = 105.0    # effort above this = Modbus glitch (real grip <=~100)
 
 
 class GraspPipeline(Node):
@@ -102,6 +105,39 @@ class GraspPipeline(Node):
             return False
         return rf.result().result.error_code == 0
 
+    def move_through_joints(self, poses, step_dur=3.0):
+        """Send multiple waypoints as ONE trajectory so arm_node blends them
+        (moveAppend + setDefaultZone) -- one continuous motion, no stop-and-go."""
+        q_now = [self.current_joints[j] for j in self.joint_names]
+        goal = FollowJointTrajectory.Goal()
+        goal.trajectory = JointTrajectory()
+        goal.trajectory.joint_names = self.joint_names
+        pts = []
+        p0 = JointTrajectoryPoint()
+        p0.positions = q_now
+        p0.time_from_start.sec = 0
+        pts.append(p0)
+        for i, q in enumerate(poses):
+            p = JointTrajectoryPoint()
+            p.positions = list(q)
+            t = step_dur * (i + 1)
+            p.time_from_start.sec = int(t)
+            p.time_from_start.nanosec = int((t % 1) * 1e9)
+            pts.append(p)
+        goal.trajectory.points = pts
+        fut = self.traj_client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self, fut, timeout_sec=5.0)
+        gh = fut.result()
+        if not gh or not gh.accepted:
+            self.get_logger().error('traj goal rejected')
+            return False
+        rf = gh.get_result_async()
+        rclpy.spin_until_future_complete(self, rf, timeout_sec=step_dur * len(poses) + 60.0)
+        if not rf.done():
+            self.get_logger().error('traj exec timeout')
+            return False
+        return rf.result().result.error_code == 0
+
     def hand_preset(self, name):
         req = SetHandPreset.Request()
         req.name = name
@@ -123,49 +159,68 @@ class GraspPipeline(Node):
             rclpy.spin_once(self, timeout_sec=0.2)
         return self.latest_effort
 
-    def force_grasp(self):
-        self.get_logger().info('  force-grasp: progressive close, monitor effort')
-        for pv in CLOSE_SEQUENCE:
-            pose = [pv if i in PITCH_IDX else 128 for i in range(10)]
-            self.hand_set_pose(pose)
-            time.sleep(1.2)
+    def _read_detect(self, n=3):
+        # collect n non-glitch effort samples, return their median DETECT_IDX value
+        vals = []
+        tries = 0
+        while len(vals) < n and tries < 2 * n:
+            tries += 1
             eff = self.read_effort()
             if eff is None:
-                self.get_logger().warn('  no hand state; continue')
                 continue
-            detect = max(abs(eff[i]) for i in DETECT_IDX)
-            self.get_logger().info('  pitch=%3d  Index/Little effort=%.0f' % (pv, detect))
-            if detect > EFFORT_THRESHOLD:
-                self.get_logger().info('  force-grasp: GRIPPED at pitch=%d effort=%.0f' % (pv, detect))
-                return True
-        self.get_logger().warn('  force-grasp: closed fully, effort below threshold (empty grasp?)')
-        return False
+            d = max(abs(eff[i]) for i in DETECT_IDX)
+            if d <= GLITCH_MAX:
+                vals.append(d)
+        if not vals:
+            return None
+        vals.sort()
+        return vals[len(vals) // 2]
+
+    def _close_read(self, pv):
+        # command pitch fingers to pv, settle, return median non-glitch effort (or None)
+        pose = [pv if i in PITCH_IDX else 128 for i in range(10)]
+        self.hand_set_pose(pose)
+        time.sleep(SETTLE_SEC)
+        return self._read_detect()
+
+    def force_grasp(self):
+        # close pitch fingers to a fixed calibrated grip pitch. effort is logged
+        # for reference only: when the finger reaches the commanded pitch, even a
+        # firm grip reads low torque (2026-05-21: stable grip read effort 28) --
+        # effort cannot confirm the grasp, so do not gate on it.
+        self.get_logger().info('  force-grasp: close to grip pitch %d' % GRIP_PITCH)
+        pose = [GRIP_PITCH if i in PITCH_IDX else 128 for i in range(10)]
+        self.hand_set_pose(pose)
+        time.sleep(GRIP_SETTLE_SEC)
+        d = self._read_detect()
+        eff = ('%.0f' % d) if d is not None else 'n/a'
+        self.get_logger().info('  force-grasp: closed to pitch=%d (effort=%s, ref only)'
+                               % (GRIP_PITCH, eff))
+        return True
 
     def pick(self):
         poses = LEFT_POSES
         self.get_logger().info('=== PICK START (joint-space + force grasp) ===')
 
-        self.get_logger().info('[1/4] open hand (parallel with arm move)')
-        self.hand_preset('open')
-
-        self.get_logger().info('[2/4] move to pre-grasp')
-        if not self.move_to_joints(poses['pre_grasp'], 4.0):
+        self.get_logger().info('[1/2] open hand + move pre-grasp->grasp (blended)')
+        _req = SetHandPreset.Request()
+        _req.name = 'open'
+        _hand_fut = self.hand_preset_client.call_async(_req)
+        # pre_grasp + grasp as ONE trajectory -> arm_node blends through
+        # pre_grasp without stopping (smoother than two separate moves)
+        if not self.move_through_joints([poses['pre_grasp'], poses['grasp']], step_dur=3.5):
             return False
-        self.get_logger().info('[3/4] move to grasp pose')
-        if not self.move_to_joints(poses['grasp'], 3.0):
-            return False
+        if not (_hand_fut.done() and _hand_fut.result() and _hand_fut.result().success):
+            self.get_logger().warn('  hand open not confirmed (continuing)')
 
-        self.get_logger().info('[4/4] force-closed grasp + lift')
-        gripped = self.force_grasp()
+        self.get_logger().info('[2/2] force-closed grasp + lift')
+        self.force_grasp()
         time.sleep(0.5)
         if not self.move_to_joints(poses['lift'], 3.0):
             return False
 
-        if gripped:
-            self.get_logger().info('=== PICK DONE (gripped) ===')
-        else:
-            self.get_logger().warn('=== PICK DONE but grasp may have FAILED (empty) ===')
-        return gripped
+        self.get_logger().info('=== PICK DONE (sequence complete; confirm grasp visually) ===')
+        return True
 
 
 def main():

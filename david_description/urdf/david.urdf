@@ -404,6 +404,14 @@
     <axis
       xyz="0 0 0" />
   </joint>
+
+  <!-- Head-mounted RealSense D455 (user-estimated 2026-05-28) -->
+  <link name="camera_link"/>
+  <joint name="link4_to_camera_link" type="fixed">
+    <parent link="Link4"/>
+    <child  link="camera_link"/>
+    <origin xyz="0.09 0 0.535" rpy="0 0.838 0"/>
+  </joint>
   <link
     name="left_wheel_link">
     <inertial>

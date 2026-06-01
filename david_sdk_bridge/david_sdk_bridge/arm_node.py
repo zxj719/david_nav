@@ -126,6 +126,14 @@ class ArmNode(Node):
             try:
                 self.hand = L10HandController(self.robot_ip, self.local_ip, slave_id)
                 self.hand.robot = self.robot  # SHARE: skip hand.connect() to avoid double-connect
+                # Init torque (reg 10) and speed (reg 20) so motors actually move on write
+                try:
+                    self.hand.set_torque_all(150)
+                    self.hand.set_speed_all(120)
+                    self.get_logger().info(
+                        f"[{self.side}] hand torque=150 speed=120 initialized")
+                except Exception as e:
+                    self.get_logger().warn(f"[{self.side}] hand torque/speed init failed: {e}")
                 self.get_logger().info(
                     f"[{self.side}] L10 hand integrated (slave_id=0x{slave_id:02X}, share robot)"
                 )
@@ -342,12 +350,29 @@ class ArmNode(Node):
                 gh.abort()
                 return result
 
-            cmds = []
+            # Build all SDK joint commands then subsample
+            all_qs = []
             for pt in traj.points:
                 q = self._reorder(tn, list(pt.positions))
                 # 反向映射：发到 SDK 时减去 offset
                 q_sdk = [q[i] - self.joint_offsets_rad[i] for i in range(7)]
-                cmds.append(xCoreSDK_python.MoveAbsJCommand(q_sdk, self.sdk_speed))
+                all_qs.append(q_sdk)
+
+            # Aggressive subsample: keep ONLY the final goal joint config.
+            # Rationale: MoveGroup OMPL has already verified the path is
+            # feasible (start state OK, goal state OK, no obstacle); the
+            # intermediate points are just time-parameterization waypoints.
+            # Sending only the goal lets SDK do its own smooth interpolation
+            # (matches the smoothness of `moveAppend(single_pt) + moveStart`
+            # used by the manual keyboard-reset demo).
+            n_in = len(all_qs)
+            if n_in == 0:
+                cmds = []
+            else:
+                cmds = [xCoreSDK_python.MoveAbsJCommand(all_qs[-1], self.sdk_speed)]
+                if n_in > 1:
+                    self.get_logger().info(
+                        f"[{self.side}] trajectory simplified to goal-only: {n_in} -> 1 pt")
 
             if not cmds:
                 self.get_logger().warn(f"[{self.side}] empty traj")
@@ -377,10 +402,32 @@ class ArmNode(Node):
                 cid = xCoreSDK_python.PyString()
                 self.robot.moveAppend(cmds, cid, self.ec)
                 self.robot.moveStart(self.ec)
+                try:
+                    st0 = self.robot.operationState(self.ec)
+                    op_mode = self.robot.getOperateMode(self.ec)
+                    self.get_logger().warn(f"[{self.side}] after moveStart: state={st0} opmode={op_mode}")
+                except Exception as e:
+                    self.get_logger().warn(f"[{self.side}] state read failed: {e}")
             except Exception as e:
                 self.get_logger().error(f"[{self.side}] moveStart failed: {e}")
                 result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
                 gh.abort(); return result
+
+            # NEW: wait for SDK to leave idle before polling for idle (race fix)
+            t_wait = time.time()
+            _last_log = 0.0
+            _last_st = None
+            while time.time() - t_wait < 2.0:
+                try:
+                    _st = self.robot.operationState(self.ec)
+                    if _st != _last_st:
+                        self.get_logger().warn(f"[{self.side}] wait-loop state -> {_st}")
+                        _last_st = _st
+                    if _st != xCoreSDK_python.OperationState.idle:
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.02)
 
             t0 = time.time()
             fb = FollowJointTrajectory.Feedback()

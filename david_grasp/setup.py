@@ -23,6 +23,11 @@ setup(
         "console_scripts": [
             # Stage 3-5 入口将逐步填充
             "pick_at_pose = david_grasp.pick_at_pose:main",
+            "greet = david_grasp.greet:main",
+            "pick_cartesian = david_grasp.pick_cartesian:main",
+            "mock_grasp_pose = david_grasp.mock_grasp_pose:main",
+            "goto_pose = david_grasp.goto_pose:main",
+            "pick_from_cam = david_grasp.pick_from_cam:main",
             # "force_grasp = david_grasp.force_grasp:main",
             # "vision_pick = david_grasp.vision_pick:main",
             # "grasp_pipeline = david_grasp.grasp_pipeline:main",

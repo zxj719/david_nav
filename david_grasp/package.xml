@@ -12,6 +12,7 @@
   <depend>control_msgs</depend>
   <depend>tf2_ros</depend>
   <depend>moveit_msgs</depend>
+  <depend>shape_msgs</depend>
   <depend>david_hand_msgs</depend>
 
   <export>
