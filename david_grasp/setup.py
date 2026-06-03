@@ -28,6 +28,8 @@ setup(
             "mock_grasp_pose = david_grasp.mock_grasp_pose:main",
             "goto_pose = david_grasp.goto_pose:main",
             "pick_from_cam = david_grasp.pick_from_cam:main",
+            "grab_server = david_grasp.grab_server:main",
+            "arm_grab_ws_client = david_grasp.arm_grab_ws_client:main",
             # "force_grasp = david_grasp.force_grasp:main",
             # "vision_pick = david_grasp.vision_pick:main",
             # "grasp_pipeline = david_grasp.grasp_pipeline:main",

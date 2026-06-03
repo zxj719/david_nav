@@ -27,12 +27,21 @@ def generate_launch_description():
             "local_ip": LaunchConfiguration("left_local_ip"),
             "controller_name": "left_arm_controller",
             "joint_name_prefix": "AR5-5_08L-W4C4A6-ZY2_joint_",
-            "sdk_speed": 600,
+            "sdk_speed": 600,  # 2026-06-01: reverted from 800 -- +33% speed amplified impact when full IK threshold (widened same day) let palm contact bottle tilted; contributed to right thumb damage. Hold 600 until per-stage approach speeds are validated.
             "sdk_zone": 80,
             "state_pub_hz": 50.0,
             "dry_run": LaunchConfiguration("dry_run"),
             # 左臂偏移（暂用 0，等用户测后填）
             "joint_offsets_deg": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            # 2026-06-01 (reverted): sign-flip was based on WRONG diagnosis.
+            # URDF already handles left/right mirror via base rpy="-1.570 0 0"
+            # (vs right "+1.570 0 0"), which flips left arm Y and Z relative to
+            # right. The j3/j5 home values being negated in user's home_deg data
+            # is the expected URDF expression of the mirror, NOT a motor-
+            # direction mismatch. Adding sign flip broke URDF/physical alignment
+            # for vision IK (pick_at_pose worked only by accidental cancellation
+            # of LEFT_POSES j3/j5 negation + sign flip). Reverted to [1]*7.
+            "joint_signs": [1, 1, 1, 1, 1, 1, 1],
             # 左臂 home 位姿（SDK 坐标，度）：与 SRDF home 匹配
             "home_pose_deg": [145.00, 90.00, -90.00, 100.00, 90.00, 0.00, 0.00],
             "hand_slave_id": 0x28,  # left = 40
@@ -49,7 +58,7 @@ def generate_launch_description():
             "local_ip": LaunchConfiguration("right_local_ip"),
             "controller_name": "right_arm_controller",
             "joint_name_prefix": "AR5-5_08R-W4C4A6-ZY2_joint_",
-            "sdk_speed": 600,
+            "sdk_speed": 600,  # 2026-06-01: reverted from 800 -- +33% speed amplified impact when full IK threshold (widened same day) let palm contact bottle tilted; contributed to right thumb damage. Hold 600 until per-stage approach speeds are validated.
             "sdk_zone": 80,
             "state_pub_hz": 50.0,
             "dry_run": LaunchConfiguration("dry_run"),

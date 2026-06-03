@@ -69,6 +69,14 @@ class ArmNode(Node):
         self.declare_parameter("dry_run", False)
         self.declare_parameter("power_on_at_start", False)
         self.declare_parameter("joint_offsets_deg", [0.0]*7)  # 安全默认 false
+        # joint_signs (2026-06-01): per-joint sign multiplier from URDF angle to
+        # SDK angle. Physically left arm is the mirror of right arm so j3 and j5
+        # electrically rotate in the opposite direction (verified empirically:
+        # left home_deg [+145,+90,-90,+140,+90,0,0] vs right [-55,+85,+100,+140,
+        # -90,+5,0] -- j3, j5 reversed sign). URDF has identical axis xyz="0 0 1"
+        # for both, so URDF FK was wrong on left. Setting joint_signs on left to
+        # [1,1,-1,1,-1,1,1] makes URDF FK match physical reality.
+        self.declare_parameter("joint_signs", [1, 1, 1, 1, 1, 1, 1])
         self.declare_parameter("home_pose_deg", [0.0]*7)  # home pose in SDK coords (deg)
         self.declare_parameter("hand_slave_id", 0)  # 0x27 right / 0x28 left, 0 = disable hand
 
@@ -87,6 +95,13 @@ class ArmNode(Node):
         if len(offs_deg) != 7:
             offs_deg = [0.0]*7
         self.joint_offsets_rad = [_math.radians(d) for d in offs_deg]
+
+        signs = list(self.get_parameter("joint_signs").value)
+        if len(signs) != 7 or any(s not in (-1, 1, -1.0, 1.0) for s in signs):
+            self.get_logger().warn(
+                f"[{self.side}] joint_signs invalid ({signs}); falling back to all +1")
+            signs = [1]*7
+        self.joint_signs = [int(s) for s in signs]
 
         home_deg = list(self.get_parameter("home_pose_deg").value)
         if len(home_deg) != 7:
@@ -312,11 +327,15 @@ class ArmNode(Node):
         msg.name = list(self.joint_names)
         try:
             if self.dry_run or self.robot is None:
-                # 发 home (SDK->URDF after +offset),让 RViz 启动即显示真机起始姿态
-                msg.position = [self._home_sdk_rad[i] + self.joint_offsets_rad[i] for i in range(7)]
+                # SDK -> URDF: urdf = sign * sdk + offset
+                msg.position = [
+                    self.joint_signs[i] * self._home_sdk_rad[i] + self.joint_offsets_rad[i]
+                    for i in range(7)]
             else:
                 q = self.robot.jointPos(self.ec)
-                msg.position = [float(q[i]) + self.joint_offsets_rad[i] for i in range(7)]
+                msg.position = [
+                    self.joint_signs[i] * float(q[i]) + self.joint_offsets_rad[i]
+                    for i in range(7)]
         except Exception as e:
             self.get_logger().warn(f"[{self.side}] jointPos failed: {e}", throttle_duration_sec=2.0)
             return
@@ -338,6 +357,68 @@ class ArmNode(Node):
         idx = {n: i for i, n in enumerate(traj_names)}
         return [positions[idx[jn]] for jn in self.joint_names]
 
+    # ------------------------------------------------------------------
+    # SDK error / power-state helpers (added 2026-06-03 to detect silent estop)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _ec_extract(obj, names=("value", "get")):
+        """Try several attribute names + try as method then as property."""
+        for n in names:
+            attr = getattr(obj, n, None)
+            if attr is None:
+                continue
+            # Try calling as method first (xCoreSDK C++ binding often exposes methods)
+            try:
+                v = attr()
+                return v
+            except TypeError:
+                # Not callable -- try as property/attribute
+                return attr
+            except Exception:
+                continue
+        return None
+
+    def _ec_readable(self):
+        """Format self.ec (PyErrorCode) as 'ec=<val> (<msg>)' for logging.
+
+        Rokae PyErrorCode binding has .value() (or .get()) and .message().
+        Both are usually C++ methods, not properties."""
+        v = self._ec_extract(self.ec, ("value", "get"))
+        m = self._ec_extract(self.ec, ("message",))
+        return f"ec={v} ({m})"
+
+    def _ec_failed(self):
+        """True if the most recent SDK call returned a non-zero error code."""
+        v = self._ec_extract(self.ec, ("value", "get"))
+        try:
+            return int(v) != 0
+        except (TypeError, ValueError):
+            return False
+
+    def _safe_power_state(self):
+        """Return powerState() as string, or '?err' if SDK call fails.
+
+        PowerState enum: on / off / estop / gstop / unknown.
+        estop = emergency stop triggered (safety monitor / physical button).
+        gstop = guard stop (safety door / light curtain)."""
+        try:
+            ps = self.robot.powerState(self.ec)
+            return str(ps)
+        except Exception as e:
+            return f"?err({type(e).__name__})"
+
+    def _is_estop(self):
+        """True if the controller is currently in estop or gstop state.
+
+        Use this to distinguish 'robot at idle because trajectory done' from
+        'robot at idle because safety stop pulled servos offline'."""
+        try:
+            ps = self.robot.powerState(self.ec)
+            s = str(ps).lower()
+            return ("estop" in s) or ("gstop" in s)
+        except Exception:
+            return False
+
     def _execute_cb(self, gh):
         result = FollowJointTrajectory.Result()
         with self._goal_lock:
@@ -355,7 +436,9 @@ class ArmNode(Node):
             for pt in traj.points:
                 q = self._reorder(tn, list(pt.positions))
                 # 反向映射：发到 SDK 时减去 offset
-                q_sdk = [q[i] - self.joint_offsets_rad[i] for i in range(7)]
+                # URDF -> SDK: sdk = sign * (urdf - offset)
+                q_sdk = [self.joint_signs[i] * (q[i] - self.joint_offsets_rad[i])
+                         for i in range(7)]
                 all_qs.append(q_sdk)
 
             # Aggressive subsample: keep ONLY the final goal joint config.
@@ -402,18 +485,35 @@ class ArmNode(Node):
                 cid = xCoreSDK_python.PyString()
                 self.robot.moveAppend(cmds, cid, self.ec)
                 self.robot.moveStart(self.ec)
+                # Check SDK error code from PyErrorCode (self.ec is reused; reflects
+                # the LAST SDK call -- moveStart). Non-zero = SDK rejected motion,
+                # typically because controller is in estop/error state.
+                ec_info = self._ec_readable()
+                if self._ec_failed():
+                    pstate = self._safe_power_state()
+                    self.get_logger().error(
+                        f"[{self.side}] !!! moveStart REJECTED by SDK: {ec_info} "
+                        f"powerState={pstate} -- "
+                        f"controller likely in estop/error state. "
+                        f"Recovery: power-cycle controller, then clearServoAlarm()/recoverState().")
+                    result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
+                    gh.abort(); return result
                 try:
                     st0 = self.robot.operationState(self.ec)
-                    op_mode = self.robot.getOperateMode(self.ec)
-                    self.get_logger().warn(f"[{self.side}] after moveStart: state={st0} opmode={op_mode}")
+                    pstate = self._safe_power_state()
+                    self.get_logger().warn(
+                        f"[{self.side}] after moveStart: state={st0} power={pstate} {ec_info}")
                 except Exception as e:
                     self.get_logger().warn(f"[{self.side}] state read failed: {e}")
             except Exception as e:
-                self.get_logger().error(f"[{self.side}] moveStart failed: {e}")
+                self.get_logger().error(f"[{self.side}] moveStart exception: {e}")
                 result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
                 gh.abort(); return result
 
             # NEW: wait for SDK to leave idle before polling for idle (race fix)
+            # Also: detect estop -- if controller went into estop during/after
+            # moveStart, operationState stays idle forever, so without this check
+            # we'd silently report SUCCESS even though robot never moved.
             t_wait = time.time()
             _last_log = 0.0
             _last_st = None
@@ -421,8 +521,20 @@ class ArmNode(Node):
                 try:
                     _st = self.robot.operationState(self.ec)
                     if _st != _last_st:
-                        self.get_logger().warn(f"[{self.side}] wait-loop state -> {_st}")
+                        pstate = self._safe_power_state()
+                        self.get_logger().warn(
+                            f"[{self.side}] wait-loop state -> {_st} (power={pstate})")
                         _last_st = _st
+                    # E-stop check (Rokae safety monitor can trigger w/o physical hit)
+                    if self._is_estop():
+                        pstate = self._safe_power_state()
+                        self.get_logger().error(
+                            f"[{self.side}] !!! E-STOP DETECTED in pre-move wait-loop !!! "
+                            f"powerState={pstate}. Robot was idle but is now in "
+                            f"protective stop. Trajectory aborted. "
+                            f"Recovery: power-cycle controller, then clearServoAlarm().")
+                        result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
+                        gh.abort(); return result
                     if _st != xCoreSDK_python.OperationState.idle:
                         break
                 except Exception:
@@ -432,6 +544,7 @@ class ArmNode(Node):
             t0 = time.time()
             fb = FollowJointTrajectory.Feedback()
             fb.joint_names = list(self.joint_names)
+            _estop_check_cnt = 0
             while time.time() - t0 < 300.0:
                 if gh.is_cancel_requested:
                     try: self.robot.stop(self.ec)
@@ -440,9 +553,24 @@ class ArmNode(Node):
                     return result
                 try:
                     q = self.robot.jointPos(self.ec)
-                    fb.actual.positions = [float(q[i]) + self.joint_offsets_rad[i] for i in range(7)]
+                    fb.actual.positions = [
+                        self.joint_signs[i] * float(q[i]) + self.joint_offsets_rad[i]
+                        for i in range(7)]
                     gh.publish_feedback(fb)
                     st = self.robot.operationState(self.ec)
+                    # E-stop check every ~5 loops (~250ms), avoid per-tick overhead
+                    _estop_check_cnt += 1
+                    if _estop_check_cnt >= 5:
+                        _estop_check_cnt = 0
+                        if self._is_estop():
+                            pstate = self._safe_power_state()
+                            self.get_logger().error(
+                                f"[{self.side}] !!! E-STOP MID-MOTION !!! "
+                                f"powerState={pstate}. Trajectory aborted at "
+                                f"t={time.time()-t0:.2f}s. "
+                                f"Recovery: power-cycle controller, clearServoAlarm().")
+                            result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
+                            gh.abort(); return result
                     if st == xCoreSDK_python.OperationState.idle:
                         break
                 except Exception:

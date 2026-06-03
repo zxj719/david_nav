@@ -636,11 +636,19 @@
   </joint>
   
 
-  <!-- install a left arm -->
+  <!-- ──────────────────────────────────────────────────────────────────
+       LEFT-ARM Z-AXIS 180° FLIP  (workflow-synced from waist_robot.urdf, 2026-06-02)
+       Rotate the left AR5 arm by π about its OWN base Z axis.
+       Old rpy: (-π/2, 0, 0)    →  R_x(-π/2)
+       New rpy:  (π/2, 0, π)    →  R_x(-π/2) @ R_z(π)
+       Companion: left_hand_connect below also rotates 180° so the hand
+       WORLD pose at q=0 is conserved.  Master: waist_robot.urdf.
+       Consumer of this URDF copy: david.urdf.xacro xacro:include → david_moveit_config (MoveIt2 motion planning)
+       ────────────────────────────────────────────────────────────────── -->
   <joint name="left_arm_connect" type="fixed">
-    <parent link="left_arm_fixed_link"/>  <!-- robot_a的根连杆 -->
-    <child link="AR5-5_08L-W4C4A6-ZY2_base"/>   <!-- robot_b的根连杆 -->
-    <origin xyz="0 -0.09 0" rpy="-1.570 0 0"/>
+    <parent link="left_arm_fixed_link"/>
+    <child link="AR5-5_08L-W4C4A6-ZY2_base"/>
+    <origin xyz="0 -0.09 0" rpy="-1.5707963 0 0"/>
   </joint>
 
   <!--base-->
@@ -870,11 +878,19 @@
     <origin rpy="0 0 0" xyz="0 0 0.09"/>
   </joint>
 
-  <!-- install a left hand -->
+  <!-- ──────────────────────────────────────────────────────────────────
+       LEFT-HAND Z-AXIS 180° COMPENSATION (workflow-synced from waist_robot.urdf, 2026-06-02)
+       Companion to the left_arm_connect 180° Z-flip above.
+       At q=0 the AR5-L base→flan is a pure +Z translation (0.8745 m);
+       pure Z-translations commute with R_z(π) so the R_z(π) added here
+       cancels the R_z(π) at arm-base and conserves hand WORLD pose at q=0.
+       NOTE: exact only at home; at non-zero arm joints the compensation
+       is no longer rigid. See waist_robot.urdf for the master comment.
+       ────────────────────────────────────────────────────────────────── -->
   <joint name="left_hand_connect" type="fixed">
-    <parent link="AR5-5_08L-W4C4A6-ZY2_flan_link"/>  
-    <child link="left_hand_base_link"/> 
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="AR5-5_08L-W4C4A6-ZY2_flan_link"/>
+    <child link="left_hand_base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 3.1415927"/>
   </joint>
 
   <link name="left_hand_base_link">
