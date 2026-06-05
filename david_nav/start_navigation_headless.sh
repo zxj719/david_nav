@@ -72,6 +72,28 @@ LAST_STARTED_PID=""
 LAST_STARTED_PGID=""
 BRINGUP_PID=""
 
+# 2026-05-23: chassis liveness watcher + zero-cmd-vel-on-shutdown defenses.
+# See docs/reports/2026-05-23-chassis-driver-death-mid-run.md. wheeltec_robot
+# crashing mid-run leaves STM32 holding the last frame (e.g. v=0.5), so Ctrl+C
+# can't stop the robot. We poll chassis pid and trigger normal cleanup on death;
+# cleanup itself first publishes (0,0) to /cmd_vel so any healthy STM32 stops.
+CHASSIS_PID=""
+CHASSIS_LIVENESS_PID=""
+CHASSIS_LIVENESS_INTERVAL_SEC="${CHASSIS_LIVENESS_INTERVAL_SEC:-5}"
+ZERO_CMD_VEL_ON_SHUTDOWN="${ZERO_CMD_VEL_ON_SHUTDOWN:-true}"
+ZERO_CMD_VEL_DURATION_SEC="${ZERO_CMD_VEL_DURATION_SEC:-0.6}"
+
+# Chassis auto-restart budget. When wheeltec_robot dies mid-run we try
+# bringing it back up CHASSIS_MAX_RESTARTS times before triggering full
+# shutdown. The watcher fires SIGUSR1 → handle_chassis_death, which calls
+# restart_chassis_once. Budget is per-script-invocation; not reset on
+# successful uptime (a chassis that crashes twice in one session is almost
+# certainly a hardware problem worth stopping for).
+CHASSIS_MAX_RESTARTS="${CHASSIS_MAX_RESTARTS:-1}"
+CHASSIS_RESTART_COUNT=0
+CHASSIS_LAUNCH_CMD_STR=""
+CHASSIS_LOG_FILE=""
+
 EXPLICIT_TOPICS=(
   /tf
   /tf_static
@@ -363,17 +385,123 @@ stop_stale_executor() {
   cleanup_executor_lock
 }
 
+start_chassis_liveness_watch() {
+  # Poll the wheeltec chassis pid every CHASSIS_LIVENESS_INTERVAL_SEC. If
+  # it dies the watcher fires SIGUSR1 on the main script — handle_chassis_death
+  # then decides whether to restart or give up. We deliberately do NOT send
+  # SIGINT here because we want one restart attempt before bailing out.
+  if [[ "$START_CHASSIS" != true ]] || [[ -z "$CHASSIS_PID" ]]; then
+    return 0
+  fi
+  if [[ "$DRY_RUN" == true ]]; then
+    return 0
+  fi
+  local script_pid="$$"
+  local chassis_pid="$CHASSIS_PID"
+  local interval="$CHASSIS_LIVENESS_INTERVAL_SEC"
+  log "Starting chassis liveness watch (poll ${interval}s, chassis pid=${chassis_pid})"
+  (
+    while kill -0 "$chassis_pid" 2>/dev/null; do
+      sleep "$interval"
+    done
+    printf '[%s] WARN: Wheeltec chassis (pid=%s) died. Notifying main.\n' \
+      "$(date '+%Y-%m-%dT%H:%M:%S')" "$chassis_pid" >&2
+    kill -USR1 "$script_pid" 2>/dev/null || true
+  ) &
+  CHASSIS_LIVENESS_PID=$!
+  disown "$CHASSIS_LIVENESS_PID" 2>/dev/null || true
+}
+
+restart_chassis_once() {
+  # Bring the wheeltec_robot launch back up once. Caller is the SIGUSR1
+  # trap so we're already in the main shell and can mutate CHILD_* arrays
+  # via start_managed_process. Returns 0 on success, 1 if budget exhausted
+  # or the new process exits during CHASSIS_STARTUP_DELAY_SEC.
+  if (( CHASSIS_RESTART_COUNT >= CHASSIS_MAX_RESTARTS )); then
+    log "Chassis restart budget exhausted (${CHASSIS_RESTART_COUNT}/${CHASSIS_MAX_RESTARTS}). Giving up."
+    return 1
+  fi
+  if [[ -z "$CHASSIS_LAUNCH_CMD_STR" || -z "$CHASSIS_LOG_FILE" ]]; then
+    log "Cannot restart chassis — original launch context not captured."
+    return 1
+  fi
+  CHASSIS_RESTART_COUNT=$(( CHASSIS_RESTART_COUNT + 1 ))
+  log "Restarting wheeltec chassis (attempt ${CHASSIS_RESTART_COUNT}/${CHASSIS_MAX_RESTARTS})"
+  start_managed_process "Wheeltec chassis (restart ${CHASSIS_RESTART_COUNT})" \
+    "$CHASSIS_LOG_FILE" bash -c "$CHASSIS_LAUNCH_CMD_STR"
+  CHASSIS_PID="$LAST_STARTED_PID"
+  sleep "$CHASSIS_STARTUP_DELAY_SEC"
+  if ! is_pid_alive "$CHASSIS_PID"; then
+    log "Wheeltec chassis restart failed (pid ${CHASSIS_PID} died within ${CHASSIS_STARTUP_DELAY_SEC}s)."
+    return 1
+  fi
+  log "Wheeltec chassis restarted: new pid=${CHASSIS_PID}"
+  start_chassis_liveness_watch
+  return 0
+}
+
+handle_chassis_death() {
+  # SIGUSR1 from the liveness watcher. Try one restart; if it fails fall
+  # through to the standard cleanup path so the operator gets the same
+  # shutdown behaviour as Ctrl+C.
+  log 'Chassis death notification (SIGUSR1). Attempting restart.'
+  # Old watcher has already exited (its target pid is gone). Clear the
+  # stored PID so stop_chassis_liveness_watch in cleanup is a no-op.
+  CHASSIS_LIVENESS_PID=""
+  if restart_chassis_once; then
+    return
+  fi
+  log 'Chassis restart failed — triggering full shutdown.'
+  cleanup
+  exit 1
+}
+
+stop_chassis_liveness_watch() {
+  if [[ -n "$CHASSIS_LIVENESS_PID" ]] && kill -0 "$CHASSIS_LIVENESS_PID" 2>/dev/null; then
+    kill "$CHASSIS_LIVENESS_PID" 2>/dev/null || true
+  fi
+  CHASSIS_LIVENESS_PID=""
+}
+
+publish_zero_cmd_vel() {
+  # Send a short burst of zero Twists on /cmd_vel right before tearing down
+  # nav2 / separator. STM32 has no cmd_vel watchdog (yet), so the last frame
+  # before kill is what it executes; without this it can stay at the last
+  # commanded non-zero velocity until something else stops it.
+  if [[ "$ZERO_CMD_VEL_ON_SHUTDOWN" != true ]]; then
+    return 0
+  fi
+  if [[ "$DRY_RUN" == true ]]; then
+    return 0
+  fi
+  if ! command -v "$ROS2_BIN" >/dev/null 2>&1; then
+    return 0
+  fi
+  log "Publishing zero /cmd_vel for ${ZERO_CMD_VEL_DURATION_SEC}s before shutdown"
+  timeout "$ZERO_CMD_VEL_DURATION_SEC" \
+    "$ROS2_BIN" topic pub --rate 20 /cmd_vel geometry_msgs/msg/Twist \
+    '{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}' \
+    >/dev/null 2>&1 || true
+}
+
 cleanup() {
   if [[ "$CLEANUP_DONE" == true ]]; then
     return
   fi
   CLEANUP_DONE=true
 
+  # Stop watcher first — otherwise it can re-trigger us during cleanup.
+  stop_chassis_liveness_watch
+
   cleanup_executor_lock
 
   if ((${#CHILD_PIDS[@]} == 0)); then
     return
   fi
+
+  # Send zero cmd_vel BEFORE killing nav2 / separator. Once they're dead
+  # nothing publishes to /cmd_vel and STM32 keeps its last frame.
+  publish_zero_cmd_vel
 
   log 'Stopping managed processes'
   snapshot_cleanup_targets
@@ -727,6 +855,7 @@ main() {
 
   trap 'handle_signal INT' INT
   trap 'handle_signal TERM' TERM
+  trap 'handle_chassis_death' USR1
   trap cleanup EXIT
 
   log "Using ROS_DOMAIN_ID=${ROS_DOMAIN_ID}"
@@ -783,13 +912,19 @@ main() {
     printf -v chassis_cmd_str 'source %q && source %q && exec ros2 launch %q %q' \
       "$ROS_SETUP" "${WHEELTEC_WS_DIR}/install/setup.bash" \
       "$WHEELTEC_LAUNCH_PACKAGE" "$WHEELTEC_LAUNCH_FILE"
-    start_managed_process 'Wheeltec chassis' "${log_dir}/chassis.log" bash -c "$chassis_cmd_str"
+    # Cache the launch context so restart_chassis_once can reuse it from
+    # the SIGUSR1 trap without re-deriving WHEELTEC_* env.
+    CHASSIS_LAUNCH_CMD_STR="$chassis_cmd_str"
+    CHASSIS_LOG_FILE="${log_dir}/chassis.log"
+    start_managed_process 'Wheeltec chassis' "$CHASSIS_LOG_FILE" bash -c "$chassis_cmd_str"
+    CHASSIS_PID="$LAST_STARTED_PID"
     if [[ "$DRY_RUN" != true ]]; then
       sleep "$CHASSIS_STARTUP_DELAY_SEC"
-      if ! is_pid_alive "$LAST_STARTED_PID"; then
-        printf 'Wheeltec chassis exited early; see %s\n' "${log_dir}/chassis.log" >&2
+      if ! is_pid_alive "$CHASSIS_PID"; then
+        printf 'Wheeltec chassis exited early; see %s\n' "$CHASSIS_LOG_FILE" >&2
         exit 1
       fi
+      start_chassis_liveness_watch
     fi
   else
     log 'Skipping wheeltec chassis launch'

@@ -150,6 +150,16 @@ class CmdVelSeparator(Node):
         # high-rate zero publishes from separator stomp on teleop cmds.
         self.declare_parameter('silent_on_idle', True)
         self.declare_parameter('idle_grace_sec', 0.5)
+        # ---- params: odom stale guard ----
+        # 2026-05-23: if wheeltec_robot dies mid-run, /odom stops and the
+        # separator was happily forwarding cmds to a topic with no subscriber
+        # — robot kept going at the last STM32 frame. Detect /odom stale and
+        # (a) WARN visibly (b) override the output to (0,0) so any healthy
+        # downstream (chassis came back, or a different bridge) sees stop.
+        # Action choices: 'zero' (force out=0,0), 'noop' (just warn).
+        self.declare_parameter('odom_stale_sec', 1.0)
+        self.declare_parameter('odom_stale_action', 'zero')
+        self.declare_parameter('odom_stale_log_period_sec', 2.0)
 
         self.input_topic = str(self.get_parameter('input_topic').value)
         self.output_topic = str(self.get_parameter('output_topic').value)
@@ -197,6 +207,15 @@ class CmdVelSeparator(Node):
         )
         self.silent_on_idle = bool(self.get_parameter('silent_on_idle').value)
         self.idle_grace_sec = float(self.get_parameter('idle_grace_sec').value)
+        self.odom_stale_sec = float(self.get_parameter('odom_stale_sec').value)
+        self.odom_stale_action = str(
+            self.get_parameter('odom_stale_action').value
+        ).strip().lower()
+        if self.odom_stale_action not in ('zero', 'noop'):
+            self.odom_stale_action = 'zero'
+        self.odom_stale_log_period_sec = max(
+            0.1, float(self.get_parameter('odom_stale_log_period_sec').value)
+        )
 
         # ---- state ----
         self.mode = Mode.IDLE
@@ -240,6 +259,11 @@ class CmdVelSeparator(Node):
         # Track when we entered IDLE so we can stay silent after a grace
         # period (lets keyboard_teleop own /cmd_vel when nav2 is idle).
         self._idle_entered_t = None
+
+        # Odom stale tracking — separate throttle from log_period_sec so we
+        # don't drown out STATE / OUT lines, and a sticky flag for edge logs.
+        self._odom_stale = False
+        self._odom_stale_last_log_t = self.get_clock().now() - Duration(seconds=10.0)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -645,6 +669,39 @@ class CmdVelSeparator(Node):
             out.linear.x = self._brake_linear_cmd()
         elif self.mode == Mode.BRAKE_ANGULAR:
             out.angular.z = self._brake_angular_cmd()
+
+        # ----- odom stale guard: if /odom hasn't been fresh in a while the
+        # chassis driver is almost certainly dead (or never came up). DWB /
+        # nav2 will keep computing controls based on no feedback; the only
+        # safe answer is to overwrite the output to zero and log loudly so
+        # operator + upstream see it. Edge-logged on entry / exit, plus a
+        # throttled WARN while stuck stale.
+        odom_now_stale = odom_age > self.odom_stale_sec
+        if odom_now_stale and not self._odom_stale:
+            self.get_logger().warn(
+                f'/odom STALE: no message for {odom_age:.2f}s '
+                f'(threshold {self.odom_stale_sec:.2f}s). '
+                f'Action: {self.odom_stale_action}. Suspect chassis driver dead.'
+            )
+            self._odom_stale = True
+            self._odom_stale_last_log_t = now
+        elif (not odom_now_stale) and self._odom_stale:
+            self.get_logger().warn(
+                f'/odom recovered (age={odom_age:.2f}s).'
+            )
+            self._odom_stale = False
+        elif odom_now_stale:
+            stale_log_age = (now - self._odom_stale_last_log_t).nanoseconds * 1e-9
+            if stale_log_age >= self.odom_stale_log_period_sec:
+                self._odom_stale_last_log_t = now
+                self.get_logger().warn(
+                    f'/odom still STALE ({odom_age:.2f}s).'
+                )
+        if odom_now_stale and self.odom_stale_action == 'zero':
+            # Override regardless of mutex mode — feedback loop is broken,
+            # force the safe output. Mode itself is left alone so when odom
+            # comes back the next tick can resume normally.
+            out = Twist()
 
         # ----- silent-on-idle: stop hammering /cmd_vel when truly idle, so
         # keyboard_teleop (or any other ad-hoc publisher) can own the
