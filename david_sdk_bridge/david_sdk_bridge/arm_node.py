@@ -361,37 +361,44 @@ class ArmNode(Node):
     # SDK error / power-state helpers (added 2026-06-03 to detect silent estop)
     # ------------------------------------------------------------------
     @staticmethod
-    def _ec_extract(obj, names=("value", "get")):
-        """Try several attribute names + try as method then as property."""
-        for n in names:
-            attr = getattr(obj, n, None)
+    def _ec_extract(obj, keys):
+        # Rokae xCoreSDK 0.5.1: ec is a plain dict; SDK writes 'code'/'message'
+        # via reference. (Earlier docs hinted at a PyErrorCode object with
+        # .value()/.message() methods, hence the legacy attr fallback.)
+        if isinstance(obj, dict):
+            for k in keys:
+                if k in obj:
+                    return obj[k]
+            return None
+        for k in keys:
+            attr = getattr(obj, k, None)
             if attr is None:
                 continue
-            # Try calling as method first (xCoreSDK C++ binding often exposes methods)
             try:
-                v = attr()
-                return v
+                return attr()
             except TypeError:
-                # Not callable -- try as property/attribute
                 return attr
             except Exception:
                 continue
         return None
 
     def _ec_readable(self):
-        """Format self.ec (PyErrorCode) as 'ec=<val> (<msg>)' for logging.
-
-        Rokae PyErrorCode binding has .value() (or .get()) and .message().
-        Both are usually C++ methods, not properties."""
-        v = self._ec_extract(self.ec, ("value", "get"))
+        c = self._ec_extract(self.ec, ("code", "value"))
         m = self._ec_extract(self.ec, ("message",))
-        return f"ec={v} ({m})"
+        if isinstance(self.ec, dict) and not self.ec:
+            return "ec={} (SDK did not write -- no error reported)"
+        return f"ec=code={c} message={m!r}"
 
     def _ec_failed(self):
-        """True if the most recent SDK call returned a non-zero error code."""
-        v = self._ec_extract(self.ec, ("value", "get"))
+        # Rokae SDK 0.5.1: ec dict carries 'code' (int) + 'message' (str).
+        # Trust ONLY non-zero code as a real failure; message wording is
+        # localized ("操作成功完成", "success", etc.) and unreliable for branching.
+        # If SDK didn't write a code (None/missing), treat as no-error -- the
+        # actual stuck-arm case is detected via wait-loop state != moving,
+        # not via ec.
+        c = self._ec_extract(self.ec, ("code", "value"))
         try:
-            return int(v) != 0
+            return int(c) != 0
         except (TypeError, ValueError):
             return False
 
@@ -408,16 +415,40 @@ class ArmNode(Node):
             return f"?err({type(e).__name__})"
 
     def _is_estop(self):
-        """True if the controller is currently in estop or gstop state.
+        """True if the controller is in a safety-stop state (estop/gstop/EMS).
+
+        Verified 2026-06-03: EMS-button press surfaces as PowerState.off with
+        ec.message='机器人急停按钮被按下, 请先恢复' -- NOT as PowerState.estop.
+        Earlier this was missed because we only matched the string 'estop' in
+        powerState, so EMS reads as 'idle' and trajectory wrongly reported
+        SUCCESS while motors were cut.
 
         Use this to distinguish 'robot at idle because trajectory done' from
         'robot at idle because safety stop pulled servos offline'."""
         try:
-            ps = self.robot.powerState(self.ec)
+            ps = self.robot.powerState(self.ec)  # writes self.ec
             s = str(ps).lower()
-            return ("estop" in s) or ("gstop" in s)
+            if ("estop" in s) or ("gstop" in s):
+                return True
+            # PowerState.off is ambiguous: could be initial state OR EMS cut.
+            # Disambiguate via ec.message keywords + powered_on flag.
+            if "off" in s and self.powered_on:
+                m = self._ec_extract(self.ec, ("message",))
+                if isinstance(m, str) and m:
+                    ml = m.lower()
+                    if ("急停" in m) or ("estop" in ml) or ("emergency" in ml):
+                        return True
+                # If we *were* powered on and now we're off without an explicit
+                # message, treat it as a safety event too (conservative).
+                return True
         except Exception:
-            return False
+            pass
+        # Fallback: even if powerState() throws, the last ec.message we have
+        # may still carry an EMS hint from the previous SDK call.
+        m = self._ec_extract(self.ec, ("message",))
+        if isinstance(m, str) and m and ("急停" in m or "estop" in m.lower()):
+            return True
+        return False
 
     def _execute_cb(self, gh):
         result = FollowJointTrajectory.Result()
@@ -441,21 +472,25 @@ class ArmNode(Node):
                          for i in range(7)]
                 all_qs.append(q_sdk)
 
-            # Aggressive subsample: keep ONLY the final goal joint config.
-            # Rationale: MoveGroup OMPL has already verified the path is
-            # feasible (start state OK, goal state OK, no obstacle); the
-            # intermediate points are just time-parameterization waypoints.
-            # Sending only the goal lets SDK do its own smooth interpolation
-            # (matches the smoothness of `moveAppend(single_pt) + moveStart`
-            # used by the manual keyboard-reset demo).
+            # Send the FULL collision-checked trajectory from MoveIt.
+            # Earlier code simplified N waypoints down to the single goal pt
+            # under the (incorrect) assumption that SDK joint-space linear
+            # interpolation would track MoveIt's planned path. It does not:
+            # MoveIt's path is often a curve that avoids self-collision, while
+            # SDK linear interp from cur->goal can pass straight through the
+            # robot's own torso. Verified 2026-06-03: left-arm lift trajectory
+            # to bottle-right position crashed the arm into the chest and
+            # tripped the EMS, despite MoveIt's planned path being clear.
             n_in = len(all_qs)
             if n_in == 0:
                 cmds = []
             else:
-                cmds = [xCoreSDK_python.MoveAbsJCommand(all_qs[-1], self.sdk_speed)]
+                cmds = [xCoreSDK_python.MoveAbsJCommand(q, self.sdk_speed)
+                        for q in all_qs]
                 if n_in > 1:
                     self.get_logger().info(
-                        f"[{self.side}] trajectory simplified to goal-only: {n_in} -> 1 pt")
+                        f"[{self.side}] sending FULL trajectory: {n_in} pts "
+                        f"(collision-checked by MoveIt)")
 
             if not cmds:
                 self.get_logger().warn(f"[{self.side}] empty traj")
@@ -479,6 +514,15 @@ class ArmNode(Node):
             # Lazy power-on: 收到第一个 goal 时上电
             if not self.powered_on:
                 self._power_on()
+
+            # Always clear any latched servo alarms before sending a trajectory.
+            # A canceled / aborted trajectory leaves the controller in a latched
+            # alarm state -- subsequent moveStart returns SUCCESS but motors
+            # never move. clearServoAlarm is a no-op when no alarm is pending.
+            try:
+                self.robot.clearServoAlarm(self.ec)
+            except Exception as e:
+                self.get_logger().warn(f"[{self.side}] clearServoAlarm pre-trajectory failed: {e}")
 
             try:
                 self.robot.moveReset(self.ec)

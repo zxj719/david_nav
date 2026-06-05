@@ -30,6 +30,7 @@ setup(
             "pick_from_cam = david_grasp.pick_from_cam:main",
             "grab_server = david_grasp.grab_server:main",
             "arm_grab_ws_client = david_grasp.arm_grab_ws_client:main",
+            "arm_home = david_grasp.arm_home:main",
             # "force_grasp = david_grasp.force_grasp:main",
             # "vision_pick = david_grasp.vision_pick:main",
             # "grasp_pipeline = david_grasp.grasp_pipeline:main",

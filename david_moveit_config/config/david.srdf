@@ -22,7 +22,7 @@
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_1" value="2.5307"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_2" value="1.5708"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_3" value="-1.5708"/>
-    <joint name="AR5-5_08L-W4C4A6-ZY2_joint_4" value="1.7453"/>
+    <joint name="AR5-5_08L-W4C4A6-ZY2_joint_4" value="2.4435"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_5" value="1.5708"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_6" value="0.0000"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_7" value="0.0000"/>
@@ -40,7 +40,7 @@
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_1" value="2.5307"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_2" value="1.5708"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_3" value="-1.5708"/>
-    <joint name="AR5-5_08L-W4C4A6-ZY2_joint_4" value="1.7453"/>
+    <joint name="AR5-5_08L-W4C4A6-ZY2_joint_4" value="2.4435"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_5" value="1.5708"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_6" value="0.0000"/>
     <joint name="AR5-5_08L-W4C4A6-ZY2_joint_7" value="0.0000"/>
@@ -1282,15 +1282,6 @@
   <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_flan_link" link2="AR5-5_08R-W4C4A6-ZY2_link7" reason="Never"/>
   <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_flan_link" link2="AR5-5_08R-W4C4A6-ZY2_base" reason="Never"/>
   <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_flan_link" link2="AR5-5_08R-W4C4A6-ZY2_flan_link" reason="Never"/>
-  <disable_collisions link1="base_link" link2="AR5-5_08L-W4C4A6-ZY2_link1" reason="Never"/>
-  <disable_collisions link1="base_link" link2="AR5-5_08L-W4C4A6-ZY2_link2" reason="Never"/>
-  <disable_collisions link1="base_link" link2="AR5-5_08L-W4C4A6-ZY2_link3" reason="Never"/>
-  <disable_collisions link1="base_link" link2="AR5-5_08L-W4C4A6-ZY2_link4" reason="Never"/>
-  <disable_collisions link1="base_link" link2="AR5-5_08L-W4C4A6-ZY2_link5" reason="Never"/>
-  <disable_collisions link1="base_link" link2="AR5-5_08L-W4C4A6-ZY2_link6" reason="Never"/>
-  <disable_collisions link1="base_link" link2="AR5-5_08L-W4C4A6-ZY2_link7" reason="Never"/>
-  <disable_collisions link1="base_link" link2="AR5-5_08L-W4C4A6-ZY2_base" reason="Never"/>
-  <disable_collisions link1="base_link" link2="AR5-5_08L-W4C4A6-ZY2_flan_link" reason="Never"/>
   <disable_collisions link1="base_link" link2="AR5-5_08R-W4C4A6-ZY2_link1" reason="Never"/>
   <disable_collisions link1="base_link" link2="AR5-5_08R-W4C4A6-ZY2_link2" reason="Never"/>
   <disable_collisions link1="base_link" link2="AR5-5_08R-W4C4A6-ZY2_link3" reason="Never"/>
@@ -1344,15 +1335,6 @@
   <disable_collisions link1="base_link" link2="thumb_metacarpals_base1" reason="Never"/>
   <disable_collisions link1="base_link" link2="thumb_metacarpals_base2" reason="Never"/>
   <disable_collisions link1="base_link" link2="thumb_proximal" reason="Never"/>
-  <disable_collisions link1="Link1" link2="AR5-5_08L-W4C4A6-ZY2_link1" reason="Never"/>
-  <disable_collisions link1="Link1" link2="AR5-5_08L-W4C4A6-ZY2_link2" reason="Never"/>
-  <disable_collisions link1="Link1" link2="AR5-5_08L-W4C4A6-ZY2_link3" reason="Never"/>
-  <disable_collisions link1="Link1" link2="AR5-5_08L-W4C4A6-ZY2_link4" reason="Never"/>
-  <disable_collisions link1="Link1" link2="AR5-5_08L-W4C4A6-ZY2_link5" reason="Never"/>
-  <disable_collisions link1="Link1" link2="AR5-5_08L-W4C4A6-ZY2_link6" reason="Never"/>
-  <disable_collisions link1="Link1" link2="AR5-5_08L-W4C4A6-ZY2_link7" reason="Never"/>
-  <disable_collisions link1="Link1" link2="AR5-5_08L-W4C4A6-ZY2_base" reason="Never"/>
-  <disable_collisions link1="Link1" link2="AR5-5_08L-W4C4A6-ZY2_flan_link" reason="Never"/>
   <disable_collisions link1="Link1" link2="AR5-5_08R-W4C4A6-ZY2_link1" reason="Never"/>
   <disable_collisions link1="Link1" link2="AR5-5_08R-W4C4A6-ZY2_link2" reason="Never"/>
   <disable_collisions link1="Link1" link2="AR5-5_08R-W4C4A6-ZY2_link3" reason="Never"/>
@@ -1406,15 +1388,6 @@
   <disable_collisions link1="Link1" link2="thumb_metacarpals_base1" reason="Never"/>
   <disable_collisions link1="Link1" link2="thumb_metacarpals_base2" reason="Never"/>
   <disable_collisions link1="Link1" link2="thumb_proximal" reason="Never"/>
-  <disable_collisions link1="Link2" link2="AR5-5_08L-W4C4A6-ZY2_link1" reason="Never"/>
-  <disable_collisions link1="Link2" link2="AR5-5_08L-W4C4A6-ZY2_link2" reason="Never"/>
-  <disable_collisions link1="Link2" link2="AR5-5_08L-W4C4A6-ZY2_link3" reason="Never"/>
-  <disable_collisions link1="Link2" link2="AR5-5_08L-W4C4A6-ZY2_link4" reason="Never"/>
-  <disable_collisions link1="Link2" link2="AR5-5_08L-W4C4A6-ZY2_link5" reason="Never"/>
-  <disable_collisions link1="Link2" link2="AR5-5_08L-W4C4A6-ZY2_link6" reason="Never"/>
-  <disable_collisions link1="Link2" link2="AR5-5_08L-W4C4A6-ZY2_link7" reason="Never"/>
-  <disable_collisions link1="Link2" link2="AR5-5_08L-W4C4A6-ZY2_base" reason="Never"/>
-  <disable_collisions link1="Link2" link2="AR5-5_08L-W4C4A6-ZY2_flan_link" reason="Never"/>
   <disable_collisions link1="Link2" link2="AR5-5_08R-W4C4A6-ZY2_link1" reason="Never"/>
   <disable_collisions link1="Link2" link2="AR5-5_08R-W4C4A6-ZY2_link2" reason="Never"/>
   <disable_collisions link1="Link2" link2="AR5-5_08R-W4C4A6-ZY2_link3" reason="Never"/>
@@ -2653,4 +2626,31 @@
   <disable_collisions link1="right_arm_fixed_link" link2="thumb_metacarpals" reason="Never"/>
   <disable_collisions link1="right_arm_fixed_link" link2="thumb_proximal" reason="Never"/>
   <disable_collisions link1="right_arm_fixed_link" link2="thumb_distal" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_base" link2="Link1" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_base" link2="Link2" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_base" link2="base_link" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_flan_link" link2="Link1" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_flan_link" link2="Link2" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_flan_link" link2="base_link" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link1" link2="Link1" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link1" link2="Link2" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link1" link2="base_link" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link2" link2="Link1" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link2" link2="Link2" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link2" link2="base_link" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link3" link2="Link1" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link3" link2="Link2" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link3" link2="base_link" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link4" link2="Link1" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link4" link2="Link2" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link4" link2="base_link" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link5" link2="Link1" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link5" link2="Link2" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link5" link2="base_link" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link6" link2="Link1" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link6" link2="Link2" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link6" link2="base_link" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link7" link2="Link1" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link7" link2="Link2" reason="Never"/>
+  <disable_collisions link1="AR5-5_08L-W4C4A6-ZY2_link7" link2="base_link" reason="Never"/>
 </robot>
