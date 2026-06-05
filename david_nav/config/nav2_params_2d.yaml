@@ -277,8 +277,11 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.1
-      # David 机身 0.95 x 0.75 m, base_footprint 在机身中心地面投影 (URDF 已校正)
-      footprint: "[[0.475, 0.375], [0.475, -0.375], [-0.475, -0.375], [-0.475, 0.375]]"
+      # 2026-05-22: footprint 改回 URDF 底盘 STL 外接矩形（david_nav/meshes/
+      # zongzhuang/base_link.STL，base_footprint 帧下 X(forward) -0.30..+0.42,
+      # Y(left) -0.30..+0.30）。base_footprint 在两轮中点投影，不在机身几何
+      # 中心，因此矩形 X 方向非对称（前 0.42 / 后 0.30）。inscribed=0.30。
+      footprint: "[[0.42, 0.30], [0.42, -0.30], [-0.30, -0.30], [-0.30, 0.30]]"
       footprint_padding: 0.0
       # 2026-05-19 Plan D：用户保证起点→终点无障碍。把 track_unknown_space
       # 改 false，让无层数据的 cell 默认 FREE_SPACE，NavfnPlanner 才能在
@@ -369,8 +372,11 @@ global_costmap:
       robot_base_frame: base_footprint
       use_sim_time: false
       resolution: 0.1
-      # David 机身 0.95 x 0.75 m, base_footprint 在机身中心地面投影 (URDF 已校正)
-      footprint: "[[0.475, 0.375], [0.475, -0.375], [-0.475, -0.375], [-0.475, 0.375]]"
+      # 2026-05-22: footprint 改回 URDF 底盘 STL 外接矩形（david_nav/meshes/
+      # zongzhuang/base_link.STL，base_footprint 帧下 X(forward) -0.30..+0.42,
+      # Y(left) -0.30..+0.30）。base_footprint 在两轮中点投影，不在机身几何
+      # 中心，因此矩形 X 方向非对称（前 0.42 / 后 0.30）。inscribed=0.30。
+      footprint: "[[0.42, 0.30], [0.42, -0.30], [-0.30, -0.30], [-0.30, 0.30]]"
       footprint_padding: 0.0
       # 2026-05-19 Plan D：用户保证起点→终点无障碍。把 track_unknown_space
       # 改 false，让无层数据的 cell 默认 FREE_SPACE，NavfnPlanner 才能在
