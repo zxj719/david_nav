@@ -412,22 +412,24 @@
     <child  link="camera_link"/>
     <origin xyz="0.09 0 0.535" rpy="0 0.838 0"/>
   </joint>
-  <!-- D455 optical frames (self-sufficient TF: no dependency on realsense
-       publish_tf or external static publishers).
-       color sensor sits 59 mm to the right of camera_link (left IR);
-       rpy = REP-103 body->optical (-90, 0, -90). Verified 2026-06-10 against
-       the 6.5 known-good extrinsic chain: arm_base<-optical = [0.090,-0.259,-0.102]. -->
+  <!-- D455 optical frames: hand-eye calibrated values synced from
+       waist_robot.urdf (2026-06-10). Link4-direct. Authoritative for
+       vision->arm math; the hand-measured camera_link mount above (tilt
+       0.838) is kept only as a reference frame, optical no longer hangs
+       off it (hand-eye tilt is 0.733). -->
   <link name="camera_color_optical_frame"/>
-  <joint name="camera_link_to_color_optical" type="fixed">
-    <parent link="camera_link"/>
+  <joint name="camera_color" type="fixed">
+    <parent link="Link4"/>
     <child  link="camera_color_optical_frame"/>
-    <origin xyz="0 -0.059 0" rpy="-1.5707963 0 -1.5707963"/>
+    <origin xyz="0.0936 0.015 0.5112"
+            rpy="0.7330382858376184 3.141592653589793 1.5707963267948966"/>
   </joint>
   <link name="camera_depth_optical_frame"/>
-  <joint name="camera_link_to_depth_optical" type="fixed">
-    <parent link="camera_link"/>
+  <joint name="camera_depth" type="fixed">
+    <parent link="Link4"/>
     <child  link="camera_depth_optical_frame"/>
-    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+    <origin xyz="0.0936 0 0.5112"
+            rpy="0.7330382858376184 3.141592653589793 1.5707963267948966"/>
   </joint>
   <link
     name="left_wheel_link">
@@ -665,7 +667,7 @@
   <joint name="left_arm_connect" type="fixed">
     <parent link="left_arm_fixed_link"/>
     <child link="AR5-5_08L-W4C4A6-ZY2_base"/>
-    <origin xyz="0 -0.09 0" rpy="-1.5707963 0 0"/>
+    <origin xyz="0 -0.09 0" rpy="1.5707963 0 3.1415927"/>
   </joint>
 
   <!--base-->

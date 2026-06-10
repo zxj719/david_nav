@@ -1,0 +1,22 @@
+# Optional: upstream twist_mux config equivalent to the bundled cmd_vel_mux.
+# Requires:  sudo apt install ros-humble-twist-mux
+# Then:      ros2 run twist_mux twist_mux --ros-args \
+#              --params-file <this file> \
+#              -r cmd_vel_out:=/cmd_vel
+#
+# Position loop wins over Nav2 whenever it is publishing. It only publishes
+# while a MoveTo goal is active, so the mux naturally falls back to Nav2 when
+# the position loop is idle (its lock times out).
+twist_mux:
+  ros__parameters:
+    topics:
+      position:
+        topic: /cmd_vel_position
+        timeout: 0.3
+        priority: 100
+      nav2:
+        topic: /cmd_vel_nav
+        timeout: 0.5
+        priority: 10
+    # No locks declared; add a std_msgs/Bool lock here if you want an
+    # explicit enable/disable channel like cmd_vel_mux's ~/enable service.

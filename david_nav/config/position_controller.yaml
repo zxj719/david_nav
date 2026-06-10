@@ -1,0 +1,78 @@
+# position_controller params (SPEC §4). Defaults; tune on the real chassis.
+# Node name is remapped under the launch, so we use a wildcard to be robust.
+/**:
+  ros__parameters:
+    odom_topic: /odom
+    cmd_topic: /cmd_vel_position
+
+    control_rate: 50.0        # Hz, must be <= odom rate
+    v_max: 0.18               # m/s（0.25→0.18：位置环超调大，整体再放慢，2026-06-09）
+    w_max: 0.4                # rad/s（2026-06-10 实测:最坏角死区 0.30,0.3 贴脸转不动;
+                              # 0.4 时转动滑行 6~11°,与 rotate_lead 0.15(8.6°) 匹配。0.3→0.4 回调）
+    a_max: 0.5                # m/s^2 (trapezoid accel limit)
+    alpha_max: 1.5            # rad/s^2
+    approach_decel: 0.15      # m/s^2，接近目标按可刹停距离限速 v<=sqrt(2*decel*(rho-pose_dist_tol))
+                              # 越小越早减速、超调越小（0.15≈从 rho~0.5m 开始减速到 tol 处≈0）。2026-06-09 加
+
+    # distance loop — pure P first, then add D; keep Ki small + clamped
+    dist.Kp: 1.2
+    dist.Ki: 0.0
+    dist.Kd: 0.1
+    dist.I_max: 0.3           # m*s
+
+    # yaw loop
+    yaw.Kp: 2.0
+    yaw.Ki: 0.0
+    yaw.Kd: 0.15
+    yaw.I_max: 0.5
+
+    dist_tol: 0.10            # m, DISTANCE/直线到位容差（2026-06-10 0.40→0.10:直线精度
+                              # 本就 ~2cm,末端 floor 0.07 爬行切零滑行 ≈2cm,0.10 富余）
+    pose_dist_tol: 0.40       # m, POSE 定点到位容差——这是"单发 MoveTo/最终 goal"的默认。
+                              # waypoint_follower 每段发车前会用 set_parameters 覆盖:
+                              # 中间 waypoint 0.8 / 最终 goal 0.4(2026-06-10 分层容差)
+    yaw_tol: 0.02             # rad, ROTATE 原地转容差（内部转向阈值，勿动；保持紧=转得准）
+    pose_yaw_tol: 0.4         # rad(≈23°), POSE 终点朝向容差（2026-06-10 3.14→0.4:重新
+                              # 启用终点朝向校正;中间 waypoint 由 waypoint_follower 动态
+                              # 设回 π=不做终转,只有最终 goal 才转）
+    # POSE = caster-safe turn-drive-turn（绝不 v+ω 同时）。见 README §4。
+    pose_align_tol: 0.10      # rad, "对准够了" 进 DRIVE 的门限
+    rotate_lead: 0.15         # rad(~9°)，原地转提前量：提前停让 caster 动量补完，实车往 ~20°(0.35) 调
+    drive_drift_lead: 0.0     # rad（2026-06-10 傍晚 0.3→0 关闭:中间点松容差吃掉甩偏 +
+                              # 段段重瞄 + 末端闭环复查兜底后,预瞄收益小,小转角段反被
+                              # 白偏 17°。代价:进场点段可能多一次重逼近。要回退就设 0.3)
+                              # ALIGN 预留的"起步甩偏角"，抵消直行起步 caster 甩偏。
+                              # 符号自动跟随 ALIGN 转向（转向决定脚轮甩向），所以这里
+                              # 只标一个【幅值+底盘L/R惯例符号】，左右转都自适应。0=关。
+                              # 标定：固定去 (0.5,0.5) 跑，调到一段直行就 arrived(无 reapproach)
+    drive_overshoot_margin: 0.05  # m，直行冲过最近点这么多 → 判 mis-aim，停下重逼近
+    pose_max_cycles: 4        # 最大重逼近次数
+    arrival_cycles: 10        # consecutive in-tolerance ticks to latch arrival
+    v_stop: 0.01              # m/s, "stopped" threshold (distance/pose)
+    w_stop: 0.05              # rad/s, "stopped" threshold (rotate/final-turn)
+
+    # 60s（不是 30）：POSE stop-and-turn 在这台慢底盘上多段 + 每段停稳，单次定点
+    # 实测 ~24s，回中（更大转角）更久；30s 会把回中/远距离 POSE 误判超时。
+    goal_timeout: 60.0        # s
+    odom_timeout: 0.5         # s, mid-run odom-loss guard（0.3→0.5：容忍 odom 短暂抖动；
+                              # 真要稳，测位置环时别开 SLAM/雷达/IMU，只留 wheeltec）
+    # 启动时等第一帧 odom 的宽限（新进程 DDS 发现竞速 / 底盘还在起）。--no-confirm
+    # 连发目标时，控制器刚 spawn 还没发现 wheeltec 的 /odom 就被打目标 → 否则会
+    # "no /odom yet" 秒 abort（2026-06-09 实测全项 0s 失败的根因）。
+    odom_start_grace: 5.0     # s
+
+    # +cmd should move odom forward. If odom goes backward on +cmd, set true.
+    invert_linear: false
+
+    # Deadzone floor — REQUIRED on this chassis (治标). Break-away feedforward
+    # is NOT done in firmware (it's a 治本方向, see PID调参报告_20260608 §1/§6).
+    # /cmd_vel_position bypasses david_move's 0.20/0.35 lift, so the floor lives
+    # here. 2026-06-10 单向扫描实测(test1_deadzone,每档先甩定脚轮):
+    #   直行 顺脚轮 ≤0.03 / 逆脚轮 0.06 → min_cmd_v = 0.06+0.01
+    #   旋转 转后 0.18 / 直行后(ALIGN 真实工况,最坏) 0.30 → min_cmd_w = 0.30+0.02
+    # 旧值 0.18 只覆盖最好情况,正是 ALIGN 卡顿的原因。floor 必须 < 对应 max
+    # (核心层会在启动时校验,floor>max 直接报错)。
+    min_cmd_v: 0.07
+    min_cmd_w: 0.32
+
+    robot_frame: base_footprint

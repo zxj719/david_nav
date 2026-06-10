@@ -118,12 +118,12 @@ controller_server:                                  # 局部规划器服务器
     # Progress checker parameters
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      # SimpleProgressChecker 只看平移位移。David 上臂+caster 让原地旋转能
-      # 占 15-25s（小电机 + 高惯量），所以 20s 太紧，30s 也偶尔不够。
-      # 抬到 40s：单段 rotation-only 即使非常慢也不会被 nav2 abort，真正
-      # stuck 由更上层（frontier_explorer / 任务层）判定。
+      # David often spends its first several seconds rotating onto the path before
+      # it can build meaningful forward displacement, so keep Nav2 from
+      # aborting too early and let frontier_explorer's higher-level stuck logic
+      # decide when we are truly not making progress.
       required_movement_radius: 0.15
-      movement_time_allowance: 40.0
+      movement_time_allowance: 20.0
     # Goal checker parameters
     precise_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -133,11 +133,7 @@ controller_server:                                  # 局部规划器服务器
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      # 2026-05-20 debug：临时抬到 1.0m。验证目的：在 robot 离 goal 还有 1m
-      # 时就触发 BT success ⇒ controller_server 发 0 cmd ⇒ separator 应进
-      # BRAKE_LINEAR 状态。如果这种工况下 brake 都不触发，那就是上游
-      # （smoother / collision_monitor / david_move）哪一层吃了零速命令。
-      xy_goal_tolerance: 1.00
+      xy_goal_tolerance: 0.3
       yaw_goal_tolerance: 3.14
     # Direct DWB path following.
     # RotationShim kept getting stuck before the robot could enter
@@ -150,78 +146,58 @@ controller_server:                                  # 局部规划器服务器
       # min_speed_xy stays at 0.0 so DWB can still rotate in place near goal.
       min_vel_x: 0.0
       min_vel_y: 0.00
-      # 2026-05-20：0.70 实跑时终点过冲偏大（+撞墙风险），降到 0.50。
-      # 配合 separator 的 Plan D 主动制动后再评估是否需要回升。
-      max_vel_x: 0.50
+      # 2026-06-08: 0.50 → 0.20。换电机/轮 + 修正轮速计(原值小 3×)后，实测
+      # 线速度 0.2 m/s 已让 70kg 上身明显晃动，0.2 为物理上限，不可更高。
+      max_vel_x: 0.20
       max_vel_y: 0.0
       max_vel_theta: 0.50
-      # 2026-05-19 Plan D：min_vel_theta / min_speed_theta 从 0.10 改为 0.0。
-      # vtheta_samples=3 时若 |ω| 下限>0，ω=0 这一档会被过滤，DWB 再也采不到
-      # "纯前进"轨迹（v>0, ω=0），整条直行会被强行吐 ω≠0。
-      # 起步静摩擦由下游 david_move 的 min_stationary_angular_z (0.35) 接住。
+      # 2026-06-05 restore-merge: 保留 0.0（物理调校结果）。
+      # 和 max_speed_xy / acc_lim_x 一起属于"70kg + 小电机 + 万向轮"的硬件标定值，
+      # 不随 nav2 策略一起回滚到 backup 的 0.10。
       min_vel_theta: 0.0
       min_speed_xy: 0.0
-      # 2026-05-19 fix：必须与 max_vel_x 对齐。
-      # xy_theta_iterator.cpp:99 的 isValidSpeed() 把 |v_xy| > max_speed_xy
-      # 的样本全部丢弃。原来 max_vel_x=0.5 但 max_speed_xy=0.2 → vx=0.5
-      # 端点被过滤 ⇒ vx_samples=2 时只剩 vx=0 ⇒ 机器人永远不前进。
-      max_speed_xy: 0.50
+      # 2026-06-05 restore-merge: 必须 == max_vel_x。
+      # backup 里是 0.2，会导致 isValidSpeed 把端点全部过滤 ⇒ DWB 不前进
+      # （CLAUDE.md §5 已记录为"DWB 完全不前进"坑的根因）。
+      # 2026-06-08: 同步 max_vel_x → 0.20（上身晃动物理上限）。
+      max_speed_xy: 0.20
       min_speed_theta: 0.0
       # Add high threshold velocity for turtlebot 3 issue.
       # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
       # keyboard_teleop_ros2.py: 10Hz循环下每周期线速度变化0.1、角速度变化0.5
       # 约等效为1.0 m/s^2和5.0 rad/s^2。
-      # 2026-05-19 §5.5.1：acc_lim_x 1.0 → 2.5。0→0.7 由 0.7s 缩到 0.28s。
-      # 万向轮死锁问题对"启动瞬态"敏感：加速越慢，停留在低速踢摩擦区越久，
-      # 越容易 stall。配合 max_vel_x=0.7 一起把启动突破做"短平快"。
+      # 2026-06-05 restore-merge: 保留 acc/decel=2.5（物理调校结果）。
+      # 0→0.5 仅 0.2s，配合 70kg 重载启动时踢穿静摩擦，CLAUDE.md §6 列为生产配置。
       acc_lim_x: 2.5
       acc_lim_y: 0.0
       acc_lim_theta: 5.0
       decel_lim_x: -2.5
       decel_lim_y: 0.0
       decel_lim_theta: -5.0
-      # 2026-05-19 Plan D：极致离散化 ⇒ DWB 只采（v=0, ω∈{-max,0,+max}）
-      # 或（v=max, ω∈{-max,0,+max}）共 6 个轨迹。配合下游 cmd_vel_separator
-      # 做的"线/角互斥硬切"，让物理输出 100% 是纯旋转或纯直行。
-      # vtheta_samples 必须为奇数（含 0 才允许"纯前进"轨迹被采样）。
-      vx_samples: 2
+      # 2026-05-18: 从 15 改成 5。粒度从 0.013 m/s 变 0.05 m/s。
+      # 70kg 重载下实测：cmd=0.10/0.15 跟踪率仅 30%/47%，DWB 选这种"不可达低速"
+      # 会让 david_move 死区抬升到 0.20 ⇒ 命令-反馈失配触发 CLOSED_LOOP smoother 抑振。
+      # 改 5 后样本为 [0, 0.05, 0.10, 0.15, 0.20]，DWB 更倾向选 0(原地转/停) 或 0.20(全速)。
+      # 保留 vx=0 让 RotateToGoal critic 仍能采到"原地旋转"轨迹。
+      vx_samples: 5
       vy_samples: 1
-      vtheta_samples: 3
+      vtheta_samples: 20
       sim_time: 1.2
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 1.0                # controller的transform最大容忍时间差，实际工况下1.5秒内的时间差都存在
-      # 2026-05-20 debug：同步抬到 0.95，保持 < general_goal_checker (1.00)，
-      # 让 RotateToGoal critic 不会先于 goal_checker 触发。
-      xy_goal_tolerance: 0.95
+      xy_goal_tolerance: 0.25
       trans_stopped_velocity: 0.05
       short_circuit_trajectory_evaluation: True
       stateful: True
-      # 2026-05-19 §5.5.x：从 critics 列表移除 PathAlign / PathDist。
-      # 用户语义：完全无视 align_path，只需 align_target。
-      # 理由：
-      #  1) costmap 已全 free ⇒ NavfnPlanner 输出的 path 本就是直线，
-      #     "贴 path 走"等价于"直接朝 goal 走"。PathDist/PathAlign 多此一举。
-      #  2) PathDist 之前是最重的 critic（24.0），且对"轨迹离开起点 path"
-      #     惩罚极重 ⇒ 与二值前进采样组合时严重压制前进选项（pure rotation
-      #     的 trajectory end_pose = start_pose 永远落在 path 上 PathDist=0）。
-      #  3) 去掉之后，是否前进只由 GoalDist/GoalAlign 决定：
-      #     heading 与 goal 方向夹角小 ⇒ 前进；夹角大 ⇒ 原地旋转。
-      #     正是 "rotate-then-drive" 自然涌现的形态。
-      # PathAlign.* / PathDist.* 行保留为注释，便于回滚。
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "GoalDist"]
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.2
-      # PathAlign.scale: 12.0
-      # PathAlign.forward_point_distance: 0.2
+      PathAlign.scale: 12.0
+      PathAlign.forward_point_distance: 0.2
       GoalAlign.scale: 6.0
       GoalAlign.forward_point_distance: 0.2
-      # PathDist.scale: 24.0
+      PathDist.scale: 24.0
       GoalDist.scale: 10.0
-      # 2026-05-19 fix：还原 RotateToGoal.scale=1.0。
-      # 100 是 Plan D 起初为了"加重原地旋转"加的，但 RotateToGoal critic 只
-      # 在 xy_dist <= 0.25 时激活，平时 score=0，对"起点先转后走"没影响。
-      # 而 general_goal_checker.xy_goal_tolerance=0.3 > 0.25，BT 永远先 success
-      # 才触发 RotateToGoal，scale 多大都不起作用。留 1.0 更稳。
       RotateToGoal.scale: 1.0
       RotateToGoal.slowing_factor: 2.0
       RotateToGoal.lookahead_time: -1.0
@@ -281,19 +257,17 @@ local_costmap:
       # zongzhuang/base_link.STL，base_footprint 帧下 X(forward) -0.30..+0.42,
       # Y(left) -0.30..+0.30）。base_footprint 在两轮中点投影，不在机身几何
       # 中心，因此矩形 X 方向非对称（前 0.42 / 后 0.30）。inscribed=0.30。
+      # 2026-06-05 restore-merge: 物理几何，不随 nav2 策略一起回滚。
       footprint: "[[0.42, 0.30], [0.42, -0.30], [-0.30, -0.30], [-0.30, 0.30]]"
       footprint_padding: 0.0
-      # 2026-05-19 Plan D：用户保证起点→终点无障碍。把 track_unknown_space
-      # 改 false，让无层数据的 cell 默认 FREE_SPACE，NavfnPlanner 才能在
-      # 空 costmap 上画出"直线" path。
-      track_unknown_space: false
+      track_unknown_space: true
       # plugins: ["voxel_layer", "inflation_layer"]
-      # Plan D：local costmap 不挂任何障碍/膨胀层（保留 plugin 注册条目
-      # 但全部 enabled=False），让 DWB 看到的代价图永远是全 free。
-      plugins: ["static_layer", "inflation_layer"]
+      # Keep the live SLAM map in the local costmap so the controller also
+      # treats unknown cells as non-traversable even without /scan.
+      plugins: ["static_layer", "scan_priority_layer", "inflation_layer"]          # 2d建图，不使用体素层
       scan_priority_layer:
         plugin: "david_nav::ScanPriorityLayer"
-        enabled: False
+        enabled: True
         scan_topic: /scan
         sector_min_angle: -0.55
         sector_max_angle: 0.55
@@ -320,10 +294,14 @@ local_costmap:
           raytrace_min_range: 0.2
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # 2026-05-19 Plan D：禁用 inflation（用户保证起点→终点无障碍）。
-        enabled: false
-        cost_scaling_factor: 10.0
-        inflation_radius: 0.20
+        # 2026-05-18 保守路线：开启 inflation 并改半径到 0.40 (≥ inscribed 0.375)。
+        # 机身矩形 0.95×0.75 m ⇒ inscribed = min(0.475, 0.375) = 0.375。
+        # 旧值 (enabled=False, radius=0.20) 让规划器没有任何安全 buffer。
+        # 注意：开启后局部 costmap 在窄道里可能出现"贴障 abort"，
+        # 若现场有 < 0.80m 的门或夹缝，再调 cost_scaling_factor 让代价更"温柔"。
+        enabled: True
+        cost_scaling_factor: 10.0              # 可能会影响路径太长的计算
+        inflation_radius: 0.40
       # voxel_layer:
       #   plugin: "nav2_costmap_2d::VoxelLayer"
       #   enabled: True
@@ -346,10 +324,6 @@ local_costmap:
       #     obstacle_min_range: 0.25         # 障碍物最小范围  (路由器盒子距离0.3)
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
-        # 2026-05-19 22:00 重新打开 static_layer。
-        # 起因：实跑发现"先转后走"+万向轮拖尾导致直行段会侧偏 ~0.1m/段，
-        # 全 free costmap 没有任何安全护栏，控制偏移可能撞到墙。
-        # 让 SLAM /lightning/grid_map 作为障碍源 ⇒ inflation_layer 才能膨胀。
         enabled: True
         map_subscribe_transient_local: True
         map_topic: /lightning/grid_map
@@ -376,19 +350,13 @@ global_costmap:
       # zongzhuang/base_link.STL，base_footprint 帧下 X(forward) -0.30..+0.42,
       # Y(left) -0.30..+0.30）。base_footprint 在两轮中点投影，不在机身几何
       # 中心，因此矩形 X 方向非对称（前 0.42 / 后 0.30）。inscribed=0.30。
+      # 2026-06-05 restore-merge: 物理几何，不随 nav2 策略一起回滚。
       footprint: "[[0.42, 0.30], [0.42, -0.30], [-0.30, -0.30], [-0.30, 0.30]]"
       footprint_padding: 0.0
-      # 2026-05-19 Plan D：用户保证起点→终点无障碍。把 track_unknown_space
-      # 改 false，让无层数据的 cell 默认 FREE_SPACE，NavfnPlanner 才能在
-      # 空 costmap 上画出"直线" path。
-      track_unknown_space: false
-      # Plan D：global costmap 也只保留 static_layer 作为占位 plugin，
-      # 但内部 enabled=False，整张代价图全 free ⇒ NavfnPlanner 自然走直线。
-      plugins: ["static_layer", "inflation_layer"]
+      track_unknown_space: true
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
-        # 2026-05-19 22:00 重新打开 global static_layer。
-        # 全局 path 现在需要绕开 SLAM 已知障碍以兜底控制偏移。
         enabled: True
         map_subscribe_transient_local: True
         map_topic: /lightning/grid_map
@@ -397,8 +365,7 @@ global_costmap:
         unknown_cost_value: -1
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
-        # 2026-05-19 Plan D：禁用，且已从 plugins 列表移除。保留配置以便回滚。
-        enabled: False
+        enabled: True
         observation_sources: scan
         scan:
           topic: /scan
@@ -413,10 +380,13 @@ global_costmap:
           raytrace_min_range: 0.2
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # 2026-05-19 Plan D：禁用，且已从 plugins 列表移除。保留配置以便回滚。
-        enabled: false
-        cost_scaling_factor: 1.5
-        inflation_radius: 0.20
+        # 2026-05-18 保守路线：开启 inflation 并改半径到 0.40 (≥ inscribed 0.375)。
+        # 旧值 (enabled=False, radius=0.30) 不真正应用 inflation，
+        # 让全局路径可以贴着 lethal 走，机身角擦不过去时会 abort。
+        # 现在 inflation 真正生效，全局路径会主动绕开 0.40m 内的障碍。
+        enabled: True
+        cost_scaling_factor: 1.5             # 可能会影响路径太长的计算
+        inflation_radius: 0.40
       always_send_full_costmap: True
 
 # map_server / amcl：
@@ -464,10 +434,7 @@ planner_server:                              # 全局规划器服务器
       downsample_costmap: false           # 是否对代价地图进行降采样,复杂环境建议false,简单环境可设为true以提高性能
       downsampling_factor: 1              # 代价地图降采样因子,仅当downsample_costmap为true时有效,取值范围1-4,值越大精度越低但速度越快
       tolerance: 0.5
-      # 2026-05-19 Plan D：空 costmap + track_unknown_space=false 时所有 cell
-      # 默认 FREE_SPACE，但保险起见把 allow_unknown 改回 true，避免某些边界
-      # 时刻 (lifecycle 初始化/SLAM 同步) costmap 还没填好就导致规划失败。
-      allow_unknown: true
+      allow_unknown: false                # 探索时目标点已吸附到free cell，规划不再允许穿过未知区域
       max_iterations: 2000000             # 路径搜索最大迭代次数,取值范围10000-2000000,复杂环境需要更大的迭代次数
       max_planning_time: 10.0             # 路径规划最大允许时间(秒),取值范围1.0-30.0,根据实时性要求设置
 
@@ -598,10 +565,11 @@ velocity_smoother:
     # on angular commands. See docs/report/2026-05-18-velocity-repeatability.md §10.
     feedback: "CLOSED_LOOP"
     # feedback: "OPEN_LOOP"
-    # 2026-05-20：上限同步 DWB max_vel_x=0.50（从 0.70 降）。
-    # acc 保持 2.5，0→0.5 仅需 0.2s。
-    max_velocity: [0.50, 0.0, 0.5]
-    min_velocity: [-0.50, 0.0, -0.5]
+    # smoother 线速度上限必须与 DWB max_vel_x 一致，否则会截断 DWB 端点。
+    # 2026-06-08: 线 0.50 → 0.20（换电机/轮 + 修正轮速计后，0.2 已是上身晃动物理上限）。
+    # 角速度保持 0.5。
+    max_velocity: [0.20, 0.0, 0.5]
+    min_velocity: [-0.20, 0.0, -0.5]
     max_accel: [2.5, 0.0, 5.0]
     max_decel: [-2.5, 0.0, -5.0]
     # Use the wheeltec wheel-encoder odom (was /lightning/odometry — that

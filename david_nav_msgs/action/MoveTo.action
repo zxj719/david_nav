@@ -1,0 +1,21 @@
+# David position-loop body-pose goal. Drives cmd_vel closed-loop on /odom.
+# See SPEC 位置环实现方案 §2.3.
+
+# ---- Goal ----
+uint8 MODE_DISTANCE = 0
+uint8 MODE_ROTATE   = 1
+uint8 MODE_POSE     = 2
+
+uint8 mode                   # one of MODE_*
+float64 distance             # mode0: signed distance along current heading (m)
+float64 yaw                  # mode1: relative rotation (rad); mode2: target heading (rad)
+geometry_msgs/Point target   # mode2: target point (x,y) in odom or base_footprint
+bool relative                # mode2: true=relative to current pose, false=odom absolute
+---
+# ---- Result ----
+bool success
+float64 final_error          # residual error (m for DISTANCE/POSE, rad for ROTATE)
+---
+# ---- Feedback ----
+float64 error_remaining
+float64 current_speed

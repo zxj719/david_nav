@@ -1,0 +1,35 @@
+waypoint_follower:
+  ros__parameters:
+    planner_action: "compute_path_to_pose"
+    move_action: "/position_controller/move"
+    global_costmap_topic: "/global_costmap/costmap"
+    map_frame: "map"
+    robot_base_frame: "base_footprint"
+    planner_id: ""                 # "" => planner_server default (e.g. GridBased)
+    max_segment: 2.0               # hard cap per segment (m)（2026-06-09 3.0→2.0：相邻点≤2m）
+    los_cost_threshold: 99         # OccupancyGrid 0..100 scale; 99 = inscribed（相邻点直线须全程 <inscribed = 可连通且机器人可通过）
+    block_unknown: true            # treat unknown (-1) cells as blocking（未知格也阻断，保证段落确为已知可通行）
+    intermediate_heading: false    # NaN heading on intermediate waypoints
+    planner_server_timeout: 5.0
+    move_server_timeout: 5.0
+    costmap_wait: 5.0
+    # 分层容差(2026-06-10):发段前经 set_parameters 切 position_controller 的
+    # pose_dist_tol / pose_yaw_tol。中间 waypoint 是过路点,松;最终 goal 紧。
+    wp_dist_tol: 0.8               # m,中间 waypoint 位置容差(角度不管,固定 π)
+    goal_dist_tol: 0.4             # m,最终 goal 位置容差
+    goal_yaw_tol: 0.1              # rad(≈5.7°),最终 goal 朝向容差(2026-06-10 0.4→0.1:
+                                   # 实车终转落点 0.024/0.058 rad,0.1 够得着;终转小角度
+                                   # 微调靠 min_cmd_w 踢动,可能多 1~2 个脉冲、时间略增)
+    # 直行入位(2026-06-10):goal 正后方 approach_dist 处插进场点 A,最后一段
+    # A→goal 的行驶方向 == 最终朝向,末端不做原地大转。A 不可达时自动退化为旧
+    # 行为(看 [TRACE] approach 行)。approach_dist: 0.0 = 关闭。
+    approach_dist: 0.8             # m,进场点离 goal 的距离
+    approach_dist_tol: 0.25        # m,进场点容差(要紧,否则入位几何被破坏)
+    # 定位收敛等待 + 末端闭环复查(2026-06-10):重定位运动中/刚停时位姿是脏的,
+    # 静止后收敛到 ±1.5cm/0.1°。段起点等收敛再取基准;末段跑完后停稳-等收敛-
+    # 比残差,超差就补走一小段(至多 final_check_retries 轮),仍超差则 abort。
+    pose_stable_window: 0.5        # s,位姿连续稳定多久算收敛
+    pose_stable_eps_xy: 0.03       # m,稳定窗口内允许的位置跨度
+    pose_stable_eps_yaw: 0.03      # rad,稳定窗口内允许的朝向跨度
+    pose_stable_timeout: 6.0       # s,等不到收敛就告警用最新值
+    final_check_retries: 2         # 末端复查补走轮数(0=只查不补)
