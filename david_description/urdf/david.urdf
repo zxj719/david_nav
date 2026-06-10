@@ -412,6 +412,23 @@
     <child  link="camera_link"/>
     <origin xyz="0.09 0 0.535" rpy="0 0.838 0"/>
   </joint>
+  <!-- D455 optical frames (self-sufficient TF: no dependency on realsense
+       publish_tf or external static publishers).
+       color sensor sits 59 mm to the right of camera_link (left IR);
+       rpy = REP-103 body->optical (-90, 0, -90). Verified 2026-06-10 against
+       the 6.5 known-good extrinsic chain: arm_base<-optical = [0.090,-0.259,-0.102]. -->
+  <link name="camera_color_optical_frame"/>
+  <joint name="camera_link_to_color_optical" type="fixed">
+    <parent link="camera_link"/>
+    <child  link="camera_color_optical_frame"/>
+    <origin xyz="0 -0.059 0" rpy="-1.5707963 0 -1.5707963"/>
+  </joint>
+  <link name="camera_depth_optical_frame"/>
+  <joint name="camera_link_to_depth_optical" type="fixed">
+    <parent link="camera_link"/>
+    <child  link="camera_depth_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+  </joint>
   <link
     name="left_wheel_link">
     <inertial>
