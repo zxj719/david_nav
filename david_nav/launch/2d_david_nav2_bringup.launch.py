@@ -288,9 +288,14 @@ def generate_launch_description():
         name='david_move',
         output='screen',
         parameters=[{
-            # Plan D: redirect david_move output so cmd_vel_separator can
-            # impose strict v/omega mutex before the wheeltec serial driver.
-            'output_cmd_vel_topic': '/cmd_vel_raw',
+            # 2026-06-06 (branch feature/disable-cmd-vel-separator):
+            # cmd_vel_separator is disabled on this branch, so david_move must
+            # publish straight to /cmd_vel (consumed by wheeltec_robot_node)
+            # instead of /cmd_vel_raw. This is the pre-Plan-D chain:
+            #   velocity_smoother -> david_move -> /cmd_vel -> wheeltec.
+            # The original Plan D wiring ('/cmd_vel_raw' + separator) is kept
+            # on feature/david_main.
+            'output_cmd_vel_topic': '/cmd_vel',
             # 2026-05-20: when collision_monitor is disabled via launch arg,
             # /cmd_vel_safe is never published. Point david_move directly
             # at /cmd_vel_smoothed (velocity_smoother's output) so the chain
@@ -301,8 +306,17 @@ def generate_launch_description():
                 "' == 'true' else 'cmd_vel_smoothed'",
             ]),
             # 2026-05-20: 与 DWB / smoother 同步从 0.70 降到 0.50（实跑过冲）。
-            'max_linear_x': 0.50,
-            # Static-friction kickoff floor for in-place rotation stays.
+            # 2026-06-08: 再降到 0.20。换电机/轮 + 修正轮速计(原值小 3×)后，实测
+            # 线速度 0.2 已让 70kg 上身明显晃动，0.2 = 物理上限，与 DWB/smoother 同步。
+            'max_linear_x': 0.20,
+            # 2026-06-08 死区实验标定（裸破启 worst-case 脚轮, PI=Kp300/Ki800）：
+            # 线 ≈0.04 m/s、角 ≈0.15 rad/s（破启=抽动阈值，非可持续运动）。
+            # 线速度 lift 默认 0.20 → 0.15：实测命令 0.12 已能起步，0.15≈4×破启，
+            # 给慢速接近留细度同时远离破启防 stutter。
+            # ⚠ 现场需确认最慢档不抖再固化；不行就回 0.20。
+            'min_linear_x': 0.15,
+            # 原地旋转破静摩擦 kick floor：实测角破启 0.15，但近破启纯抖(stick-slip)；
+            # PI 阶跃实验显示 0.3 rad/s 仍 stuck-then-lurch，故保持 0.35 不下调。
             'min_stationary_angular_z': 0.35,
         }],
     )
@@ -463,5 +477,10 @@ def generate_launch_description():
         collision_monitor_node,
         collision_monitor_lifecycle_manager,
         david_move_node,
-        cmd_vel_separator_node,
+        # 2026-06-06 (branch feature/disable-cmd-vel-separator): separator
+        # temporarily bypassed to test the plain nav2 chain against the
+        # current nav2_params_2d.yaml. david_move now feeds /cmd_vel directly
+        # (see output_cmd_vel_topic above). Re-enable by uncommenting and
+        # reverting david_move's output topic to '/cmd_vel_raw'.
+        # cmd_vel_separator_node,
     ])

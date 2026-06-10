@@ -1,42 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 
+from david_nav.grid_map_view import GridMapView
 from david_nav.navigation_executor_core import ResolvedNavigationGoal
 from david_nav.navigation_types import PoseRecord, StoredPoi
-
-
-@dataclass(frozen=True)
-class _GridMapView:
-    cells: list[int]
-    width: int
-    height: int
-    resolution: float
-    origin_x: float
-    origin_y: float
-
-    def in_bounds(self, x: int, y: int) -> bool:
-        return 0 <= x < self.width and 0 <= y < self.height
-
-    def value(self, x: int, y: int) -> int:
-        return self.cells[y * self.width + x]
-
-    def is_goal_free(self, x: int, y: int) -> bool:
-        return self.value(x, y) == 0
-
-    def world_to_cell(self, wx: float, wy: float):
-        x = int(math.floor((wx - self.origin_x) / self.resolution))
-        y = int(math.floor((wy - self.origin_y) / self.resolution))
-        if not self.in_bounds(x, y):
-            return None
-        return (x, y)
-
-    def cell_center_world(self, x: int, y: int):
-        return (
-            (float(x) + 0.5) * self.resolution + self.origin_x,
-            (float(y) + 0.5) * self.resolution + self.origin_y,
-        )
 
 
 def _distance_xy(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -84,20 +52,8 @@ class NavigationGoalResolver:
     def _on_global_costmap(self, msg):
         self._global_costmap_msg = msg
 
-    def _grid_view(self, msg) -> _GridMapView | None:
-        if msg is None:
-            return None
-        info = msg.info
-        if info.width <= 0 or info.height <= 0 or not msg.data:
-            return None
-        return _GridMapView(
-            cells=list(msg.data),
-            width=int(info.width),
-            height=int(info.height),
-            resolution=float(info.resolution),
-            origin_x=float(info.origin.position.x),
-            origin_y=float(info.origin.position.y),
-        )
+    def _grid_view(self, msg) -> "GridMapView | None":
+        return GridMapView.from_occupancy_grid(msg)
 
     def _is_goal_admissible(self, world_xy: tuple[float, float]) -> bool:
         grid_map = self._grid_view(self._map_msg)

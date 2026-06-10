@@ -22,6 +22,8 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(david_nav_msgs REQUIRED)
 
 ament_python_install_package(${PROJECT_NAME})
 
@@ -184,6 +186,24 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  david_nav/position_controller.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME position_controller
+)
+
+install(PROGRAMS
+  david_nav/cmd_vel_mux.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME cmd_vel_mux
+)
+
+install(PROGRAMS
+  david_nav/waypoint_follower.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME waypoint_follower
+)
+
+install(PROGRAMS
   navigate_semantic_pose_with_debug_bag.sh
   DESTINATION lib/${PROJECT_NAME}
   RENAME navigate_semantic_pose_with_debug_bag.sh
@@ -295,6 +315,11 @@ if(BUILD_TESTING)
   ament_add_pytest_test(
     navigation_executor_runtime_test
     test/test_navigation_executor_runtime.py
+  )
+
+  ament_add_pytest_test(
+    position_control_core_test
+    test/test_position_control_core.py
   )
 
   ament_add_gtest(
