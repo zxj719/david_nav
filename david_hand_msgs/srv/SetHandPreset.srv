@@ -1,5 +1,0 @@
-# Switch hand to a named preset pose (one-shot)
-string name      # "open" / "close" / "mid" / "grasp"
----
-bool success
-string message

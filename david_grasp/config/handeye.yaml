@@ -1,5 +1,0 @@
-# Hand-eye calibration (TODO Stage 2, B 模块输出)
-# T_camera_to_base 4x4 变换或 xyz+rpy:
-T_camera_to_base:
-  xyz: [0.0, 0.0, 0.0]
-  rpy: [0.0, 0.0, 0.0]
