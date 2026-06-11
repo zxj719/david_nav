@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 import time
 
 from david_nav.navigation_protocol import (
+    NavigateToPoseCommand,
     build_arrived_event,
     build_error_event,
     build_mark_poi_ack,
@@ -13,7 +15,7 @@ from david_nav.navigation_protocol import (
     build_progress_event,
     parse_command,
 )
-from david_nav.navigation_types import StoredPoi
+from david_nav.navigation_types import PoseRecord, StoredPoi
 
 
 class ExecutorState(str, Enum):
@@ -60,6 +62,7 @@ class NavigationExecutorCore:
         goal_resolver=None,
         pose_stale_after_sec: float = 0.5,
         now_fn=None,
+        theta_in_degrees: bool = False,
     ):
         self.bridge = bridge
         self.pose_provider = pose_provider
@@ -67,8 +70,24 @@ class NavigationExecutorCore:
         self.goal_resolver = goal_resolver or DirectNavigationGoalResolver()
         self.pose_stale_after_sec = pose_stale_after_sec
         self.now_fn = now_fn or (lambda: time.time())
+        # nav 协议 v2 §四:theta 单位待确认。默认按弧度;server 确认是度的话
+        # 由执行器入口传 theta_in_degrees=True,在这里统一换算。
+        self.theta_in_degrees = theta_in_degrees
         self.state = ExecutorState.IDLE
         self.active_task: ActiveTask | None = None
+
+    def _poi_from_target_pose(self, command: NavigateToPoseCommand) -> StoredPoi:
+        """v2 坐标目标 → 即席 StoredPoi,后续流程(扩圈/action goal)与 POI 一致。"""
+        yaw = math.radians(command.theta) if self.theta_in_degrees else float(command.theta)
+        stamp = self.now_fn()
+        display = command.label or f"({command.x:.2f},{command.y:.2f})"
+        return StoredPoi(
+            poi_id=display,
+            name=display,
+            map_pose=PoseRecord("map", command.x, command.y, 0.0, yaw, stamp),
+            odom_pose=PoseRecord("odom", command.x, command.y, 0.0, yaw, stamp),
+            slam_session_id="target_pose",
+        )
 
     async def handle_message(self, payload: dict) -> list[dict]:
         command = parse_command(payload)
@@ -76,20 +95,26 @@ class NavigationExecutorCore:
             self.poi_store.apply_semantic_directory(command.poi_list)
             return []
         if command.action == "navigate_to":
-            try:
-                poi = self.poi_store.get_required(command.target_id)
-            except KeyError:
-                # 同 handle_bridge_event 的 error 分支：落 ERROR，避免
-                # server 误判成到点。下次 navigate_to 进来时被 STARTING 覆盖。
-                self.state = ExecutorState.ERROR
-                self.active_task = None
-                return [
-                    build_error_event(
-                        command.request_id,
-                        command.sub_id,
-                        f"目标点不存在: {command.target_id}",
-                    )
-                ]
+            if isinstance(command, NavigateToPoseCommand):
+                # v2:坐标直达,不查 POI 表。
+                poi = self._poi_from_target_pose(command)
+                target_id = poi.poi_id
+            else:
+                target_id = command.target_id
+                try:
+                    poi = self.poi_store.get_required(command.target_id)
+                except KeyError:
+                    # 同 handle_bridge_event 的 error 分支：落 ERROR，避免
+                    # server 误判成到点。下次 navigate_to 进来时被 STARTING 覆盖。
+                    self.state = ExecutorState.ERROR
+                    self.active_task = None
+                    return [
+                        build_error_event(
+                            command.request_id,
+                            command.sub_id,
+                            f"目标点不存在: {command.target_id}",
+                        )
+                    ]
             if self.active_task is not None:
                 await self.bridge.cancel_current()
             resolved_goal = self.goal_resolver.resolve_initial_goal(poi)
@@ -106,7 +131,7 @@ class NavigationExecutorCore:
             self.active_task = ActiveTask(
                 command.request_id,
                 command.sub_id,
-                command.target_id,
+                target_id,
                 anchor_poi=poi,
                 current_goal_poi=resolved_goal.poi,
                 phase="to_snap" if resolved_goal.used_snap else "to_anchor",

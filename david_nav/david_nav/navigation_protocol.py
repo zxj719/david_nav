@@ -15,6 +15,23 @@ class NavigateToCommand:
 
 
 @dataclass(frozen=True)
+class NavigateToPoseCommand:
+    """nav 协议 v2(2026-06-10): navigate_to 直接携带坐标三元组。
+
+    theta 单位由协议 §四 待确认;本层不做换算,按发来的数值原样保存,
+    换算(若需要)在 core 构造目标位姿时统一做。
+    """
+
+    action: str
+    request_id: str
+    sub_id: int
+    x: float
+    y: float
+    theta: float
+    label: str
+
+
+@dataclass(frozen=True)
 class MarkCurrentPoiCommand:
     action: str
     request_id: str
@@ -38,6 +55,7 @@ class UpdatePoiListCommand:
 
 Command = Union[
     NavigateToCommand,
+    NavigateToPoseCommand,
     MarkCurrentPoiCommand,
     AbortNavigationCommand,
     UpdatePoiListCommand,
@@ -47,6 +65,19 @@ Command = Union[
 def parse_command(payload: dict) -> Command:
     action = str(payload.get("action", "")).strip()
     if action == "navigate_to":
+        # v2(坐标)优先:有 target_pose 就走坐标;否则回落 v1 的 POI 查表。
+        # 两版并存,server 升级期间新旧消息都能处理。
+        if "target_pose" in payload:
+            target_pose = payload["target_pose"]
+            return NavigateToPoseCommand(
+                action="navigate_to",
+                request_id=str(payload["request_id"]).strip(),
+                sub_id=int(payload["sub_id"]),
+                x=float(target_pose["x"]),
+                y=float(target_pose["y"]),
+                theta=float(target_pose["theta"]),
+                label=str(payload.get("label", "")).strip(),
+            )
         return NavigateToCommand(
             action="navigate_to",
             request_id=str(payload["request_id"]).strip(),

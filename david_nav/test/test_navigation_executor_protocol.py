@@ -26,6 +26,40 @@ def test_parse_navigate_to_command_accepts_go2w_flat_schema():
     assert command.target_id == "POI_001"
 
 
+def test_parse_navigate_to_command_v2_target_pose_coordinates():
+    command = parse_command(
+        {
+            "action": "navigate_to",
+            "request_id": "nav_ab12cd34ef56",
+            "sub_id": 0,
+            "target_pose": {"x": 9.52, "y": -8.82, "theta": 0.0},
+            "label": "前台",
+        }
+    )
+
+    assert command.action == "navigate_to"
+    assert command.request_id == "nav_ab12cd34ef56"
+    assert command.sub_id == 0
+    assert command.x == 9.52
+    assert command.y == -8.82
+    assert command.theta == 0.0
+    assert command.label == "前台"
+
+
+def test_parse_navigate_to_command_v2_label_is_optional():
+    command = parse_command(
+        {
+            "action": "navigate_to",
+            "request_id": "nav_x",
+            "sub_id": 0,
+            "target_pose": {"x": 1.0, "y": 2.0, "theta": -1.5},
+        }
+    )
+
+    assert command.label == ""
+    assert command.theta == -1.5
+
+
 def test_parse_mark_current_poi_requires_flat_poi_object():
     command = parse_command(
         {

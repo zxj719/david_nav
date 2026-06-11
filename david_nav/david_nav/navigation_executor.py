@@ -63,6 +63,10 @@ def _build_help_text() -> str:
             "  --server-uri URI        WebSocket endpoint for /ws/navigation/executor",
             "  --poi-store-file PATH   Local YAML file used to persist executor-owned POIs",
             "  --pose-file PATH        named_poses.json to import into the POI store at startup",
+            "  --action-name NAME      NavigateToPose action server to drive",
+            "                          (default: /navigate_to_pose; waypoint stack uses",
+            "                          /waypoint_follower/navigate)",
+            "  --theta-degrees         Treat v2 target_pose.theta as degrees (default: radians)",
             "  --reconnect-delay SEC   Delay between WebSocket reconnect attempts (default: 3.0)",
             "  -h, --help              Show this help message and exit",
         ]
@@ -87,6 +91,7 @@ def _parse_cli_args(raw_args):
         "nav_goal_fallback_snap_radius": DEFAULT_NAV_GOAL_FALLBACK_SNAP_RADIUS,
         "nav_goal_clearance_radius": DEFAULT_NAV_GOAL_CLEARANCE_RADIUS,
         "reconnect_delay": DEFAULT_RECONNECT_DELAY,
+        "theta_in_degrees": False,
     }
     ros_args = []
     i = 0
@@ -107,6 +112,14 @@ def _parse_cli_args(raw_args):
         if arg == "--reconnect-delay" and i + 1 < len(raw_args):
             config["reconnect_delay"] = float(raw_args[i + 1])
             i += 2
+            continue
+        if arg == "--action-name" and i + 1 < len(raw_args):
+            config["action_name"] = raw_args[i + 1]
+            i += 2
+            continue
+        if arg == "--theta-degrees":
+            config["theta_in_degrees"] = True
+            i += 1
             continue
         ros_args.append(arg)
         i += 1
@@ -284,6 +297,10 @@ async def main_async(raw_args):
         server_timeout=config["server_timeout"],
         event_callback=on_bridge_event,
     )
+    _log(
+        f"nav action: {config['action_name']}, "
+        f"theta unit: {'degrees' if config['theta_in_degrees'] else 'radians'}"
+    )
     pose_provider = TfPoseProvider(
         node=node,
         tf_buffer=tf_buffer,
@@ -305,6 +322,7 @@ async def main_async(raw_args):
         pose_provider=pose_provider,
         poi_store=poi_store,
         goal_resolver=goal_resolver,
+        theta_in_degrees=config["theta_in_degrees"],
     )
 
     status_task = asyncio.create_task(

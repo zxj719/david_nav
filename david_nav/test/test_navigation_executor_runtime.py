@@ -110,6 +110,73 @@ def test_navigate_to_starts_bridge_and_progress_event_is_forwarded(tmp_path: Pat
     ]
 
 
+def test_navigate_to_v2_target_pose_starts_bridge_without_poi_store(tmp_path: Path):
+    # v2(坐标): poi_store 为空也能导航,目标直接来自 target_pose。
+    store = LocalPoiStore(tmp_path / "poi_store.yaml")
+    bridge = FakeBridge()
+    core = NavigationExecutorCore(
+        bridge=bridge,
+        pose_provider=FakePoseProvider(),
+        poi_store=store,
+    )
+
+    async def run_scenario():
+        return await core.handle_message(
+            {
+                "action": "navigate_to",
+                "request_id": "nav_ab12cd34ef56",
+                "sub_id": 0,
+                "target_pose": {"x": 9.52, "y": -8.82, "theta": 0.5},
+                "label": "前台",
+            }
+        )
+
+    outbound = asyncio.run(run_scenario())
+
+    assert outbound == []
+    assert core.state == ExecutorState.STARTING
+    assert len(bridge.started) == 1
+    request_id, sub_id, poi_id = bridge.started[0]
+    assert (request_id, sub_id, poi_id) == ("nav_ab12cd34ef56", 0, "前台")
+    assert core.active_task is not None
+    assert core.active_task.target_id == "前台"
+    anchor = core.active_task.anchor_poi
+    assert anchor.map_pose.frame_id == "map"
+    assert anchor.map_pose.x == 9.52
+    assert anchor.map_pose.y == -8.82
+    assert anchor.map_pose.yaw == 0.5
+
+
+def test_navigate_to_v2_theta_degrees_mode_converts_to_radians(tmp_path: Path):
+    import math
+
+    store = LocalPoiStore(tmp_path / "poi_store.yaml")
+    bridge = FakeBridge()
+    core = NavigationExecutorCore(
+        bridge=bridge,
+        pose_provider=FakePoseProvider(),
+        poi_store=store,
+        theta_in_degrees=True,
+    )
+
+    async def run_scenario():
+        return await core.handle_message(
+            {
+                "action": "navigate_to",
+                "request_id": "nav_deg",
+                "sub_id": 0,
+                "target_pose": {"x": 0.0, "y": 0.0, "theta": 90.0},
+            }
+        )
+
+    asyncio.run(run_scenario())
+
+    assert core.active_task is not None
+    assert abs(core.active_task.anchor_poi.map_pose.yaw - math.pi / 2) < 1e-9
+    # label 缺省时用坐标串占位,日志/STATUS 行有东西可显示。
+    assert core.active_task.target_id == "(0.00,0.00)"
+
+
 def test_abort_navigation_emits_paused_progress(tmp_path: Path):
     store = LocalPoiStore(tmp_path / "poi_store.yaml")
     store.upsert_marked_poi(
