@@ -14,11 +14,18 @@
 # theta 默认按弧度;server 确认是度的话加 --theta-degrees。
 #
 # 本脚本只管导航侧:jetson_clocks 锁频 → wheeltec 底盘(默认带起,启动前
-# 查重、旧进程杀掉再起)→ waypoint 导航栈 → 前台执行器。
+# 查重、旧进程杀掉再起)→ waypoint 导航栈 → TF 守卫 → 前台执行器。
 #
 # SLAM 侧(IMU wit_imu / 雷达 lslidar c16 / 重定位 run_loc_online)由 SLAM
 # 那边的流程负责,本脚本不碰 —— 跑导航前确保 Lightning loc 已在出
 # /lightning/grid_map + map->odom->base TF(同一 ROS_DOMAIN_ID)。
+#
+# TF 守卫(2026-06-11):导航期间每 TF_GUARD_INTERVAL_SEC(默认 3s)扫一遍
+# robot_state_publisher / joint_state_publisher / static_transform_publisher,
+# 凡祖先链里不含 waypoint_nav_bringup 的一律 kill —— 上肢/lerobot 录制流程
+# 的全身 URDF RSP 会给 base_link 另立父节点,TF 裂成两棵树,执行器报
+# ConnectivityException(2026-06-09 与 2026-06-11 15:17 两次实锅)。
+# 导航和上肢任务互斥;上肢那边下次启动会自己再拉起这些发布者。
 #
 # 用法:
 #   start_waypoint_nav_headless.sh [options] [arg:=val …] [-- executor-args…]
@@ -58,6 +65,7 @@ WHEELTEC_LAUNCH_FILE="${WHEELTEC_LAUNCH_FILE:-turn_on_wheeltec_robot.launch.py}"
 CHASSIS_STARTUP_DELAY_SEC="${CHASSIS_STARTUP_DELAY_SEC:-3}"
 
 SUDO_PASSWORD="${SUDO_PASSWORD:-1234}"
+TF_GUARD_INTERVAL_SEC="${TF_GUARD_INTERVAL_SEC:-3}"
 
 # 与机器人全栈一致:domain 0(见 start_navigation_headless.sh 2026-05-20 注)
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
@@ -70,6 +78,7 @@ declare -a EXTRA_LAUNCH_ARGS=()
 declare -a EXECUTOR_EXTRA_ARGS=()
 
 CLEANUP_DONE=false
+TF_GUARD_PID=""
 
 log() { printf '[%s] %s\n' "$SCRIPT_NAME" "$*"; }
 
@@ -108,6 +117,7 @@ cleanup() {
   [[ "$CLEANUP_DONE" == true ]] && return
   CLEANUP_DONE=true
   [[ "$DRY_RUN" == true ]] && return
+  stop_tf_guard
   log '清理:停 waypoint 栈'
   publish_zero_cmd_vel
   pkill -INT -f 'waypoint_nav_bringup.launch' 2>/dev/null || true
@@ -158,6 +168,69 @@ pin_jetson_clocks() {
   command -v jetson_clocks >/dev/null 2>&1 || return 0
   log '锁频: jetson_clocks'
   run_sudo jetson_clocks || log 'WARN: jetson_clocks 失败(sudo 密码不对?)'
+}
+
+is_our_stack_process() {
+  # 沿祖先链往上找 waypoint_nav_bringup;找到 → 是本导航栈自己的节点。
+  local pid="$1" depth=0
+  while [[ -n "$pid" && "$pid" != "0" && "$pid" != "1" && $depth -lt 12 ]]; do
+    if grep -aq 'waypoint_nav_bringup' "/proc/$pid/cmdline" 2>/dev/null; then
+      return 0
+    fi
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+    depth=$((depth + 1))
+  done
+  return 1
+}
+
+kill_conflicting_tf_publishers() {
+  # 2026-06-11 改造:机械臂 TF 树已通过 base→world→base_link 桥统一进来,
+  # 机械臂的全身 RSP / joint_state_publisher / 相机静态 tf **一律不杀**。
+  # 只清两类真正打架的:
+  #   1. 残留底盘 RSP(URDF 含 chassis_root 且不是本栈子进程)—— 重复发
+  #      base_link 子树,来自上一次没退干净的导航;
+  #   2. 旧式 base→base_link 静态 tf —— 给 base_link 另立父节点,跟新拓扑
+  #      base→world→base_link 冲突,必杀。
+  local pid pf cl
+  for pid in $(pgrep -f robot_state_publisher 2>/dev/null); do
+    [[ "$pid" == "$$" ]] && continue
+    is_our_stack_process "$pid" && continue
+    pf="$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -A1 -- '--params-file' | tail -1)"
+    if [[ -n "$pf" && -r "$pf" ]] && grep -q chassis_root "$pf" 2>/dev/null; then
+      log "WARN: 残留底盘 RSP pid=$pid(非本栈)→ kill"
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  done
+  for pid in $(pgrep -f static_transform_publisher 2>/dev/null); do
+    [[ "$pid" == "$$" ]] && continue
+    is_our_stack_process "$pid" && continue
+    cl="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
+    case "$cl" in
+      *base_to_base_link_tf*|*"--frame-id base --child-frame-id base_link"*)
+        log "WARN: 旧式 base->base_link 静态 tf pid=$pid(与 base->world 桥冲突)→ kill"
+        kill -9 "$pid" 2>/dev/null || true ;;
+    esac
+  done
+}
+
+start_tf_guard() {
+  # 常驻守卫:只盯"会打架"的发布者(残留底盘 RSP/旧式 base->base_link tf);
+  # 机械臂树由 base->world 桥统一,守卫不碰它。
+  log "起 TF 守卫(每 ${TF_GUARD_INTERVAL_SEC}s 清残留底盘 RSP/旧式 base->base_link tf;机械臂 TF 不动)"
+  (
+    while true; do
+      sleep "$TF_GUARD_INTERVAL_SEC"
+      kill_conflicting_tf_publishers
+    done
+  ) &
+  TF_GUARD_PID=$!
+}
+
+stop_tf_guard() {
+  if [[ -n "$TF_GUARD_PID" ]] && kill -0 "$TF_GUARD_PID" 2>/dev/null; then
+    kill "$TF_GUARD_PID" 2>/dev/null || true
+  fi
+  TF_GUARD_PID=""
 }
 
 handle_signal() { log "收到 $1,退出"; cleanup; exit 130; }
@@ -250,6 +323,10 @@ main() {
   BG=1 "${bringup_cmd[@]}"
 
   wait_for_waypoint_follower
+
+  # 导航前先扫一遍会打架的 TF 发布者,然后守卫常驻(导航中途出现也兜得住)。
+  kill_conflicting_tf_publishers
+  start_tf_guard
 
   log '前台起 navigation_executor(v2 坐标协议)。Ctrl+C 全栈退出。'
   "${executor_cmd[@]}"

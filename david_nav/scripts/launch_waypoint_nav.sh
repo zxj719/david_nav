@@ -32,19 +32,19 @@ mkdir -p "$LOG_DIR"
 stamp="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="${LOG_DIR}/waypoint_nav_${stamp}.log"
 
-# Pre-flight (2026-06-10 加强): 导航启动前清掉两类会污染 TF 树的东西:
-#   1. 上肢任务留下的 TF 发布者 —— 抓取/标定那边的 robot_state_publisher
-#      (MoveIt 全身 URDF)、joint_state_publisher(waist_robot.urdf)、相机
-#      static_transform_publisher。它们和导航同在 domain 0,会给 base_link
-#      另立父节点 → TF 成环 → global costmap 全空(2026-06-09 实锅)。
-#      导航和上肢任务不同时跑;上肢那边下次启动会自己再拉起这些发布者。
-#   2. 上一次没退干净的导航栈(重名节点、旧 RViz、旧 static tf)。
-# 本 launch 会自带 RSP(底盘 URDF)+ base→base_link 静态 tf。
+# Pre-flight (2026-06-11 改造:与机械臂 TF 树统一,不再无差别杀 TF 发布者):
+# 本 launch 现在桥 base→world→base_link,机械臂全身 RSP(根=world)天然并入
+# 同一棵树 —— 所以机械臂的 RSP / joint_state_publisher / 相机静态 tf 全部
+# **保留不杀**。只清真正会打架的:
+#   1. 上一次没退干净的导航栈(重名节点、旧 planner 等);
+#   2. 残留的**底盘 URDF** RSP(URDF 含 chassis_root 的才是导航自己的,杀;
+#      机械臂全身 URDF 没有 chassis_root,留);
+#   3. 旧式 base→base_link 静态 tf(会给 base_link 另立父节点,跟新拓扑
+#      打架)+ 旧 base→world/world→base_link 残留(同值重复,顺手清)。
 SELF_PID=$$
 pkill -INT -f 'waypoint_nav_bringup.launch' 2>/dev/null && sleep 2
 pkill -INT -f '2d_david_nav2_bringup.launch' 2>/dev/null && sleep 2
-for pat in robot_state_publisher static_transform_publisher joint_state_publisher \
-           'david_nav/position_controller' 'david_nav/waypoint_follower' \
+for pat in 'david_nav/position_controller' 'david_nav/waypoint_follower' \
            'david_nav/cmd_vel_mux' nav2_planner/planner_server \
            lifecycle_manager_waypoint_nav; do
   for pid in $(pgrep -f "$pat" 2>/dev/null); do
@@ -52,6 +52,28 @@ for pat in robot_state_publisher static_transform_publisher joint_state_publishe
     echo "[launch_waypoint_nav]   killed stale '$pat' pid=$pid" >&2
     kill -9 "$pid" 2>/dev/null || true
   done
+done
+# 2. 残留底盘 RSP:从 cmdline 取 --params-file,内容含 chassis_root 才杀
+for pid in $(pgrep -f robot_state_publisher 2>/dev/null); do
+  [[ "$pid" == "$SELF_PID" ]] && continue
+  pf=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -A1 -- '--params-file' | tail -1)
+  if [[ -n "$pf" && -r "$pf" ]] && grep -q chassis_root "$pf" 2>/dev/null; then
+    echo "[launch_waypoint_nav]   killed stale chassis RSP pid=$pid (params=$pf)" >&2
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+done
+# 3. 会打架的静态 tf:旧式 base→base_link + 本栈自己的旧残留
+for pid in $(pgrep -f static_transform_publisher 2>/dev/null); do
+  [[ "$pid" == "$SELF_PID" ]] && continue
+  cl=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
+  case "$cl" in
+    *base_to_base_link_tf*|*base_to_world_tf*|*world_to_base_link_tf*)
+      echo "[launch_waypoint_nav]   killed stale nav static tf pid=$pid" >&2
+      kill -9 "$pid" 2>/dev/null || true ;;
+    *"--frame-id base --child-frame-id base_link"*)
+      echo "[launch_waypoint_nav]   killed old-style base->base_link tf pid=$pid" >&2
+      kill -9 "$pid" 2>/dev/null || true ;;
+  esac
 done
 sleep 1
 

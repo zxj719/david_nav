@@ -74,10 +74,13 @@ def generate_launch_description():
         }],
     )
 
+    # 2026-06-11:节点名/robot_description 话题都加 nav 前缀,不和抓取栈的
+    # RSP 抢默认名(抓取的 jsp 订 /robot_description,被底盘 URDF 覆盖会判
+    # invalid → /joint_states 停发,机械臂瘫;见抓取组 2026-06-11 说明 §四)。
     robot_state_publisher = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
-        name="robot_state_publisher",
+        name="nav_robot_state_publisher",
         output="screen",
         condition=IfCondition(publish_robot_state),
         parameters=[{
@@ -86,20 +89,38 @@ def generate_launch_description():
                 else Command(["cat ", urdf_file]),
                 value_type=str),
         }],
+        remappings=[("robot_description", "/nav/robot_description")],
     )
 
-    # Lightning 的 TF 只发到 `base` 为止;URDF 的根是 `base_link`。这条静态 tf
-    # 把 map→odom→base 接上 base_link→base_footprint(URDF/RSP),少了它
-    # base_footprint 从 map 不可达(两棵不连通的树,planner 报 TF timeout)。
-    # 之前靠手敲外挂进程,进程一死 TF 就断 —— 2026-06-10 起由本 launch 自带。
-    base_alias_tf = Node(
+    # Lightning 的 TF 只发到 `base` 为止;底盘 URDF 的根是 `base_link`。
+    #
+    # 2026-06-11 拓扑改造(与机械臂 TF 树统一):桥过 world——
+    #     base →(本launch) world →(本launch) base_link
+    # 历史:抓取栈全身 URDF 曾以 world 为根、发 world→base_link,与导航旧的
+    # base→base_link 形成 base_link 双父 → 两棵树 → ConnectivityException
+    # (15:17 实锅)。同日抓取侧 v2 重构:删 world、base_link 改为其子树根、
+    # 删底盘段(轮/lidar/imu),只把腰+双臂+手+相机挂在 base_link 下。
+    # 两条桥都是本 launch 自发,抓取新版(不发 base_link 父)/旧版(发同值
+    # world→base_link)都兼容,机械臂 RSP 在不在都是一棵树。
+    # 注意:旧式 base→base_link 静态 tf 残留会跟这套打架(base_link 双父),
+    # pre-flight 必须清掉(见 launch_waypoint_nav.sh)。
+    base_to_world_tf = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
-        name="base_to_base_link_tf",
+        name="base_to_world_tf",
         output="screen",
         arguments=["--x", "0", "--y", "0", "--z", "0",
                    "--roll", "0", "--pitch", "0", "--yaw", "0",
-                   "--frame-id", "base", "--child-frame-id", "base_link"],
+                   "--frame-id", "base", "--child-frame-id", "world"],
+    )
+    world_to_base_link_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="world_to_base_link_tf",
+        output="screen",
+        arguments=["--x", "0", "--y", "0", "--z", "0",
+                   "--roll", "0", "--pitch", "0", "--yaw", "0",
+                   "--frame-id", "world", "--child-frame-id", "base_link"],
     )
 
     position_controller = Node(
@@ -159,7 +180,8 @@ def generate_launch_description():
         planner_server,
         lifecycle_manager,
         robot_state_publisher,
-        base_alias_tf,
+        base_to_world_tf,
+        world_to_base_link_tf,
         position_controller,
         cmd_vel_mux,
         waypoint_follower,
