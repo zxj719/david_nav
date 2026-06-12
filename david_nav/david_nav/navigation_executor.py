@@ -202,13 +202,12 @@ def _format_status_line(core, pose_provider) -> str:
 
 
 async def _print_status_loop(core, pose_provider, interval_sec: float):
-    # Periodic heartbeat + immediate transition print. Compares the
-    # (state, poi, phase) tuple against the previous tick — any change
-    # prints right away so terminal shows transitions without waiting
-    # for the next interval tick.
+    # 防刷屏(2026-06-11):周期心跳只在有 active_task(导航进行中)时打,
+    # 频率 1/interval_sec(默认 ~0.3Hz);空闲/出错等静止状态不周期打印,
+    # 只在 (state, poi, phase) 变化的那一刻立即打一行,终端能看到转换。
     last_key = None
     last_print_time = 0.0
-    poll_sec = min(interval_sec, 0.25)
+    poll_sec = 0.25
     while True:
         await asyncio.sleep(poll_sec)
         task = core.active_task
@@ -218,7 +217,9 @@ async def _print_status_loop(core, pose_provider, interval_sec: float):
             task.phase if task else None,
         )
         now = time.monotonic()
-        if key != last_key or (now - last_print_time) >= interval_sec:
+        ongoing = task is not None
+        due = ongoing and (now - last_print_time) >= interval_sec
+        if key != last_key or due:
             _log(_format_status_line(core, pose_provider))
             last_key = key
             last_print_time = now
@@ -329,17 +330,25 @@ async def main_async(raw_args):
         _print_status_loop(
             core,
             pose_provider,
-            float(config.get("status_print_interval_sec", 2.0)),
+            # 0.3Hz:导航进行中的心跳频率;空闲态不周期打印(见 loop 内注释)
+            float(config.get("status_print_interval_sec", 1.0 / 0.3)),
         )
     )
 
     try:
+        reconnect_attempt = 0
         while True:
             connection_established = False
+            # 防刷屏:连不上时第 1 次失败打印,之后每 10 次(约 30s)提示一行。
+            reconnect_attempt += 1
+            verbose = reconnect_attempt == 1 or reconnect_attempt % 10 == 0
             try:
-                _log(f"connecting to {config['server_uri']}")
+                if verbose:
+                    suffix = f"(第{reconnect_attempt}次尝试)" if reconnect_attempt > 1 else ""
+                    _log(f"connecting to {config['server_uri']} {suffix}".rstrip())
                 async with websockets.connect(config["server_uri"], ping_interval=None) as websocket:
                     connection_established = True
+                    reconnect_attempt = 0
                     _log("connected")
                     heartbeat_task = asyncio.create_task(
                         _send_heartbeat(websocket, config["heartbeat_interval"])
@@ -379,12 +388,13 @@ async def main_async(raw_args):
             except Exception as exc:
                 if connection_established:
                     _log(f"connection closed: {exc}")
-                else:
-                    _log(f"connection failed: {exc}")
+                elif verbose:
+                    _log(f"connection failed: {exc}(连不上时每10次提示一行)")
             else:
                 if connection_established:
                     _log("connection closed")
-            _log(f"reconnecting in {config['reconnect_delay']:.1f}s")
+            if verbose or connection_established:
+                _log(f"reconnecting in {config['reconnect_delay']:.1f}s")
             await asyncio.sleep(config["reconnect_delay"])
     finally:
         spin_task.cancel()
