@@ -20,6 +20,11 @@ DEFAULT_SERVER_TIMEOUT = 10.0
 DEFAULT_ROBOT_BASE_FRAME = "base_link"
 DEFAULT_ODOM_TOPIC = "/lightning/odometry"
 DEFAULT_SLAM_SESSION_ID = "live_session"
+DEFAULT_GRID_MAP_TOPIC = "/lightning/grid_map"
+DEFAULT_GLOBAL_COSTMAP_TOPIC = "/global_costmap/costmap"
+DEFAULT_NAV_GOAL_SNAP_RADIUS = 0.5
+DEFAULT_NAV_GOAL_FALLBACK_SNAP_RADIUS = 1.0
+DEFAULT_NAV_GOAL_CLEARANCE_RADIUS = 0.1
 DEFAULT_RECONNECT_DELAY = 3.0
 
 
@@ -80,6 +85,11 @@ def _parse_cli_args(raw_args):
         "robot_base_frame": DEFAULT_ROBOT_BASE_FRAME,
         "odom_topic": DEFAULT_ODOM_TOPIC,
         "slam_session_id": DEFAULT_SLAM_SESSION_ID,
+        "grid_map_topic": DEFAULT_GRID_MAP_TOPIC,
+        "global_costmap_topic": DEFAULT_GLOBAL_COSTMAP_TOPIC,
+        "nav_goal_snap_radius": DEFAULT_NAV_GOAL_SNAP_RADIUS,
+        "nav_goal_fallback_snap_radius": DEFAULT_NAV_GOAL_FALLBACK_SNAP_RADIUS,
+        "nav_goal_clearance_radius": DEFAULT_NAV_GOAL_CLEARANCE_RADIUS,
         "reconnect_delay": DEFAULT_RECONNECT_DELAY,
         "theta_in_degrees": False,
     }
@@ -243,10 +253,8 @@ async def main_async(raw_args):
     from rclpy.node import Node
     from tf2_ros import Buffer, TransformListener
 
-    from david_nav.navigation_executor_core import (
-        DirectNavigationGoalResolver,
-        NavigationExecutorCore,
-    )
+    from david_nav.navigation_executor_core import NavigationExecutorCore
+    from david_nav.navigation_goal_resolver import NavigationGoalResolver
     from david_nav.nav2_action_bridge import Nav2ActionBridge
     from david_nav.poi_store import LocalPoiStore
     from david_nav.pose_provider import TfPoseProvider
@@ -301,14 +309,15 @@ async def main_async(raw_args):
         odom_topic=config["odom_topic"],
         slam_session_id_fn=lambda: config["slam_session_id"],
     )
-    # 取消 goal snap(2026-06-12):下发坐标(v2 target_pose)和 JSON 导航点都按
-    # 原样发给导航栈,不再做可达性判定/扩圈挪点。旧 NavigationGoalResolver 的
-    # is_goal_free 要求格值严格 ==0,inflation(0.40m)+clearance(0.1m) 叠加导致
-    # 离障碍 <0.5m 的目标全被挪到 0.5m 环上 —— 实测目标 (9.52,-8.82) 被挪到
-    # (9.05,-8.90),机器人"到点"却离真目标 0.70m,且静态障碍下到 snap 点后的
-    # anchor 复查必然失败,白跑一趟。目标真不可达时由 planner 报错走 error 链。
-    # snap 机制仅保留在 auto explore(frontier_explorer.cpp 的 C++ 实现)。
-    goal_resolver = DirectNavigationGoalResolver()
+    goal_resolver = NavigationGoalResolver(
+        node=node,
+        pose_provider=pose_provider,
+        map_topic=config["grid_map_topic"],
+        global_costmap_topic=config["global_costmap_topic"],
+        snap_radius=config["nav_goal_snap_radius"],
+        fallback_snap_radius=config["nav_goal_fallback_snap_radius"],
+        goal_clearance_radius=config["nav_goal_clearance_radius"],
+    )
     core = NavigationExecutorCore(
         bridge=bridge,
         pose_provider=pose_provider,
