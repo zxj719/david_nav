@@ -28,7 +28,7 @@
 
     dist_tol: 0.10            # m, DISTANCE/直线到位容差（2026-06-10 0.40→0.10:直线精度
                               # 本就 ~2cm,末端 floor 0.07 爬行切零滑行 ≈2cm,0.10 富余）
-    pose_dist_tol: 0.40       # m, POSE 定点到位容差——这是"单发 MoveTo/最终 goal"的默认。
+    pose_dist_tol: 0.30       # m, POSE 定点到位容差(2026-06-11 0.40→0.30 同步 goal_dist_tol)——这是"单发 MoveTo/最终 goal"的默认。
                               # waypoint_follower 每段发车前会用 set_parameters 覆盖:
                               # 中间 waypoint 0.8 / 最终 goal 0.4(2026-06-10 分层容差)
     yaw_tol: 0.02             # rad, ROTATE 原地转容差（内部转向阈值，勿动；保持紧=转得准）

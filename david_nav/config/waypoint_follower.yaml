@@ -16,7 +16,7 @@ waypoint_follower:
     # 分层容差(2026-06-10):发段前经 set_parameters 切 position_controller 的
     # pose_dist_tol / pose_yaw_tol。中间 waypoint 是过路点,松;最终 goal 紧。
     wp_dist_tol: 0.8               # m,中间 waypoint 位置容差(角度不管,固定 π)
-    goal_dist_tol: 0.4             # m,最终 goal 位置容差
+    goal_dist_tol: 0.3             # m,最终 goal 位置容差(2026-06-11 0.4→0.3)
     goal_yaw_tol: 0.1              # rad(≈5.7°),最终 goal 朝向容差(2026-06-10 0.4→0.1:
                                    # 实车终转落点 0.024/0.058 rad,0.1 够得着;终转小角度
                                    # 微调靠 min_cmd_w 踢动,可能多 1~2 个脉冲、时间略增)
