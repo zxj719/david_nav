@@ -92,36 +92,11 @@ def generate_launch_description():
         remappings=[("robot_description", "/nav/robot_description")],
     )
 
-    # Lightning 的 TF 只发到 `base` 为止;底盘 URDF 的根是 `base_link`。
-    #
-    # 2026-06-11 拓扑改造(与机械臂 TF 树统一):桥过 world——
-    #     base →(本launch) world →(本launch) base_link
-    # 历史:抓取栈全身 URDF 曾以 world 为根、发 world→base_link,与导航旧的
-    # base→base_link 形成 base_link 双父 → 两棵树 → ConnectivityException
-    # (15:17 实锅)。同日抓取侧 v2 重构:删 world、base_link 改为其子树根、
-    # 删底盘段(轮/lidar/imu),只把腰+双臂+手+相机挂在 base_link 下。
-    # 两条桥都是本 launch 自发,抓取新版(不发 base_link 父)/旧版(发同值
-    # world→base_link)都兼容,机械臂 RSP 在不在都是一棵树。
-    # 注意:旧式 base→base_link 静态 tf 残留会跟这套打架(base_link 双父),
-    # pre-flight 必须清掉(见 launch_waypoint_nav.sh)。
-    base_to_world_tf = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="base_to_world_tf",
-        output="screen",
-        arguments=["--x", "0", "--y", "0", "--z", "0",
-                   "--roll", "0", "--pitch", "0", "--yaw", "0",
-                   "--frame-id", "base", "--child-frame-id", "world"],
-    )
-    world_to_base_link_tf = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="world_to_base_link_tf",
-        output="screen",
-        arguments=["--x", "0", "--y", "0", "--z", "0",
-                   "--roll", "0", "--pitch", "0", "--yaw", "0",
-                   "--frame-id", "world", "--child-frame-id", "base_link"],
-    )
+    # 2026-06-12:SLAM 已直接发 map→odom→base_link(base_link = 正向本体帧),
+    # 原来的 base→world→base_link 桥**已移除** —— 再发会让 base_link 双父
+    # (SLAM 的 odom + 桥的 world),又裂树。base_link 的父现在唯一由 SLAM 发。
+    # 底盘 URDF(本 launch 的 RSP)只发 base_link 的子帧,不发其父。
+    # 抓取栈把上半身挂在 base_link 下,交界仍在 base_link,一棵树。
 
     position_controller = Node(
         package="david_nav",
@@ -180,8 +155,6 @@ def generate_launch_description():
         planner_server,
         lifecycle_manager,
         robot_state_publisher,
-        base_to_world_tf,
-        world_to_base_link_tf,
         position_controller,
         cmd_vel_mux,
         waypoint_follower,

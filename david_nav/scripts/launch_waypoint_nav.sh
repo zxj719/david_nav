@@ -32,15 +32,16 @@ mkdir -p "$LOG_DIR"
 stamp="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="${LOG_DIR}/waypoint_nav_${stamp}.log"
 
-# Pre-flight (2026-06-11 改造:与机械臂 TF 树统一,不再无差别杀 TF 发布者):
-# 本 launch 现在桥 base→world→base_link,机械臂全身 RSP(根=world)天然并入
-# 同一棵树 —— 所以机械臂的 RSP / joint_state_publisher / 相机静态 tf 全部
+# Pre-flight (2026-06-12 改造:base_link 父由 SLAM 唯一发布,不再无差别杀):
+# SLAM 现在直接发 map→odom→base_link;机械臂全身 RSP 把上半身挂 base_link 下,
+# 天然同一棵树 —— 机械臂的 RSP / joint_state_publisher / 相机静态 tf 全部
 # **保留不杀**。只清真正会打架的:
 #   1. 上一次没退干净的导航栈(重名节点、旧 planner 等);
 #   2. 残留的**底盘 URDF** RSP(URDF 含 chassis_root 的才是导航自己的,杀;
 #      机械臂全身 URDF 没有 chassis_root,留);
-#   3. 旧式 base→base_link 静态 tf(会给 base_link 另立父节点,跟新拓扑
-#      打架)+ 旧 base→world/world→base_link 残留(同值重复,顺手清)。
+#   3. 任何把 base_link 当 child 的静态 tf(base_link 的父现在只能由 SLAM
+#      的 odom 发;旧式 base→base_link / 已废弃的 base→world / world→base_link
+#      残留都会给 base_link 双父 → 裂树,一律清掉)。
 SELF_PID=$$
 pkill -INT -f 'waypoint_nav_bringup.launch' 2>/dev/null && sleep 2
 pkill -INT -f '2d_david_nav2_bringup.launch' 2>/dev/null && sleep 2
@@ -62,16 +63,17 @@ for pid in $(pgrep -f robot_state_publisher 2>/dev/null); do
     kill -9 "$pid" 2>/dev/null || true
   fi
 done
-# 3. 会打架的静态 tf:旧式 base→base_link + 本栈自己的旧残留
+# 3. 任何把 base_link 当 child 的静态 tf —— base_link 父只能由 SLAM odom 发,
+#    其余(旧式 base→base_link、已废弃的 base→world/world→base_link)都会双父裂树
 for pid in $(pgrep -f static_transform_publisher 2>/dev/null); do
   [[ "$pid" == "$SELF_PID" ]] && continue
   cl=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)
   case "$cl" in
     *base_to_base_link_tf*|*base_to_world_tf*|*world_to_base_link_tf*)
-      echo "[launch_waypoint_nav]   killed stale nav static tf pid=$pid" >&2
+      echo "[launch_waypoint_nav]   killed stale nav bridge tf pid=$pid" >&2
       kill -9 "$pid" 2>/dev/null || true ;;
-    *"--frame-id base --child-frame-id base_link"*)
-      echo "[launch_waypoint_nav]   killed old-style base->base_link tf pid=$pid" >&2
+    *"--child-frame-id base_link"*)
+      echo "[launch_waypoint_nav]   killed stale base_link-parent tf pid=$pid" >&2
       kill -9 "$pid" 2>/dev/null || true ;;
   esac
 done

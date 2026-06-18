@@ -160,13 +160,11 @@ def generate_launch_description():
         condition=IfCondition(publish_robot_state),
     )
 
-    base_alias_tf_node = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='base_to_base_link_alias',
-        arguments=['0', '0', '0', '0', '0', '0', 'base', 'base_link'],
-        output='screen',
-    )
+    # 2026-06-18: 删除 base->base_link 静态别名。SLAM 改进后直接发
+    # map->odom->base->base_link(base->base_link 含 Rz(-90deg)+z=-0.275,
+    # base_link = 正向本体帧)。本节点曾发 base->base_link 恒等,会和 SLAM
+    # 抢同一条边(恒等 vs -90deg)→ base_link 朝向闪烁/裂树。base_link 的父
+    # 现在唯一由 SLAM 提供。URDF(RSP)只发 base_link 的子帧。
 
     pointcloud_to_scan_node = Node(
         package='pointcloud_to_laserscan',
@@ -178,11 +176,10 @@ def generate_launch_description():
             ('scan', '/scan'),
         ],
         parameters=[{
-            # 2026-05-18: target_frame 从 'base' (=base_link 别名) 改成
-            # 'base_footprint'。base_link 是 IMU 对齐帧 (+X = 机身左，+Y = 机身后)，
-            # 非 REP-105；只有 base_footprint 是 +X = 物理前。在 base_link 系
-            # 下做 ±π/2 角度过滤捕的是机身"左半圆"，不是"前半圆"。
-            # 参考 david_nav/urdf/david.urdf 第 14、30 行的 TF 链注释。
+            # target_frame = base_footprint。2026-06-18 起 base_link 已被 SLAM
+            # 转成正向帧(与 base_footprint 同朝向),但仍用 base_footprint:它在
+            # 地面 z=0,配合下面 min_height=0.10 滤地面;base_link 高于地面。
+            # ±π/2 角度过滤在 base_footprint 系下精确对应机身正前方半圆。
             'target_frame': 'base_footprint',
             'transform_tolerance': 0.1,
             # 2026-05-18: min_height 抬到 0.10m。base_footprint 在地面 (z=0)，
@@ -461,7 +458,6 @@ def generate_launch_description():
             description='Nav2 log level',
         ),
         robot_state_publisher_node,
-        base_alias_tf_node,
         pointcloud_to_scan_node,
         controller_server_node,
         smoother_server_node,

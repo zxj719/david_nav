@@ -184,13 +184,14 @@ is_our_stack_process() {
 }
 
 kill_conflicting_tf_publishers() {
-  # 2026-06-11 改造:机械臂 TF 树已通过 base→world→base_link 桥统一进来,
-  # 机械臂的全身 RSP / joint_state_publisher / 相机静态 tf **一律不杀**。
-  # 只清两类真正打架的:
+  # 2026-06-12 改造:base_link 的父现在由 SLAM 的 odom 唯一发布。机械臂把
+  # 上半身挂 base_link 下,天然同树,其全身 RSP / joint_state_publisher /
+  # 相机静态 tf **一律不杀**。只清两类真正打架的:
   #   1. 残留底盘 RSP(URDF 含 chassis_root 且不是本栈子进程)—— 重复发
   #      base_link 子树,来自上一次没退干净的导航;
-  #   2. 旧式 base→base_link 静态 tf —— 给 base_link 另立父节点,跟新拓扑
-  #      base→world→base_link 冲突,必杀。
+  #   2. 任何把 base_link 当 child 的静态 tf —— 给 base_link 另立父节点,
+  #      跟 SLAM 的 odom→base_link 双父冲突(旧式 base→base_link、已废弃的
+  #      base→world/world→base_link 残留),必杀。
   local pid pf cl
   for pid in $(pgrep -f robot_state_publisher 2>/dev/null); do
     [[ "$pid" == "$$" ]] && continue
@@ -206,17 +207,17 @@ kill_conflicting_tf_publishers() {
     is_our_stack_process "$pid" && continue
     cl="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null)"
     case "$cl" in
-      *base_to_base_link_tf*|*"--frame-id base --child-frame-id base_link"*)
-        log "WARN: 旧式 base->base_link 静态 tf pid=$pid(与 base->world 桥冲突)→ kill"
+      *base_to_base_link_tf*|*base_to_world_tf*|*world_to_base_link_tf*|*"--child-frame-id base_link"*)
+        log "WARN: base_link 被另立父节点的静态 tf pid=$pid(与 SLAM odom→base_link 冲突)→ kill"
         kill -9 "$pid" 2>/dev/null || true ;;
     esac
   done
 }
 
 start_tf_guard() {
-  # 常驻守卫:只盯"会打架"的发布者(残留底盘 RSP/旧式 base->base_link tf);
-  # 机械臂树由 base->world 桥统一,守卫不碰它。
-  log "起 TF 守卫(每 ${TF_GUARD_INTERVAL_SEC}s 清残留底盘 RSP/旧式 base->base_link tf;机械臂 TF 不动)"
+  # 常驻守卫:只盯"会打架"的发布者(残留底盘 RSP / 给 base_link 另立父的 tf);
+  # base_link 的父由 SLAM 唯一发,机械臂树挂其下,守卫不碰机械臂。
+  log "起 TF 守卫(每 ${TF_GUARD_INTERVAL_SEC}s 清残留底盘 RSP / base_link 另立父的 tf;机械臂 TF 不动)"
   (
     while true; do
       sleep "$TF_GUARD_INTERVAL_SEC"
