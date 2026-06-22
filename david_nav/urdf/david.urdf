@@ -10,9 +10,32 @@
     map -> odom -> base -> base_link  (SLAM; base->base_link = Rz(-90deg)+z-0.275, base_link X=forward)
           |- imu_link             Rz(+90deg) from base_link
           |- laser_link           0.352m forward (+X), same orientation
-          |- base_footprint       0.25m below, SAME orientation (X=forward)
+          |- base_footprint       ROTATION CENTER = wheel-axle midpoint;
+          |                        0.165m forward (+X), 0.4075m below=ground
+          |                        (axle -0.1875 - 0.22 wheel radius) (2026-06-22)
           |- chassis_root         CAD root, Rz(-90deg) from base_link
-              |- left_wheel_link / right_wheel_link
+              |- left_wheel_link / right_wheel_link  (moved +0.165m forward 2026-06-22)
+
+  ============================================================
+  DIFF-DRIVE GEOMETRY — SINGLE SOURCE OF TRUTH (edit here, keep 3 origins consistent)
+  ============================================================
+    wheel_x_offset = 0.165    # wheels & rotation center forward of base_link, +X
+    half_track     = 0.2525   # half of 50.5cm track; wheel Y = ±half_track
+    wheel_z        = -0.084   # wheel axle z in chassis_root (axle hub, unchanged)
+    wheel_radius   = 0.22     # 22cm wheels (2026-06-22 hw upgrade); sets ground z
+  chassis_root is Rz(-90deg) from base_link, so base_link +X = chassis_root +Y,
+  base_link +Y = chassis_root -X. The wheel-axle z in base_link is
+    axle_z = chassis_root_z(-0.1035) + wheel_z(-0.084) = -0.1875.
+  The three origins below are DERIVED:
+    left_wheel_joint  (chassis_root): xyz = [-half_track,  wheel_x_offset, wheel_z]
+    right_wheel_joint (chassis_root): xyz = [ half_track,  wheel_x_offset, wheel_z]
+    base_link_to_base_footprint:      xyz = [ wheel_x_offset, 0, axle_z - wheel_radius]
+                                          = [ 0.165, 0, -0.4075 ]   (ground)
+  NEXT diff-drive change: edit the 4 values above and re-derive these 3 origins.
+  NON-URDF CONSUMER (cannot read URDF): nav2 footprint polygon in
+  config/nav2_params_2d.yaml (local+global). It is expressed in base_footprint
+  frame, so if wheel_x_offset changes by d, shift that polygon's X by -d.
+  ============================================================
 
   HISTORY: base_link used to be a rotated frame and the launch aliased
   base->base_link (later base->world->base_link) because SLAM published
@@ -63,13 +86,19 @@
     <origin xyz="0.352 0 0.1275" rpy="0 0 0"/>
   </joint>
 
-  <!-- base_footprint: midpoint between the two wheels, on the ground.
-       Now coincident in orientation with base_link (pure -0.25m z). -->
+  <!-- base_footprint: projection of the two-wheel AXLE MIDPOINT on the ground.
+       This frame is the differential-drive ROTATION CENTER and is used as
+       nav2's robot_base_frame everywhere. It MUST track the wheel midpoint.
+       2026-06-22: wheels moved +0.165m forward (see diff-geometry block at top),
+       so base_footprint moved with them: x = wheel_x_offset = 0.165 (was 0).
+       z = axle_z - wheel_radius = -0.1875 - 0.22 = -0.4075 (true ground with the
+       22cm wheels; was -0.25, which was stale for the old 6.25cm-radius wheels).
+       Orientation coincident with base_link (X=forward). -->
   <link name="base_footprint"/>
   <joint name="base_link_to_base_footprint" type="fixed">
     <parent link="base_link"/>
     <child  link="base_footprint"/>
-    <origin xyz="0 0 -0.25" rpy="0 0 0"/>
+    <origin xyz="0.165 0 -0.4075" rpy="0 0 0"/>
   </joint>
 
   <!-- CAD chassis root: was Rz(pi) from old base_link; with base_link now
@@ -127,7 +156,8 @@
     </collision>
   </link>
   <joint name="left_wheel_joint" type="revolute">
-    <origin xyz="-0.2955 0 -0.084" rpy="1.5708 0 0" />
+    <!-- base_link (0.165, +0.2525) -> chassis_root via Rz(-90): x=-half_track, y=+wheel_x_offset -->
+    <origin xyz="-0.2525 0.165 -0.084" rpy="1.5708 0 0" />
     <parent link="chassis_root" />
     <child link="left_wheel_link" />
     <axis xyz="1 0 0" />
@@ -157,7 +187,8 @@
     </collision>
   </link>
   <joint name="right_wheel_joint" type="revolute">
-    <origin xyz="0.2969 0 -0.084" rpy="1.5708 0 0" />
+    <!-- base_link (0.165, -0.2525) -> chassis_root via Rz(-90): x=+half_track, y=+wheel_x_offset -->
+    <origin xyz="0.2525 0.165 -0.084" rpy="1.5708 0 0" />
     <parent link="chassis_root" />
     <child link="right_wheel_link" />
     <axis xyz="-1 0 0" />

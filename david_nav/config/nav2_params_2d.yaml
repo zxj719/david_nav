@@ -253,12 +253,15 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.1
-      # 2026-05-22: footprint 改回 URDF 底盘 STL 外接矩形（david_nav/meshes/
-      # zongzhuang/base_link.STL，base_footprint 帧下 X(forward) -0.30..+0.42,
-      # Y(left) -0.30..+0.30）。base_footprint 在两轮中点投影，不在机身几何
-      # 中心，因此矩形 X 方向非对称（前 0.42 / 后 0.30）。inscribed=0.30。
+      # 2026-05-22: footprint = URDF 底盘 STL 外接矩形（david_nav/meshes/
+      # zongzhuang/base_link.STL）。在 base_footprint 帧下表达。
+      # 2026-06-22: 双轮前移 16.5cm，base_footprint(=旋转中心) 随之前移 +0.165，
+      # 机身未动，故多边形 X 整体后退 0.165：原 X[-0.30..0.42] -> X[-0.465..0.255]，
+      # Y(left) -0.30..+0.30 不变。inscribed 由前缘决定 = 0.255（仍 ≤ inflation 0.40）。
+      # 注意：此多边形无法从 URDF 读取——若 wheel_x_offset 再变 d，X 同步平移 -d
+      #（与 urdf/david.urdf 顶部 DIFF-DRIVE GEOMETRY 块互为引用）。
       # 2026-06-05 restore-merge: 物理几何，不随 nav2 策略一起回滚。
-      footprint: "[[0.42, 0.30], [0.42, -0.30], [-0.30, -0.30], [-0.30, 0.30]]"
+      footprint: "[[0.255, 0.30], [0.255, -0.30], [-0.465, -0.30], [-0.465, 0.30]]"
       footprint_padding: 0.0
       track_unknown_space: true
       # plugins: ["voxel_layer", "inflation_layer"]
@@ -346,12 +349,15 @@ global_costmap:
       robot_base_frame: base_footprint
       use_sim_time: false
       resolution: 0.1
-      # 2026-05-22: footprint 改回 URDF 底盘 STL 外接矩形（david_nav/meshes/
-      # zongzhuang/base_link.STL，base_footprint 帧下 X(forward) -0.30..+0.42,
-      # Y(left) -0.30..+0.30）。base_footprint 在两轮中点投影，不在机身几何
-      # 中心，因此矩形 X 方向非对称（前 0.42 / 后 0.30）。inscribed=0.30。
+      # 2026-05-22: footprint = URDF 底盘 STL 外接矩形（david_nav/meshes/
+      # zongzhuang/base_link.STL）。在 base_footprint 帧下表达。
+      # 2026-06-22: 双轮前移 16.5cm，base_footprint(=旋转中心) 随之前移 +0.165，
+      # 机身未动，故多边形 X 整体后退 0.165：原 X[-0.30..0.42] -> X[-0.465..0.255]，
+      # Y(left) -0.30..+0.30 不变。inscribed 由前缘决定 = 0.255（仍 ≤ inflation 0.40）。
+      # 注意：此多边形无法从 URDF 读取——若 wheel_x_offset 再变 d，X 同步平移 -d
+      #（与 urdf/david.urdf 顶部 DIFF-DRIVE GEOMETRY 块互为引用）。
       # 2026-06-05 restore-merge: 物理几何，不随 nav2 策略一起回滚。
-      footprint: "[[0.42, 0.30], [0.42, -0.30], [-0.30, -0.30], [-0.30, 0.30]]"
+      footprint: "[[0.255, 0.30], [0.255, -0.30], [-0.465, -0.30], [-0.465, 0.30]]"
       footprint_padding: 0.0
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]

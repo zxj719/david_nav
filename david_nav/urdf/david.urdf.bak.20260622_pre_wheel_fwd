@@ -1,0 +1,167 @@
+<?xml version="1.0"?>
+<!--
+  David David URDF - chassis only
+  ============================================================
+  Wrapper navigation frames (top), then chassis CAD content
+  (chassis_root + wheels). Upper body (arms, hands, fingers)
+  has been removed.
+
+  TF layout (2026-06-18: base_link normalised to body-forward):
+    map -> odom -> base -> base_link  (SLAM; base->base_link = Rz(-90deg)+z-0.275, base_link X=forward)
+          |- imu_link             Rz(+90deg) from base_link
+          |- laser_link           0.352m forward (+X), same orientation
+          |- base_footprint       0.25m below, SAME orientation (X=forward)
+          |- chassis_root         CAD root, Rz(-90deg) from base_link
+              |- left_wheel_link / right_wheel_link
+
+  HISTORY: base_link used to be a rotated frame and the launch aliased
+  base->base_link (later base->world->base_link) because SLAM published
+  map->odom->base. SLAM now publishes map->odom->base_link directly with
+  base_link = standard forward frame, so the launch bridge is removed and
+  base_link is coincident in orientation with base_footprint.
+
+  These child joints were re-expressed by Rz(+90deg) from the OLD base_link
+  (old: imu identity, laser/footprint Rz(-90deg), chassis_root Rz(180deg)).
+  The PHYSICAL frames (laser_link, base_footprint, chassis_root, wheels) are
+  byte-for-byte unchanged in space — only base_link's axes were relabelled,
+  so costmap footprint / robot_base_frame / laser data are unaffected.
+
+  CROSS-STACK: the grasp (upper-body) URDF mounts its waist (Link1) on
+  base_link. base_link's orientation changed here, so the grasp side's
+  base_link->Link1 must use the SAME forward convention — confirm with the
+  grasp/SLAM owners that everyone agrees base_link = X-forward.
+
+  NOTE: laser_link / chassis_root / base_footprint offsets carried over from
+  the prior calibration; re-verify against the physical mount in RViz.
+-->
+<robot name="david">
+
+  <!-- ============ wrapper navigation frames ============ -->
+
+  <!-- Root: SLAM publishes map->odom->base_link DIRECTLY (2026-06-12).
+       base_link is now the NORMAL body-forward frame (X=forward), coincident
+       in orientation with base_footprint. No more base->world->base_link
+       launch bridge. Children below were re-expressed by Rz(+90deg) from the
+       old (rotated) base_link so the physical robot is byte-for-byte the same;
+       only base_link's axes were relabelled to the forward convention. -->
+  <link name="base_link"/>
+
+  <!-- IMU: was identity with the OLD base_link; that frame is now +90deg yaw. -->
+  <link name="imu_link"/>
+  <joint name="base_link_to_imu_link" type="fixed">
+    <parent link="base_link"/>
+    <child  link="imu_link"/>
+    <origin xyz="0 0 0" rpy="0 0 1.5707963267948966"/>
+  </joint>
+
+  <!-- LSLIDAR C16: published by lslidar driver as frame_id="laser_link".
+       Now 0.352m FORWARD (+X) of base_link, same orientation. -->
+  <link name="laser_link"/>
+  <joint name="base_link_to_laser_link" type="fixed">
+    <parent link="base_link"/>
+    <child  link="laser_link"/>
+    <origin xyz="0.352 0 0.1275" rpy="0 0 0"/>
+  </joint>
+
+  <!-- base_footprint: midpoint between the two wheels, on the ground.
+       Now coincident in orientation with base_link (pure -0.25m z). -->
+  <link name="base_footprint"/>
+  <joint name="base_link_to_base_footprint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="base_footprint"/>
+    <origin xyz="0 0 -0.25" rpy="0 0 0"/>
+  </joint>
+
+  <!-- CAD chassis root: was Rz(pi) from old base_link; with base_link now
+       +90deg, chassis_root is Rz(-90deg). z offset unchanged. -->
+  <joint name="base_link_to_chassis_root" type="fixed">
+    <parent link="base_link"/>
+    <child  link="chassis_root"/>
+    <origin xyz="0 0 -0.1035" rpy="0 0 -1.5707963267948966"/>
+  </joint>
+
+  <!-- ============ chassis CAD content ============ -->
+  <link name="chassis_root">
+    <inertial>
+      <origin xyz="0.0260324583597855 0.0179022760034589 0.0772389796790675" rpy="0 0 0" />
+      <mass value="16.6007220352047" />
+      <inertia ixx="0.322365683606253" ixy="-0.00355432435118943" ixz="2.46907320009811E-05" iyy="0.302813619372029" iyz="-4.47427835668917E-05" izz="0.617038509459363" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/base_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.898039215686275 0.917647058823529 0.929411764705882 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="left_wheel_link">
+    <inertial>
+      <origin xyz="0.0215436228721596 -2.4871829294032E-06 1.96609603111576E-08" rpy="0 0 0" />
+      <mass value="0.272387982807766" />
+      <inertia ixx="0.000637120767161904" ixy="2.31687133017476E-09" ixz="4.28905159983964E-11" iyy="0.00035405432582222" iyz="-4.78531137075495E-11" izz="0.000354050438511622" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_wheel_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/left_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_wheel_joint" type="revolute">
+    <origin xyz="-0.2955 0 -0.084" rpy="1.5708 0 0" />
+    <parent link="chassis_root" />
+    <child link="left_wheel_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+
+  <link name="right_wheel_link">
+    <inertial>
+      <origin xyz="-0.0229440987977794 -2.48637469096868E-06 -2.01838018354603E-08" rpy="0 0 0" />
+      <mass value="0.272387983874311" />
+      <inertia ixx="0.000637120765320742" ixy="-2.31077385129403E-09" ixz="4.55453740824157E-11" iyy="0.000354054337277639" iyz="4.78235536475146E-11" izz="0.000354050440979772" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_wheel_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://david_nav/meshes/zongzhuang/right_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_wheel_joint" type="revolute">
+    <origin xyz="0.2969 0 -0.084" rpy="1.5708 0 0" />
+    <parent link="chassis_root" />
+    <child link="right_wheel_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+
+</robot>
