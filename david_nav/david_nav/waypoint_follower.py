@@ -39,11 +39,10 @@ from david_nav_msgs.action import MoveTo
 
 from david_nav.grid_map_view import GridMapView
 from david_nav.waypoint_sparsifier import (
-    insert_approach_waypoint,
+    plan_waypoints,
     pose_window_stable,
     relative_target,
     relative_yaw,
-    sparsify,
 )
 
 
@@ -86,6 +85,13 @@ class WaypointFollowerNode(Node):
         self.declare_parameter("pose_stable_eps_yaw", 0.03) # rad,窗口内朝向跨度
         self.declare_parameter("pose_stable_timeout", 6.0)  # s,等不到就用最新值
         self.declare_parameter("final_check_retries", 2)    # 末端复查补走轮数,0=关
+        # 终点补偿到 base_link(2026-06-22):控制/测量基于 robot_base_frame
+        # (base_footprint=两轮轴中点=旋转中心),但它在 base_link 前方 ~0.165m。
+        # 直接把 base_footprint 开到 goal 会让身体中心(base_link,即 SLAM/抓取基准)
+        # 差这个偏置。开启后:把 goal 沿最终朝向前移 偏置量,使终转后 goal_ref_frame
+        # (默认 base_link)恰落在 goal 上。偏置从 TF 实读 → 与 URDF 几何解耦。
+        self.declare_parameter("compensate_goal_to_ref", True)
+        self.declare_parameter("goal_ref_frame", "base_link")
 
         g = self.get_parameter
         self.planner_action = str(g("planner_action").value)
@@ -111,6 +117,9 @@ class WaypointFollowerNode(Node):
         self.pose_stable_eps_yaw = float(g("pose_stable_eps_yaw").value)
         self.pose_stable_timeout = float(g("pose_stable_timeout").value)
         self.final_check_retries = int(g("final_check_retries").value)
+        self.compensate_goal_to_ref = bool(g("compensate_goal_to_ref").value)
+        self.goal_ref_frame = str(g("goal_ref_frame").value)
+        self._ctrl_ref_offset = None   # cached (dx,dy): goal_ref_frame 在 robot_base_frame 下
 
         self._cb = ReentrantCallbackGroup()
         self._costmap = None
@@ -203,6 +212,35 @@ class WaypointFollowerNode(Node):
         r = tf.transform.rotation
         return (float(t.x), float(t.y),
                 _yaw_from_quat(r.x, r.y, r.z, r.w))
+
+    def _control_to_ref_offset(self):
+        """(dx,dy) = goal_ref_frame 原点在 robot_base_frame(控制/测量帧)下的坐标。
+        例:robot_base_frame=base_footprint、goal_ref_frame=base_link ⇒ base_link
+        在 base_footprint 后方,d≈(-0.165,0)。用于把终点补偿到 base_link(见 __init__)。
+        从 TF 实读 → 偏置随 URDF 变,代码无需改;查不到则退化为不补偿 (0,0) 并告警。
+        结果缓存(刚体固定 TF,不变)。"""
+        if (not self.compensate_goal_to_ref
+                or self.goal_ref_frame == self.robot_base_frame):
+            return (0.0, 0.0)
+        if self._ctrl_ref_offset is not None:
+            return self._ctrl_ref_offset
+        try:
+            tf = self.tf_buffer.lookup_transform(
+                self.robot_base_frame, self.goal_ref_frame, rclpy.time.Time())
+            d = (float(tf.transform.translation.x),
+                 float(tf.transform.translation.y))
+            self._ctrl_ref_offset = d
+            self.get_logger().info(
+                "[goal-comp] {}->{} offset=({:+.3f},{:+.3f})m — 终点按 {} 补偿".format(
+                    self.robot_base_frame, self.goal_ref_frame,
+                    d[0], d[1], self.goal_ref_frame))
+            return d
+        except Exception as e:
+            self.get_logger().warn(
+                "[goal-comp] TF {}->{} 查不到({}) — 终点不补偿".format(
+                    self.robot_base_frame, self.goal_ref_frame, e))
+            self._ctrl_ref_offset = (0.0, 0.0)
+            return (0.0, 0.0)
 
     # ---- planning ----
     def _wait_grid(self):
@@ -337,6 +375,26 @@ class WaypointFollowerNode(Node):
                 goal_pose.pose.orientation.x, goal_pose.pose.orientation.y,
                 goal_pose.pose.orientation.z, goal_pose.pose.orientation.w)
 
+            # 终点补偿到 base_link(2026-06-22):把 goal 沿最终朝向前移 -R(yaw)*d,
+            # 使 base_footprint 到达补偿点、终转到 goal_yaw 后,goal_ref_frame(base_link)
+            # 恰落在原 goal。补偿在规划前对整条链生效(规划/各段/进场点/末端复查
+            # 全部用补偿后的点,几何一致)。仅对有终点朝向的 goal 生效——position-only
+            # (yaw=NaN)无朝向定义不了"前移方向",跳过。
+            if self.compensate_goal_to_ref and not math.isnan(goal_yaw):
+                d0, d1 = self._control_to_ref_offset()
+                if d0 or d1:
+                    c, s = math.cos(goal_yaw), math.sin(goal_yaw)
+                    gx0 = float(goal_pose.pose.position.x)
+                    gy0 = float(goal_pose.pose.position.y)
+                    goal_pose.pose.position.x = gx0 - (d0 * c - d1 * s)
+                    goal_pose.pose.position.y = gy0 - (d0 * s + d1 * c)
+                    self.get_logger().info(
+                        "[goal-comp] goal ({:+.2f},{:+.2f}) -> {} 目标 ({:+.2f},{:+.2f}) "
+                        "(沿 {:+.0f}deg 补偿,使 {} 落在原 goal)".format(
+                            gx0, gy0, self.robot_base_frame,
+                            goal_pose.pose.position.x, goal_pose.pose.position.y,
+                            math.degrees(goal_yaw), self.goal_ref_frame))
+
             path_xy = self._compute_path(goal_pose)
             if not path_xy:
                 self.get_logger().error("planner returned no path — abort")
@@ -344,27 +402,21 @@ class WaypointFollowerNode(Node):
                     goal_handle.abort()
                 return False
 
-            waypoints = sparsify(
+            # 入场点锚定生成(2026-06-22):以"终点前入场点 A"为锚,沿路径向机器人
+            # 方向按 max_segment 等距铺,短余量段落在机器人一侧;A→goal 沿最终朝向
+            # 直行入位(避免末端原地大转:蹭点 + odom 角漂把 map 朝向带歪)。
+            waypoints, approach_inserted = plan_waypoints(
                 path_xy, grid, self.max_segment, self.los_threshold,
-                self.block_unknown)
-            # 直行入位(2026-06-10):goal 后方插进场点,最后一段沿最终朝向直入,
-            # 避免末端原地大转(蹭点 + odom 角漂把 map 朝向带歪)。
-            approach_inserted = False
-            if self.approach_dist > 0.0 and not math.isnan(goal_yaw):
-                wps2 = insert_approach_waypoint(
-                    path_xy[0], waypoints, goal_yaw, grid,
-                    self.approach_dist, self.max_segment,
-                    self.los_threshold, self.block_unknown)
-                approach_inserted = len(wps2) > len(waypoints)
-                if approach_inserted:
-                    self.get_logger().info(
-                        "[TRACE] approach wp A=({:+.2f},{:+.2f}) 插入 goal 前 "
-                        "{:.2f}m,沿最终朝向直行入位".format(
-                            wps2[-2][0], wps2[-2][1], self.approach_dist))
-                else:
-                    self.get_logger().info(
-                        "[TRACE] approach wp 不可达(线被挡/超长),按普通路径走")
-                waypoints = wps2
+                self.block_unknown, goal_yaw, self.approach_dist)
+            if approach_inserted:
+                self.get_logger().info(
+                    "[TRACE] approach wp A=({:+.2f},{:+.2f}) 锚定 goal 前 {:.2f}m,"
+                    "反向按 {:.1f}m 铺到机器人(余量段在起步侧)".format(
+                        waypoints[-2][0], waypoints[-2][1],
+                        self.approach_dist, self.max_segment))
+            elif self.approach_dist > 0.0 and not math.isnan(goal_yaw):
+                self.get_logger().info(
+                    "[TRACE] approach wp 不可达(A→goal 被挡),按普通路径走")
             n = len(waypoints)
             self.get_logger().info(
                 f"path {len(path_xy)} pts -> {n} waypoints "

@@ -116,6 +116,50 @@ def insert_approach_waypoint(start_xy, waypoints, goal_yaw: float, grid,
     return list(waypoints[:-1]) + [a, (gx, gy)]
 
 
+def plan_waypoints(path_xy, grid, max_segment: float, threshold: int,
+                   block_unknown: bool, goal_yaw: float,
+                   approach_dist: float) -> tuple:
+    """入场点锚定的 waypoint 生成(2026-06-22)。返回 (waypoints, approach_anchored)。
+
+    旧法:从机器人前向 sparsify,短余量段落在 goal 一侧,A 由 insert_approach_waypoint
+    事后塞入(prev→A 长度随机)。新法:以"终点前入场点 A"(goal 沿最终朝向反向
+    approach_dist 处)为锚,沿规划路径向机器人方向按 max_segment 等距铺,短余量段
+    自然落在机器人一侧(起步段);A、goal 都是干净 waypoint,A→goal 为直行入位段。
+
+    退化(approach_anchored=False):approach_dist<=0 / goal_yaw=NaN / A→goal 不可达
+    → 回到普通前向 sparsify(后者再尝试旧式 insert_approach_waypoint)。
+    """
+    if not path_xy:
+        return [], False
+    if (approach_dist <= 0.0 or goal_yaw is None or math.isnan(goal_yaw)):
+        return sparsify(path_xy, grid, max_segment, threshold, block_unknown), False
+
+    start = path_xy[0]
+    gx, gy = path_xy[-1]
+    a = (gx - approach_dist * math.cos(goal_yaw),
+         gy - approach_dist * math.sin(goal_yaw))
+
+    # A→goal 直行入位段不可达 → 退化为旧行为(普通 sparsify + 事后插 A)
+    if not line_clear(grid, a, (gx, gy), threshold, block_unknown):
+        wps = sparsify(path_xy, grid, max_segment, threshold, block_unknown)
+        out = insert_approach_waypoint(start, wps, goal_yaw, grid, approach_dist,
+                                       max_segment, threshold, block_unknown)
+        return out, (len(out) > len(wps))
+
+    # robot→A 子路径:保留离 goal 远于 approach_dist 的 path 点,末端换成 A
+    sub = [p for p in path_xy if _dist(p, (gx, gy)) > approach_dist] or [start]
+    if _dist(sub[-1], a) > 1e-9:
+        sub.append(a)
+
+    # 从 A 反向贪心铺(短余量段落在机器人一侧),再翻回正向;去掉当前位姿 start
+    rev_wps = sparsify(list(reversed(sub)), grid, max_segment, threshold,
+                       block_unknown)            # 含末项 start, 不含锚点 A
+    fwd = list(reversed(rev_wps))                # [start, ..., 近 A 点]
+    if fwd and _dist(fwd[0], start) <= 1e-9:
+        fwd = fwd[1:]
+    return fwd + [a, (gx, gy)], True
+
+
 def _wrap_to_pi(a: float) -> float:
     return math.atan2(math.sin(a), math.cos(a))
 
