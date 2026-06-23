@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>david_slam_gt</name>
+  <version>0.1.0</version>
+  <description>
+    David 2D slam_toolbox 真值/定位管路：把 LSLIDAR C16 3D 点云压成 2D /scan_slam，
+    用 slam_toolbox 出 map->odom，复用 wheeltec 轮速计补 odom->base，
+    对外发 /groundtruth/pose 给 controller 调参测试做近似真值。
+    替换 lightning 用：先 mapping 建图存图，再 localization 锁图跑导航调参。
+  </description>
+  <maintainer email="SnuggleMuffinvve@disposable.com">agx</maintainer>
+  <license>Proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>pointcloud_to_laserscan</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

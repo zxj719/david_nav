@@ -35,6 +35,7 @@ def generate_launch_description():
     nav_to_pose_bt_xml = LaunchConfiguration('nav_to_pose_bt_xml')
     nav_through_poses_bt_xml = LaunchConfiguration('nav_through_poses_bt_xml')
     log_level = LaunchConfiguration('log_level')
+    map_topic = LaunchConfiguration('map_topic')
     scan_observation_active = enable_scan_bridge
     configured_nav2_params = RewrittenYaml(
         source_file=params_file,
@@ -44,6 +45,11 @@ def generate_launch_description():
             'default_nav_through_poses_bt_xml': nav_through_poses_bt_xml,
             'local_costmap.local_costmap.ros__parameters.scan_priority_layer.require_live_scan':
                 scan_observation_active,
+            # 地图来源可切：lightning(/lightning/grid_map) 或 slam_gt(/map)。
+            'global_costmap.global_costmap.ros__parameters.static_layer.map_topic':
+                map_topic,
+            'local_costmap.local_costmap.ros__parameters.static_layer.map_topic':
+                map_topic,
         },
         convert_types=True,
     )
@@ -436,6 +442,12 @@ def generate_launch_description():
             'enable_scan_bridge',
             default_value='false',
             description='Launch pointcloud_to_laserscan to publish /scan from lidar.',
+        ),
+        DeclareLaunchArgument(
+            'map_topic',
+            default_value='/lightning/grid_map',
+            description='costmap static_layer 订阅的地图话题。lightning 栈用默认 '
+                        '/lightning/grid_map；slam_gt 栈传 /map。',
         ),
         DeclareLaunchArgument(
             'enable_map_warmup_spin',
