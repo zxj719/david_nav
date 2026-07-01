@@ -73,6 +73,12 @@ class PositionControllerNode(Node):
         self.declare_parameter("w_max", 0.8)
         self.declare_parameter("a_max", 0.5)
         self.declare_parameter("alpha_max", 1.5)
+        # Separate (faster) angular decel limit; 0 = symmetric (= alpha_max).
+        # Lets the rotate_lead cut stop fast without making turn-start jerky.
+        self.declare_parameter("alpha_decel_max", 0.0)
+        # Angular approach-decel: cap |w| by sqrt(2*alpha_approach*err) near the
+        # target so the chassis arrives slow (less momentum overshoot). 0 = off.
+        self.declare_parameter("alpha_approach", 0.0)
         self.declare_parameter("approach_decel", 0.5)
         self.declare_parameter("dist.Kp", 1.2)
         self.declare_parameter("dist.Ki", 0.0)
@@ -120,6 +126,8 @@ class PositionControllerNode(Node):
             w_max=float(g("w_max").value),
             a_max=float(g("a_max").value),
             alpha_max=float(g("alpha_max").value),
+            alpha_decel_max=float(g("alpha_decel_max").value),
+            alpha_approach=float(g("alpha_approach").value),
             approach_decel=float(g("approach_decel").value),
             min_cmd_v=float(g("min_cmd_v").value),
             min_cmd_w=float(g("min_cmd_w").value),

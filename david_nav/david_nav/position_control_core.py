@@ -73,6 +73,25 @@ class Limits:
     w_max: float = 0.8
     a_max: float = 0.5
     alpha_max: float = 1.5
+    # Angular DECEL limit, separate from alpha_max (the accel limit), mirroring
+    # velocity_smoother's max_accel/max_decel split. The rotate_lead "cut to zero"
+    # (_turn_toward) routes its 0-command through the slew limiter; with a single
+    # symmetric alpha_max the command coasts down over ~w/alpha_max seconds,
+    # actively COMMANDING ~½·w·(w/alpha_max) rad of extra rotation AFTER the cut —
+    # the controller-induced bulk of the rotation overshoot (2026-06-30 diagnosis).
+    # A larger decel limit lets the cut actually stop fast (less over-rotation)
+    # while keeping the turn START gentle (alpha_max) for upper-body stability.
+    # 0 = fall back to alpha_max (symmetric, original behaviour). Angular only;
+    # linear stays symmetric (a_max) — straight-line braking uses approach_decel.
+    alpha_decel_max: float = 0.0
+    # Angular APPROACH-deceleration (2026-07-01). The angular twin of
+    # approach_decel: near the target cap |w| by the braking-speed profile
+    # w <= sqrt(2*alpha_approach*err_eff) so the heavy chassis arrives at ~floor
+    # speed instead of full speed. On this plant the terminal overshoot is
+    # momentum-dominated (it rotates ~1.6 rad/s at cmd 0.75 and coasts ~49° on
+    # friction regardless of the command ramp), so the ONLY lever that shrinks it
+    # is arriving slower. 0 = off (no cap). Real-car value in the yaml; tune on car.
+    alpha_approach: float = 0.0
     # Approach speed cap (2026-06-09): near the target limit v to the
     # braking-distance speed  v <= sqrt(2*approach_decel*rho_eff)  so the heavy
     # chassis decelerates INTO the goal instead of coasting past (inertial
@@ -261,7 +280,14 @@ class PositionController:
         v_cmd = clamp(v_cmd, -lim.v_max, lim.v_max)
         w_cmd = clamp(w_cmd, -lim.w_max, lim.w_max)
         v_out = rate_limit(v_cmd, self.v_prev, lim.a_max * dt)
-        w_out = rate_limit(w_cmd, self.w_prev, lim.alpha_max * dt)
+        # Angular slew is asymmetric: gentle accel (alpha_max) but optionally fast
+        # decel (alpha_decel_max) so the rotate_lead cut actually stops instead of
+        # coasting the command down over ~1s. "Decelerating" = the command
+        # magnitude is shrinking toward zero (|target| < |prev|) — exactly the
+        # lead-cut (target 0) and any slow-down; speed-ups keep the gentle limit.
+        alpha_dec = lim.alpha_decel_max if lim.alpha_decel_max > 0.0 else lim.alpha_max
+        w_alpha = alpha_dec if abs(w_cmd) < abs(self.w_prev) else lim.alpha_max
+        w_out = rate_limit(w_cmd, self.w_prev, w_alpha * dt)
         v_out = self._floor(v_out, v_cmd, lim.min_cmd_v, v_active)
         w_out = self._floor(w_out, w_cmd, lim.min_cmd_w, w_active)
         self.v_prev = v_out
@@ -326,6 +352,14 @@ class PositionController:
             return w
         w_active = abs(err) > tol
         w_pid = self.yaw_pid.step(err, dt) if w_active else 0.0
+        # Angular approach-decel: cap |w| by the braking-speed profile toward the
+        # target so the chassis decelerates INTO the goal (arrives ~floor speed →
+        # small momentum coast) instead of hitting the lead-cut at full speed. The
+        # deadzone floor in _shape still guarantees the minimum break-away speed,
+        # so this only bites in the mid-approach, not the last degree.
+        if self.limits.alpha_approach > 0.0:
+            w_cap = math.sqrt(2.0 * self.limits.alpha_approach * abs(err))
+            w_pid = clamp(w_pid, -w_cap, w_cap)
         _, w = self._shape(0.0, w_pid, dt, False, w_active)
         return w
 

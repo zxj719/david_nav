@@ -61,8 +61,9 @@ def test_project_travelled_along_heading():
 
 # ---------- helpers ----------
 def _make_controller(**over):
-    limits = Limits(v_max=0.25, w_max=0.8, a_max=0.5, alpha_max=1.5,
-                    **over.get("limits", {}))
+    base = dict(v_max=0.25, w_max=0.8, a_max=0.5, alpha_max=1.5)
+    base.update(over.get("limits", {}))   # caller overrides win (e.g. alpha_decel_max)
+    limits = Limits(**base)
     dist = PidGains(1.2, 0.0, 0.1, 0.3)
     yaw = PidGains(2.0, 0.0, 0.15, 0.5)
     tol = Tolerances(dist_tol=0.02, pose_dist_tol=0.02, yaw_tol=0.02, pose_yaw_tol=0.02,
@@ -336,6 +337,109 @@ def test_inactive_ramps_to_zero_without_floor_lift():
     for _ in range(10):
         v, _ = ctrl._shape(0.0, 0.0, 0.02, False, False)
     assert v == 0.0
+
+
+# ---------- asymmetric angular decel (2026-06-30: fast lead-cut stop) ----------
+# The rotate_lead "cut to zero" (_turn_toward) routes the 0-command through the
+# slew limiter. With a single symmetric alpha_max the command coasts down over
+# ~w/alpha_max seconds, COMMANDING ~½·w·(w/alpha_max) rad of extra rotation past
+# the cut point — the controller-induced bulk of the rotation overshoot. A
+# separate, larger alpha_decel_max (cf. velocity_smoother max_accel/max_decel)
+# lets the cut stop fast while keeping the turn START gentle (alpha_max) for
+# upper-body stability. Only angular; linear stays symmetric (a_max).
+def test_angular_decel_uses_separate_limit_when_set():
+    ctrl = _make_controller(limits={"w_max": 0.8, "alpha_max": 0.8,
+                                    "alpha_decel_max": 4.0})
+    # ramp UP from rest is still bounded by the gentle accel limit (alpha_max)
+    ctrl.w_prev = 0.0
+    _, w = ctrl._shape(0.0, 0.8, 0.05, False, True)
+    assert math.isclose(w, 0.8 * 0.05, abs_tol=1e-9)          # accel: 0.04
+    # ramp DOWN toward zero uses the bigger decel limit
+    ctrl.w_prev = 0.8
+    _, w = ctrl._shape(0.0, 0.0, 0.05, False, False)
+    assert math.isclose(w, 0.8 - 4.0 * 0.05, abs_tol=1e-9)    # decel: 0.8-0.2=0.6
+
+
+def test_angular_decel_falls_back_to_alpha_max_when_unset():
+    # alpha_decel_max=0 (default) => symmetric slew, original behaviour intact
+    ctrl = _make_controller(limits={"w_max": 0.8, "alpha_max": 0.8})
+    ctrl.w_prev = 0.8
+    _, w = ctrl._shape(0.0, 0.0, 0.05, False, False)
+    assert math.isclose(w, 0.8 - 0.8 * 0.05, abs_tol=1e-9)    # alpha_max step
+
+
+def test_lead_cut_commands_less_over_rotation_with_fast_decel():
+    """Total rotation COMMANDED while the lead-cut ramps w down to zero — the
+    controller-induced part of the overshoot, independent of any plant. From
+    w=0.75 a symmetric alpha_max=0.8 commands ~19°; fast decel must shrink it."""
+    def commanded_rotation_to_stop(alpha_decel_max, dt=0.05, w0=0.75):
+        ctrl = _make_controller(limits={"w_max": 0.8, "alpha_max": 0.8,
+                                        "min_cmd_w": 0.0,
+                                        "alpha_decel_max": alpha_decel_max})
+        ctrl.w_prev = w0
+        total = 0.0
+        for _ in range(200):
+            _, w = ctrl._shape(0.0, 0.0, dt, False, False)
+            total += w * dt
+            if abs(w) < 1e-9:
+                break
+        return total
+    slow = commanded_rotation_to_stop(0.0)    # symmetric alpha_max=0.8 (today)
+    fast = commanded_rotation_to_stop(4.0)
+    assert slow > math.radians(15.0), \
+        f"baseline should command ~19° during the cut, got {math.degrees(slow):.1f}°"
+    assert fast < math.radians(6.0), \
+        f"fast decel should command <6° during the cut, got {math.degrees(fast):.1f}°"
+
+
+def test_rotate_converges_with_asymmetric_decel():
+    """The fix must not break arrival: a turn still lands inside yaw_tol."""
+    ctrl = _make_controller(limits={"w_max": 0.75, "alpha_max": 0.8,
+                                    "alpha_decel_max": 3.0, "min_cmd_w": 0.0})
+    ctrl.tol.rotate_lead = 0.20
+    ctrl.begin(Goal(mode=Mode.ROTATE, yaw=math.pi / 2), 0.0, 0.0, 0.0)
+    x, y, yaw, out = _simulate(ctrl, 0.0, 0.0, 0.0, dt=0.05)
+    assert out.done and out.success
+    assert abs(wrap_to_pi(yaw - math.pi / 2)) <= 0.02
+
+
+# ---------- angular approach-deceleration (2026-07-01) ----------
+def test_angular_approach_decel_caps_speed_near_target():
+    """|w| must be capped by sqrt(2*alpha_approach*err) so the turn arrives slow.
+    At err=0.5 with alpha_approach=0.5 the cap is sqrt(0.5)=0.707 < w_max 0.75."""
+    ctrl = _make_controller(limits={"w_max": 0.75, "alpha_max": 0.8,
+                                    "alpha_approach": 0.5, "min_cmd_w": 0.0})
+    ctrl.tol.rotate_lead = 0.05          # keep err out of the lead-cut band
+    ctrl.tol.yaw_tol = 0.02
+    ctrl.begin(Goal(mode=Mode.ROTATE, yaw=1.0), 0.0, 0.0, 0.0)
+    ctrl.w_prev = 0.75                   # start at speed; let the slew settle to the cap
+    cap = math.sqrt(2.0 * 0.5 * 0.5)     # 0.707
+    for _ in range(10):                  # hold err=0.5 so w settles at the cap
+        w = ctrl._turn_toward(0.5, 0.05, meas_w=0.6, tol=0.02)
+    assert abs(w) <= cap + 1e-6, f"approach-decel not applied: w={w:.3f} > cap={cap:.3f}"
+    assert abs(w) < 0.75 - 1e-3, "expected the cap to bite below w_max"
+
+
+def test_angular_approach_decel_off_by_default():
+    """alpha_approach=0 (default) → no cap, |w| rides w_max as before."""
+    ctrl = _make_controller(limits={"w_max": 0.75, "alpha_max": 0.8,
+                                    "min_cmd_w": 0.0})
+    ctrl.tol.rotate_lead = 0.05
+    ctrl.begin(Goal(mode=Mode.ROTATE, yaw=1.0), 0.0, 0.0, 0.0)
+    ctrl.w_prev = 0.75
+    w = ctrl._turn_toward(0.5, 0.05, meas_w=0.6, tol=0.02)
+    assert abs(w) > 0.7, f"unexpected cap with approach-decel off: w={w:.3f}"
+
+
+def test_rotate_converges_with_approach_decel():
+    """Approach-decel must not break arrival."""
+    ctrl = _make_controller(limits={"w_max": 0.75, "alpha_max": 0.8,
+                                    "alpha_approach": 0.4, "min_cmd_w": 0.0})
+    ctrl.tol.rotate_lead = 0.15
+    ctrl.begin(Goal(mode=Mode.ROTATE, yaw=math.pi / 2), 0.0, 0.0, 0.0)
+    x, y, yaw, out = _simulate(ctrl, 0.0, 0.0, 0.0, dt=0.05)
+    assert out.done and out.success
+    assert abs(wrap_to_pi(yaw - math.pi / 2)) <= 0.02
 
 
 def test_floor_above_max_rejected_at_construction():
