@@ -57,7 +57,8 @@ DWB (controller_server) → /cmd_vel_nav
 
 ```bash
 # 1. 起 chassis 周边（lightning loc / wheeltec / lidar / IMU）
-#    要点：所有进程必须在同一 ROS_DOMAIN_ID（通常 0）。
+#    要点：所有进程必须在同一 ROS_DOMAIN_ID（统一 1，机械臂组 2026-06-29 改）。
+#    david_nav 侧改 domain 只动唯一真源 config/ros_env.conf（脚本+systemd 都读它）。
 ros2 run lightning run_loc_online --config ~/lightning_ws/.../default_c16.yaml &
 ros2 launch turn_on_wheeltec_robot turn_on_wheeltec_robot.launch.py &
 

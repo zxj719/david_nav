@@ -49,6 +49,7 @@ def generate_launch_description():
     publish_robot_state = LaunchConfiguration("publish_robot_state")
     rviz_delay_sec = LaunchConfiguration("rviz_delay_sec")
     log_level = LaunchConfiguration("log_level")
+    map_topic = LaunchConfiguration("map_topic")
 
     nav2_params = ParameterFile(params_file, allow_substs=True)
     tf_remaps = [("/tf", "tf"), ("/tf_static", "tf_static")]
@@ -60,7 +61,10 @@ def generate_launch_description():
         output="screen",
         parameters=[nav2_params],
         arguments=["--ros-args", "--log-level", log_level],
-        remappings=tf_remaps,
+        # global_costmap 的 static_layer 订 nav2_params 里写死的 /lightning/grid_map;
+        # 跑在 david_slam_gt 上时把它重映射到 /map(slam_toolbox 发的图)。
+        # 默认 no-op(/lightning/grid_map->/lightning/grid_map),不影响 lightning 用法。
+        remappings=tf_remaps + [("/lightning/grid_map", map_topic)],
     )
 
     lifecycle_manager = Node(
@@ -150,6 +154,9 @@ def generate_launch_description():
             "pc_params",
             default_value=os.path.join(pkg, "config", "position_controller.yaml")),
         DeclareLaunchArgument("publish_robot_state", default_value="true"),
+        DeclareLaunchArgument(
+            "map_topic", default_value="/lightning/grid_map",
+            description="global_costmap 的图源;跑 david_slam_gt 时设 /map"),
         DeclareLaunchArgument("rviz_delay_sec", default_value="8.0"),
         DeclareLaunchArgument("log_level", default_value="info"),
         planner_server,

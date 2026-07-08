@@ -44,10 +44,11 @@ BAG_NAME="${BAG_NAME:-}"
 
 # 2026-05-20: default changed 30 → 0 to match the rest of the robot stack.
 # Lightning loc / wheeltec / lslidar / IMU all run in domain 0 by default.
-# When this script forced domain 30, nav2 + navigation_executor couldn't
-# hear lightning's map→odom TF and the executor never saw goal feedback.
-# Override via env var (export ROS_DOMAIN_ID=…) before invoking if needed.
-ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-0}"
+# Whole-stack domain comes from the single source config/ros_env.conf (change
+# the domain in ONE place). nav2 / lightning / chassis / arm SDK must all share
+# it or nav2 + navigation_executor can't hear lightning's map→odom TF.
+# Applied in main() via config/load_ros_env.sh; override per-run with
+# `export ROS_DOMAIN_ID=… ` before invoking.
 
 NAV2_WAIT_TIMEOUT_SEC="${NAV2_WAIT_TIMEOUT_SEC:-120}"
 SHUTDOWN_GRACE_SECONDS="${SHUTDOWN_GRACE_SECONDS:-5}"
@@ -178,7 +179,7 @@ Environment overrides:
   DAVID_HEADLESS_CONFIG_FILE      Headless config YAML
   DAVID_HEADLESS_PROFILE          Profile name
   SUDO_PASSWORD                   Used to run nvpmodel/jetson_clocks via sudo -S
-  ROS_DOMAIN_ID_DEFAULT           Default ROS 2 domain ID (default: 0)
+  ROS_DOMAIN_ID                   Override domain for this run (default from config/ros_env.conf)
   POSE_FILE                       named_poses.json path
   BAG_ROOT                        Output root for rosbag folders
   WHEELTEC_WS_DIR                 Path to wheeltec_robot_ros2 workspace
@@ -741,7 +742,7 @@ parse_args() {
 
 main() {
   parse_args "$@"
-  export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$ROS_DOMAIN_ID_DEFAULT}"
+  source "${SCRIPT_DIR}/config/load_ros_env.sh"   # single-source ROS_DOMAIN_ID (config/ros_env.conf)
 
   if [[ -z "$BAG_NAME" ]]; then
     BAG_NAME="david_nav_headless_$(date +%Y%m%d_%H%M%S)"

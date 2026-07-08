@@ -7,11 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 2026-05-20: default changed 30 → 0 to match the rest of the robot
 # stack (lightning loc, wheeltec, lslidar all run in domain 0 by default).
-# When .sh forced domain 30, nav2 + RViz couldn't hear lightning's
-# map→odom TF and the user saw "frame map does not exist" / no map.
-# Set ROS_DOMAIN_ID in your shell BEFORE invoking this script if you
-# really need a non-default domain — we honour an externally-set value.
-ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-0}"
+# Whole-stack domain comes from the single source config/ros_env.conf (change
+# the domain in ONE place). A mismatch means nav2 + RViz can't hear lightning's
+# map→odom TF and the user sees "frame map does not exist" / no map.
+# Applied in main() via config/load_ros_env.sh; set ROS_DOMAIN_ID in your shell
+# BEFORE invoking to override for a single run.
 ROS_SETUP="${ROS_SETUP:-/opt/ros/humble/setup.bash}"
 AUTO_WORKSPACE="${AUTO_WORKSPACE:-${HOME}/ros2_ws}"
 SEMANTIC_MAP_DIR="${SEMANTIC_MAP_DIR:-${HOME}/semantic_map}"
@@ -161,7 +161,7 @@ Options:
   --                        Forward the remaining args to semantic_pose_navigator.py
 
 Environment variables:
-  ROS_DOMAIN_ID_DEFAULT     Default ROS 2 domain ID when ROS_DOMAIN_ID is unset. Default: 0
+  ROS_DOMAIN_ID             Override domain for this run (default from config/ros_env.conf)
   ROS_SETUP                 ROS setup.bash path. Default: /opt/ros/humble/setup.bash
   AUTO_WORKSPACE            ROS 2 workspace containing david_nav. Default: ${HOME}/ros2_ws
   SEMANTIC_MAP_DIR          Directory containing named_poses.json. Default: ${HOME}/semantic_map
@@ -634,7 +634,7 @@ verify_nav2_runtime_config() {
 
 main() {
   parse_args "$@"
-  export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$ROS_DOMAIN_ID_DEFAULT}"
+  source "${SCRIPT_DIR}/config/load_ros_env.sh"   # single-source ROS_DOMAIN_ID (config/ros_env.conf)
 
   if [[ -z "$BAG_NAME" ]]; then
     BAG_NAME="david_semantic_nav_$(date +%Y%m%d_%H%M%S)"

@@ -5,6 +5,9 @@
 #         同时存一份 <MAP_FILE>.pgm/.yaml 占据栅格(给 RViz / nav2 静态层看)
 set -eu
 
+# 必须和 slam_toolbox 同域(默认 0),否则 service call 找不到 /slam_toolbox/*。
+export ROS_DOMAIN_ID="${SLAM_GT_DOMAIN:-0}"
+
 MAP_FILE="${1:-$HOME/ros2_ws/src/david_slam_gt/maps/david_map}"
 mkdir -p "$(dirname "$MAP_FILE")"
 # ROS 的 setup.bash 引用未定义的 AMENT_TRACE_SETUP_FILES，与 set -u 冲突，临时关掉。

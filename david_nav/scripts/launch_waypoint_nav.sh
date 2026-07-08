@@ -20,13 +20,15 @@
 
 set -eo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 LOG_DIR="${LOG_DIR:-/tmp/david_nav_logs}"
 LOG_LATEST="${LOG_LATEST:-/tmp/waypoint_nav_latest.log}"
 BG="${BG:-0}"
-# Inherit ROS_DOMAIN_ID from the environment (must match Lightning + chassis,
-# usually 0). Do NOT force a value — a mismatch is the classic "RViz shows
-# nothing" trap (see CLAUDE.md §5).
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+# domain 唯一真源 config/ros_env.conf（必须与 Lightning + chassis + arm SDK 一致；
+# mismatch 是经典的 "RViz 啥都不显示" 坑，见 CLAUDE.md §5）。
+# 外部已 export 的 ROS_DOMAIN_ID 仍优先（单次运行覆盖）。
+source "${SCRIPT_DIR}/../config/load_ros_env.sh"
 
 mkdir -p "$LOG_DIR"
 stamp="$(date +%Y%m%d_%H%M%S)"

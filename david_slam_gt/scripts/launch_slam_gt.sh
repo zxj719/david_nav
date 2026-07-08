@@ -16,6 +16,11 @@
 #   日志: /tmp/slam_gt_latest.log (symlink, 直接 tail -F)
 set -u
 
+# 全栈统一 ROS_DOMAIN_ID=0(对齐 .bashrc alias 1/2/3 + lidar/imu/wheeltec)。
+# slam_toolbox / odom_to_base / p2l / gt_pose 及本脚本起的 IMU/LIDAR 都继承它。
+# 临时改域:启动前 export SLAM_GT_DOMAIN=N。
+export ROS_DOMAIN_ID="${SLAM_GT_DOMAIN:-0}"
+
 MODE="${1:-mapping}"
 MAP_FILE="${2:-$HOME/ros2_ws/src/david_slam_gt/maps/david_map}"
 LIGHTNING_WS="$HOME/lightning_ws"
@@ -27,7 +32,7 @@ SUDO_PW="${SUDO_PW:-1234}"
 TS="$(date +%Y%m%d_%H%M%S)"
 LOG="/tmp/slam_gt_${MODE}_${TS}.log"
 ln -sfn "$LOG" /tmp/slam_gt_latest.log
-echo "[launch_slam_gt] mode=$MODE  log -> /tmp/slam_gt_latest.log ($LOG)" | tee "$LOG"
+echo "[launch_slam_gt] mode=$MODE  ROS_DOMAIN_ID=$ROS_DOMAIN_ID  log -> /tmp/slam_gt_latest.log ($LOG)" | tee "$LOG"
 
 PIDS=()
 cleanup() { echo "[launch_slam_gt] stopping..."; for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done; }

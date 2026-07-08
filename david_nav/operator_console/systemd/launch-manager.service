@@ -9,6 +9,9 @@ Type=simple
 User=unitree
 Group=unitree
 WorkingDirectory=/home/unitree/ros2_ws/src/david_nav/operator_console
+# ROS_DOMAIN_ID 唯一真源（子脚本继承；profiles.yaml 不再写 domain）。
+# 前缀 - = 文件缺失不致命。
+EnvironmentFile=-/home/unitree/ros2_ws/src/david_nav/config/ros_env.conf
 ExecStart=/usr/bin/python3 /home/unitree/ros2_ws/src/david_nav/operator_console/launch_manager.py --port 8080
 Restart=always
 RestartSec=5

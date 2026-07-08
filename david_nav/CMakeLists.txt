@@ -204,6 +204,12 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  david_nav/dead_reckoning_executor.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME dead_reckoning_executor
+)
+
+install(PROGRAMS
   navigate_semantic_pose_with_debug_bag.sh
   DESTINATION lib/${PROJECT_NAME}
   RENAME navigate_semantic_pose_with_debug_bag.sh

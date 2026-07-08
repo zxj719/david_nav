@@ -29,7 +29,7 @@ def generate_launch_description():
 
     params_file = LaunchConfiguration('params_file')
     start_mux = LaunchConfiguration('start_mux')
-    nav_cmd_topic = LaunchConfiguration('nav_cmd_topic')
+    controller_cmd_topic = LaunchConfiguration('controller_cmd_topic')
     output_cmd_topic = LaunchConfiguration('output_cmd_topic')
 
     controller = Node(
@@ -37,7 +37,7 @@ def generate_launch_description():
         executable='position_controller',
         name='position_controller',
         output='screen',
-        parameters=[params_file],
+        parameters=[params_file, {'cmd_topic': controller_cmd_topic}],
     )
 
     mux = Node(
@@ -47,7 +47,9 @@ def generate_launch_description():
         output='screen',
         condition=IfCondition(start_mux),
         parameters=[{
-            'input_topics': ['/cmd_vel_position', nav_cmd_topic],
+            # launch_ros 不能把 LaunchConfiguration 塞进 list 参数(会被拼成单个
+            # STRING → STRING_ARRAY 类型错)。nav 输入话题写死;要改直接改这行。
+            'input_topics': ['/cmd_vel_position', '/cmd_vel_nav'],
             'input_priorities': [100, 10],
             'output_topic': output_cmd_topic,
             'input_timeout': 0.3,
@@ -61,8 +63,9 @@ def generate_launch_description():
                               description='position_controller params yaml'),
         DeclareLaunchArgument('start_mux', default_value='true',
                               description='also start the cmd_vel priority mux'),
-        DeclareLaunchArgument('nav_cmd_topic', default_value='/cmd_vel_nav',
-                              description='Nav2 chain output feeding the mux'),
+        DeclareLaunchArgument('controller_cmd_topic', default_value='/cmd_vel_position',
+                              description='position_controller 输出话题;bench 直连底盘用 '
+                                          '/cmd_vel(配 start_mux:=false,不经 mux)'),
         DeclareLaunchArgument('output_cmd_topic', default_value='/cmd_vel',
                               description='final chassis cmd topic'),
         controller,

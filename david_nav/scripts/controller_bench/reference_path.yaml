@@ -1,0 +1,57 @@
+# controller_bench 固定参考路径 —— 唯一真源
+# ===========================================================================
+# 这条 map 系折线是所有被测 controller 共享的"参考"。测试框架把它:
+#   - 发成 nav_msgs/Path (/bench/reference_path) 给 recorder / RViz;
+#   - 逐段驱动被测 controller(position_controller 走 MoveTo,DWB 走 FollowPath)。
+# 因为每个 controller 吃到的参考完全相同,跟踪/终点指标才可横向对比。
+#
+# ★ 坐标是占位值。用户建完 slam_toolbox 地图后,把 start/waypoints 换成本地图里
+#   实测的坐标(RViz 点 / apriltag 量 / 直接读 map 系)。几何意图(见 scenario)保持不变。
+#
+# 约定:
+#   - frame: map。x,y 米,yaw 弧度(atan2 约定,+x 为 0,逆时针为正)。
+#   - "位置"含 yaw(用户明确)。每个 waypoint 都带目标 yaw。
+#   - 相邻两点构成一段;controller 逐段跟。position_controller 每段 = 先转到该段
+#     朝向再平移(turn-drive-turn),所以 yap 差大的段天然考"原地转"。
+#   - start 是机身每次跑前物理复位到的点(贴地面胶带),并重给 slam 初始位姿。
+#
+# 一条折线一次性覆盖 S1-S4(用户要求):起点/终点不同朝向且有距离。
+# ---------------------------------------------------------------------------
+
+frame: map
+map_name: david_map   # ~/ros2_ws/src/david_slam_gt/maps/david_map(2026-07-07 建)
+
+# 机身每次复位到的固定起点(贴胶带 + 重给 initialpose)。用户实测起点。
+start: {x: 0.0, y: 0.0, yaw: 0.0}                   # 朝 +x
+
+# 被 controller 逐段跟踪的固定 waypoint(map 系,用户实测起终点 2026-07-07)。
+# 起点 (0,0,0°) → 终点 (3.62,1.8,90°),中间点在 x∈[0,3.62] y∈[0,1.8] 盒内布置,
+# 一条折线覆盖 S1-S4。★几何未经地图校核(存图时 .pgm 没更新)——首跑前用
+# validate_reference_on_map.py 对活 /map 校一遍,或 RViz 里看 /bench/reference_path。
+waypoints:
+  # S1 纯直行:朝向不变,+x 直走 2.6m。考起步静摩擦 / 直行跟踪 / 终点过冲。
+  - {x: 2.60, y: 0.00, yaw: 0.0,     scenario: S1_straight}
+
+  # S3 L 形 turn-drive-turn:从朝 +x 原地转 +90° → +y 直走 1.2m。考 90° 转 + 段衔接。
+  - {x: 2.60, y: 1.20, yaw: 1.5708,  scenario: S3_L_turn}
+
+  # S2 纯原地转:同点(2.6,1.2)从 +90° 转到 -90°=净 180°。考旋转超调 / caster / 180°对称。
+  - {x: 2.60, y: 1.20, yaw: -1.5708, scenario: S2_inplace_180}
+
+  # 转-走-终转:朝 -y 起,转向 +x 走 1.02m,终点回正 +90°。补一段"直行+末端定向"。
+  - {x: 3.62, y: 1.20, yaw: 1.5708,  scenario: S3b_turn_drive_turn}
+
+  # S4 入位:沿最终朝向 +y 直入 goal 0.6m。终点 = 用户给的 (3.62,1.8,90°),yaw 要紧。
+  - {x: 3.62, y: 1.80, yaw: 1.5708,  scenario: S4_approach_goal}
+
+# 逐段容差(position_controller 每接一个 MoveTo 前由 runner 用 set_parameters 切)。
+# 中间 waypoint 松(过路点),最终 goal 紧。跟 waypoint_follower 分层容差同思路。
+tolerances:
+  wp_dist_tol: 0.30      # m,中间 waypoint 位置容差
+  wp_yaw_tol: 0.15       # rad,中间 waypoint 朝向容差(必须收紧才能真"转到位",
+                         #      否则 S2/S3 的原地转不发生,场景覆盖失效)
+  goal_dist_tol: 0.10    # m,最终 goal 位置容差
+  goal_yaw_tol: 0.10     # rad,最终 goal 朝向容差(~5.7°)
+
+# 单段结果等待上限(超时判 TIMEOUT 失败)。
+per_segment_timeout_sec: 60.0

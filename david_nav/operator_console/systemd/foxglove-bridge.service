@@ -8,7 +8,9 @@ Wants=network-online.target
 Type=simple
 User=unitree
 Group=unitree
-Environment=ROS_DOMAIN_ID=30
+# ROS_DOMAIN_ID 唯一真源（与各启动脚本共用同一份；改 domain 只动这个文件）。
+# 前缀 - = 文件缺失不致命（david_nav 未部署时退回无 domain）。
+EnvironmentFile=-/home/unitree/ros2_ws/src/david_nav/config/ros_env.conf
 ExecStart=/bin/bash -lc "source /opt/ros/humble/setup.bash && ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=8765"
 Restart=always
 RestartSec=5

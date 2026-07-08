@@ -3,7 +3,8 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
-ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-30}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ROS_DOMAIN_ID 来自唯一真源 config/ros_env.conf（在 main() 里 source）
 BAG_ROOT="${BAG_ROOT:-/home/unitree/rosbags}"
 DRY_RUN=false
 OUTPUT_NAME=""
@@ -104,7 +105,7 @@ require_command() {
 
 main() {
   parse_args "$@"
-  export ROS_DOMAIN_ID="$ROS_DOMAIN_ID_DEFAULT"
+  source "${SCRIPT_DIR}/config/load_ros_env.sh"   # single-source ROS_DOMAIN_ID (config/ros_env.conf)
 
   require_command ros2
   mkdir -p "$BAG_ROOT"

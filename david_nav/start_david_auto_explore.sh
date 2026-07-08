@@ -3,13 +3,14 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RVIZ=true
 DRY_RUN=false
 SUDO_PASSWORD="${SUDO_PASSWORD:-123}"
 SLAM_START_DELAY="${SLAM_START_DELAY:-5}"
 SHUTDOWN_GRACE_SECONDS="${SHUTDOWN_GRACE_SECONDS:-5}"
 ENABLE_CPU_ONLINE="${ENABLE_CPU_ONLINE:-true}"
-ROS_DOMAIN_ID_DEFAULT="${ROS_DOMAIN_ID_DEFAULT:-30}"
+# ROS_DOMAIN_ID 来自唯一真源 config/ros_env.conf（在 main() 里 source）
 ROS_SETUP="/opt/ros/humble/setup.bash"
 SLAM_WORKSPACE="/home/unitree/lightning-lm-livox"
 AUTO_WORKSPACE="/home/unitree/ros2_ws"
@@ -50,7 +51,7 @@ Shortcuts:
   davidgo -d           Dry run
 
 Environment variables:
-  ROS_DOMAIN_ID_DEFAULT     Default ROS 2 domain ID when ROS_DOMAIN_ID is unset. Default: 30
+  ROS_DOMAIN_ID             Override domain for this run (default from config/ros_env.conf)
   UNITREE_CHANNEL_NAME      Unitree SDK channel for zero-velocity stop. Default: enP8p1s0
   FALLBACK_KILL_REGEX       Extra pkill regex for shutdown cleanup.
   SUDO_PASSWORD            Password used for sudo. Default: 123
@@ -370,7 +371,7 @@ monitor_children() {
 
 main() {
   parse_args "$@"
-  export ROS_DOMAIN_ID="$ROS_DOMAIN_ID_DEFAULT"
+  source "${SCRIPT_DIR}/config/load_ros_env.sh"   # single-source ROS_DOMAIN_ID (config/ros_env.conf)
   set_default_commands
 
   require_command bash
