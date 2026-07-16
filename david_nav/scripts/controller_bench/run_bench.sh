@@ -18,17 +18,25 @@ set -eo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS="$HOME/ros2_ws"
-OUT_DIR="${BENCH_OUT_DIR:-/tmp/david_nav_logs/bench}"
+# 2026-07-08:默认迁出 /tmp(重启即清,丢过一整天 raw CSV)。BENCH_OUT_DIR 可覆盖。
+OUT_DIR="${BENCH_OUT_DIR:-$HOME/david_nav_logs/bench}"
 BASE_FRAME="${BENCH_BASE_FRAME:-base_footprint}"
 MAP_FRAME="${BENCH_MAP_FRAME:-map}"
 
 RUN_ID="${1:-}"
 if [[ -z "$RUN_ID" || "$RUN_ID" == --* ]]; then
-  RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
+  # 不给 run_id 时按 <controller>_<时间戳> 自动起名(可整条塞进 .bashrc alias)。
+  ctrl="pos"; prev=""
+  for a in "$@"; do
+    [[ "$prev" == "--controller" ]] && ctrl="$a"
+    prev="$a"
+  done
+  case "$ctrl" in position_controller) ctrl="pos" ;; esac
+  RUN_ID="${ctrl}_$(date +%Y%m%d_%H%M%S)"
 else
   shift
 fi
-PASSTHRU=("$@")   # --battery-v / --note 等透传给 run_bench.py
+PASSTHRU=("$@")   # --controller / --battery-v / --note 等透传给 run_bench.py
 
 # ---- source ROS env ----
 # set -e 和 -u 都要临时关:ROS 的 setup.bash 在 set -u 下引用未绑定的

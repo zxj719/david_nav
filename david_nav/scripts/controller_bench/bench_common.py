@@ -44,6 +44,109 @@ def relative_yaw(cur_yaw: float, goal_yaw: float) -> float:
 
 
 # --------------------------------------------------------------------------
+# 折线 -> 拐角圆弧化 dense path(DWB FollowPath 用)
+# --------------------------------------------------------------------------
+
+def densify_with_fillets(polyline, spacing: float, corner_radius: float,
+                         goal_yaw: float, min_seg_frac: float = 0.50,
+                         arc_spacing: float = 0.05) -> list:
+    """折线 -> 拐角圆弧化的 dense (x, y, yaw) 序列。
+
+    为什么(2026-07-08 iter3):尖角折线要求路径切向瞬间跳变,差速底盘不可能连续
+    跟踪 —— DWB 只能停下原地转(停-转-走)或冲出绕环。每个内部顶点用切圆弧替代
+    尖角后,"不停车过弯"成为可行解(r=0.3, w_max=0.5 → 弧上 v=r*w≈0.15 m/s,
+    正落在 vx 采样档上)。
+
+    - corner_radius <= 0 时完全退回尖角行为(A/B 对照用)。
+    - 每个拐角的切点距按相邻段长 clamp(min_seg_frac),短段自动缩小半径,
+      相邻拐角不重叠;l_in 用"上一个圆弧出口(cursor)到本顶点"的剩余长度。
+      iter4(2026-07-14):min_seg_frac 0.45→0.50 —— 让 0.6m 末段的 C3 弧从
+      0.27 抬到 0.30,与 C1/C2 一致;配合 max_vel_x 0.15,w=v/r=0.5=w_max,
+      每个弧在巡航速度下恰好可行(此前 C3 弧不可行 → 过头螺旋绕回)。
+    - 近直线(<3°)/近折返(>160°)顶点不加弧(折返角 tan(θ/2)→∞,加弧无意义)。
+    - 直线段按 spacing 采样,圆弧按 min(arc_spacing, spacing) 采样(朝向连续);
+      每点 yaw = 该处切向;末点强制 (终点, goal_yaw)。
+    纯函数,无 ROS 依赖,可离线单测。
+    """
+    # 去重(合并 <1e-9 的重复点,如"纯原地转"退化段)
+    pts = []
+    for p in polyline:
+        if not pts or math.hypot(p[0] - pts[-1][0], p[1] - pts[-1][1]) > 1e-9:
+            pts.append((float(p[0]), float(p[1])))
+    if len(pts) < 2:
+        raise ValueError('densify_with_fillets: polyline 需要 >=2 个不同点')
+
+    out: list = []
+
+    def emit(x, y, yaw):
+        if out and math.hypot(x - out[-1][0], y - out[-1][1]) < 1e-6:
+            out[-1] = (out[-1][0], out[-1][1], yaw)  # 同点只更新朝向
+            return
+        out.append((x, y, yaw))
+
+    def emit_straight(a, b, yaw, include_end=False):
+        d = math.hypot(b[0] - a[0], b[1] - a[1])
+        if d < 1e-9:
+            return
+        n = max(1, int(math.ceil(d / spacing)))
+        last = n if include_end else n - 1
+        for k in range(0, last + 1):
+            t = k / n
+            emit(a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), yaw)
+
+    cursor = pts[0]
+    for i in range(1, len(pts) - 1):
+        p_i, p_next = pts[i], pts[i + 1]
+        l_in = math.hypot(p_i[0] - cursor[0], p_i[1] - cursor[1])
+        l_out = math.hypot(p_next[0] - p_i[0], p_next[1] - p_i[1])
+        ux, uy = p_i[0] - pts[i - 1][0], p_i[1] - pts[i - 1][1]
+        nu = math.hypot(ux, uy)
+        ux, uy = ux / nu, uy / nu
+        vx, vy = p_next[0] - p_i[0], p_next[1] - p_i[1]
+        nv = math.hypot(vx, vy)
+        vx, vy = vx / nv, vy / nv
+        cross = ux * vy - uy * vx
+        dot = ux * vx + uy * vy
+        theta = math.atan2(abs(cross), dot)          # 转角 [0, pi]
+        yaw_in = math.atan2(uy, ux)
+
+        if (corner_radius <= 1e-6 or theta < math.radians(3.0)
+                or theta > math.radians(160.0) or l_in < 1e-9):
+            emit_straight(cursor, p_i, yaw_in)
+            cursor = p_i
+            continue
+
+        tan_half = math.tan(theta / 2.0)
+        t_max = min_seg_frac * min(l_in, l_out)
+        r_eff = min(corner_radius, t_max / tan_half)
+        t_eff = r_eff * tan_half
+        A = (p_i[0] - ux * t_eff, p_i[1] - uy * t_eff)
+        B = (p_i[0] + vx * t_eff, p_i[1] + vy * t_eff)
+        side = 1.0 if cross > 0 else -1.0
+        C = (A[0] + side * (-uy) * r_eff, A[1] + side * ux * r_eff)
+
+        emit_straight(cursor, A, yaw_in)             # 进弧前直线
+        arc_len = r_eff * theta
+        m = max(2, int(math.ceil(arc_len / max(1e-3, min(arc_spacing, spacing)))))
+        ang0 = math.atan2(A[1] - C[1], A[0] - C[0])
+        for k in range(0, m + 1):
+            f = k / m
+            ang = ang0 + side * theta * f
+            emit(C[0] + r_eff * math.cos(ang), C[1] + r_eff * math.sin(ang),
+                 wrap_to_pi(yaw_in + side * theta * f))
+        cursor = B
+
+    last_yaw = math.atan2(pts[-1][1] - cursor[1], pts[-1][0] - cursor[0]) \
+        if math.hypot(pts[-1][0] - cursor[0], pts[-1][1] - cursor[1]) > 1e-9 \
+        else goal_yaw
+    emit_straight(cursor, pts[-1], last_yaw, include_end=True)
+    if not out:
+        out.append((pts[-1][0], pts[-1][1], goal_yaw))
+    out[-1] = (pts[-1][0], pts[-1][1], float(goal_yaw))  # 末点=终点+goal朝向
+    return out
+
+
+# --------------------------------------------------------------------------
 # 跟踪误差:实际轨迹点到参考折线的最近垂距(cross-track)
 # --------------------------------------------------------------------------
 

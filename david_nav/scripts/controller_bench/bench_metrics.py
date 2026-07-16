@@ -167,8 +167,9 @@ def build_report(runs, track_dir, ref, controller_label):
 def main():
     p = argparse.ArgumentParser()
     here = os.path.dirname(os.path.abspath(__file__))
-    p.add_argument('--runs', default='/tmp/david_nav_logs/bench/runs.csv')
-    p.add_argument('--track-dir', default='/tmp/david_nav_logs/bench')
+    p.add_argument('--runs',
+                   default=os.path.expanduser('~/david_nav_logs/bench/runs.csv'))
+    p.add_argument('--track-dir', default=os.path.expanduser('~/david_nav_logs/bench'))
     p.add_argument('--reference', default=os.path.join(here, 'reference_path.yaml'))
     p.add_argument('--controller', default='')
     p.add_argument('--out', default='')

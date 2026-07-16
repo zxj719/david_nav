@@ -1,0 +1,134 @@
+# DWB 纯 controller 调优 bench 参数 —— feature/dwb-control-opt。
+# 独立文件,不动生产 nav2_params_2d.yaml。口径 A:controller_server + local_costmap 单独跑,
+# cmd 直连 /cmd_vel(隔离 DWB,和 position_controller 直连口径一致)。
+# 配 david_slam_gt:odom=/odom(wheeltec)、map=/map、scan=/scan_slam。
+#
+# 相对生产 nav2_params_2d.yaml 的优化(对照 position_controller 10次baseline短板):
+#   controller_frequency 10→20(cross-track/抖动)
+#   general_goal_checker yaw 3.14→0.087(5°,原来完全不约束朝向!)/ xy 0.30→0.10(终点精度)
+#   FollowPath sim_time 1.2→1.5、PathAlign 12→16、PathDist 24→30、PathAlign.fpd 0.2→0.3(贴合度)
+# 其余(max_vel_x 0.20、max_vel_theta 0.50、acc/decel)是硬件标定值,不动。
+# ★ 调参就改这个文件,run_bench.py --controller dwb 重跑对比 baseline。
+
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    odom_topic: /odom
+    controller_frequency: 20.0            # ← 10.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.0
+    min_theta_velocity_threshold: 0.02
+    failure_tolerance: 1.0
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.15
+      movement_time_allowance: 20.0
+
+    general_goal_checker:
+      stateful: True
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.10             # ← 0.30(终点位置精度)
+      yaw_goal_tolerance: 0.087           # ← 3.14(=5°;原来任意朝向都算到)
+
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: True
+      min_vel_x: 0.0
+      min_vel_y: 0.0
+      # iter4(2026-07-14):0.20→0.15。实测 0.20(odom 实跑 0.24,线速 plant ~1.2×)
+      # 冲进 r=0.27~0.30 的拐角弧,弧需 w=v/r≈0.74 > max_vel_theta 0.5 → 物理不可
+      # 行 → C3 过头朝 +x 冲出 → 螺旋绕回 7s + 定位跳 3 次 + 终点偏 19.6cm;
+      # ABORTED 那次同签名(C2 过头 0.19m 卡 15s)。0.15/0.30=0.5=w_max,弧在巡航
+      # 速度下恰好可行,拐角不再需要"提前减速决策"。goal 进泡速度同降。
+      # (0.20 是上限不是下限,降速方向安全;代价:直线段慢 ~25%。)
+      max_vel_x: 0.15                      # ← 0.20;硬件上限仍 0.20,这里主动降
+      max_vel_y: 0.0                       # 差速,无侧移
+      max_vel_theta: 0.50
+      min_vel_theta: 0.0
+      min_speed_xy: 0.0
+      max_speed_xy: 0.15                   # 必须 == max_vel_x(isValidSpeed 坑)
+      min_speed_theta: 0.0
+      acc_lim_x: 2.5
+      acc_lim_y: 0.0
+      acc_lim_theta: 5.0
+      decel_lim_x: -2.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -5.0
+      vx_samples: 5
+      vy_samples: 1
+      vtheta_samples: 20
+      sim_time: 1.5                        # ← 1.2(更平滑前瞻)
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 1.0
+      xy_goal_tolerance: 0.10              # ← 0.25(与 goal_checker 一致,触发末端 RotateToGoal)
+      trans_stopped_velocity: 0.05
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      BaseObstacle.scale: 0.2
+      # iter2(2026-07-08):16→12 回退。16 逼航向贴切向过猛 → 直行段角度蛇行
+      #   (S1S4_dwb01 实测 w 反向 35 次)。PathDist 30 仍保位置贴合,PathAlign 降一档消蛇行。
+      PathAlign.scale: 12.0               # iter1 试过 16,蛇行;回 12
+      PathAlign.forward_point_distance: 0.3  # ← 0.2(抗抖)
+      GoalAlign.scale: 6.0
+      GoalAlign.forward_point_distance: 0.2
+      PathDist.scale: 30.0                # ← 24(贴合度)
+      GoalDist.scale: 10.0
+      RotateToGoal.scale: 1.0
+      RotateToGoal.slowing_factor: 2.0
+      RotateToGoal.lookahead_time: -1.0
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: false
+      update_frequency: 5.0
+      publish_frequency: 5.0
+      transform_tolerance: 1.0
+      global_frame: odom
+      robot_base_frame: base_footprint
+      rolling_window: true
+      width: 4
+      height: 4
+      resolution: 0.05
+      # 底盘 footprint(base_footprint 帧,与生产一致)
+      footprint: "[[0.255, 0.30], [0.255, -0.30], [-0.465, -0.30], [-0.465, 0.30]]"
+      footprint_padding: 0.0
+      track_unknown_space: true
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan_slam               # ← slam_gt 的 2D scan(不是 /scan)
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          inf_is_valid: True
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.2
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.2
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: True
+        # ⚠ 门框调参钮:1.0m 门 + inflation 0.40/侧 → 中心仅 0.20m 低代价带,DWB 可能
+        #   在门口犹豫。窄门测试时按需降 inflation_radius 或调软 cost_scaling_factor。
+        cost_scaling_factor: 10.0
+        inflation_radius: 0.40
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        enabled: True
+        map_subscribe_transient_local: True
+        map_topic: /map                   # ← slam_gt 的图(不是 /lightning/grid_map)
+        trinary_costmap: true
+        lethal_cost_threshold: 50
+        unknown_cost_value: -1
+      always_send_full_costmap: False

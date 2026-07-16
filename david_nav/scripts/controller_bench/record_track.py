@@ -225,7 +225,7 @@ class TrackRecorder(Node):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--run-id', default='')
-    p.add_argument('--output-dir', default='/tmp/david_nav_logs/bench')
+    p.add_argument('--output-dir', default=os.path.expanduser('~/david_nav_logs/bench'))
     p.add_argument('--map-frame', default='map')
     p.add_argument('--base-frame', default='base_footprint')
     p.add_argument('--truth-topic', default='/groundtruth/pose',

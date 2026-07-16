@@ -45,12 +45,14 @@ from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 
 from david_nav_msgs.action import MoveTo
+from nav2_msgs.action import FollowPath
+from action_msgs.msg import GoalStatus
 
 # bench 自包含的纯函数(与 waypoint_sparsifier 数学一致)
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_common import (load_reference, relative_target, relative_yaw,  # noqa: E402
-                          wrap_to_pi)
+from bench_common import (densify_with_fillets, load_reference,  # noqa: E402
+                          relative_target, relative_yaw, wrap_to_pi)
 
 
 def _yaw_from_quat(x, y, z, w) -> float:
@@ -184,6 +186,101 @@ class PositionControllerAdapter(ControllerAdapter):
         return 'SUCCEEDED' if bool(wrapped.result.success) else 'ABORTED'
 
 
+class DwbFollowPathAdapter(ControllerAdapter):
+    """把固定折线 densify 成 dense Path,整条发给 nav2 controller_server 的 FollowPath
+    (DWB 跟踪),绕过 planner —— 和 position_controller 吃同一条参考,controller
+    apples-to-apples。整条路径作为一个 action,故 seg_status 只有一项。
+
+    注:纯原地转 waypoint(同 xy)在 positional Path 里表达不了,densify 时跳过;
+    终点朝向用 goal yaw 交给 RotateToGoal critic。前置:controller_server(DWB +
+    local_costmap)在跑,且其 cmd 输出接到 /cmd_vel(底盘)。"""
+    name = 'dwb'
+
+    def __init__(self, action_name, controller_id, goal_checker_id,
+                 spacing, timeout_sec, server_timeout, corner_radius):
+        self.action_name = action_name
+        self.controller_id = controller_id
+        self.goal_checker_id = goal_checker_id
+        self.spacing = spacing
+        self.timeout_sec = timeout_sec
+        self.server_timeout = server_timeout
+        self.corner_radius = corner_radius
+        self.last_dense = None   # 本次实际下发的 (x,y,yaw) 序列,main 落 sidecar
+
+    def drive(self, runner, ref):
+        client = ActionClient(runner, FollowPath, self.action_name,
+                              callback_group=runner.cb)
+        if not client.wait_for_server(timeout_sec=self.server_timeout):
+            runner.get_logger().error(
+                f'FollowPath server {self.action_name} unavailable')
+            return ['REJECTED']
+        path = self._dense_path(runner, ref)
+        runner.get_logger().info(
+            f'FollowPath: {len(path.poses)} 点 dense path -> DWB '
+            f'(controller={self.controller_id}, goal_checker={self.goal_checker_id})')
+        goal = FollowPath.Goal()
+        goal.path = path
+        goal.controller_id = self.controller_id
+        goal.goal_checker_id = self.goal_checker_id
+        return [self._send(runner, client, goal)]
+
+    def _dense_path(self, runner, ref):
+        goal_yaw = float(ref['goal']['yaw'])
+        path = Path()
+        path.header.frame_id = ref['frame']
+        path.header.stamp = runner.get_clock().now().to_msg()
+        # iter3(2026-07-08):拐角圆弧化。尖角折线的切向瞬跳差速底盘不可能连续跟踪,
+        # DWB 只能停-转或绕环;切圆弧后"不停车过弯"成为可行解(r=0.3,w_max=0.5 →
+        # 弧上 v≈0.15,正落在 vx 采样档)。--corner-radius 0 回到尖角做 A/B。
+        dense = densify_with_fillets(ref['polyline'], self.spacing,
+                                     self.corner_radius, goal_yaw)
+        self.last_dense = dense
+        for (x, y, yaw) in dense:
+            ps = PoseStamped()
+            ps.header = path.header
+            ps.pose.position.x = float(x)
+            ps.pose.position.y = float(y)
+            qx, qy, qz, qw = _quat_from_yaw(yaw)
+            ps.pose.orientation.x = qx
+            ps.pose.orientation.y = qy
+            ps.pose.orientation.z = qz
+            ps.pose.orientation.w = qw
+            path.poses.append(ps)
+        return path
+
+    def _send(self, runner, client, goal):
+        done = threading.Event()
+        box = {}
+
+        def _result_cb(fut):
+            box['result'] = fut.result()
+            done.set()
+
+        def _goal_cb(fut):
+            gh = fut.result()
+            if not gh.accepted:
+                box['rejected'] = True
+                done.set()
+                return
+            box['gh'] = gh
+            gh.get_result_async().add_done_callback(_result_cb)
+
+        client.send_goal_async(goal).add_done_callback(_goal_cb)
+        if not done.wait(timeout=self.timeout_sec):
+            gh = box.get('gh')
+            if gh is not None:
+                gh.cancel_goal_async()
+            return 'TIMEOUT'
+        if box.get('rejected'):
+            return 'REJECTED'
+        wrapped = box.get('result')
+        if wrapped is None:
+            return 'ABORTED'
+        # FollowPath result 为空,用 GoalStatus 判定
+        return ('SUCCEEDED' if getattr(wrapped, 'status', None)
+                == GoalStatus.STATUS_SUCCEEDED else 'ABORTED')
+
+
 # --------------------------------------------------------------------------
 # Runner 节点
 # --------------------------------------------------------------------------
@@ -280,12 +377,24 @@ def main():
     p.add_argument('--reference', default=os.path.join(here, 'reference_path.yaml'))
     p.add_argument('--run-id', default='')
     p.add_argument('--controller', default='position_controller',
-                   choices=['position_controller'])
+                   choices=['position_controller', 'dwb'])
     p.add_argument('--move-action', default='/position_controller/move')
     p.add_argument('--server-timeout-sec', type=float, default=10.0)
+    # dwb 用:
+    p.add_argument('--follow-path-action', default='/follow_path')
+    p.add_argument('--controller-id', default='FollowPath')
+    p.add_argument('--goal-checker-id', default='general_goal_checker')
+    p.add_argument('--path-spacing', type=float, default=0.10,
+                   help='dwb: 固定折线 densify 成 Path 的点间距 (m)')
+    p.add_argument('--corner-radius', type=float, default=0.30,
+                   help='dwb: 拐角圆弧化半径 m(按相邻段长自动收紧;0=旧尖角行为)')
+    p.add_argument('--dwb-timeout-sec', type=float, default=180.0,
+                   help='dwb: 整条 FollowPath 结果等待上限')
+    p.add_argument('--settle-sec', type=float, default=5.0,
+                   help='到达后等机身停稳再读终点的上限秒(stable 会提前结束)')
     p.add_argument('--battery-v', type=float, default=float('nan'))
     p.add_argument('--note', default='')
-    p.add_argument('--output-dir', default='/tmp/david_nav_logs/bench')
+    p.add_argument('--output-dir', default=os.path.expanduser('~/david_nav_logs/bench'))
     p.add_argument('--map-frame', default='map')
     p.add_argument('--base-frame', default='base_footprint')
     p.add_argument('--truth-topic', default='/groundtruth/pose',
@@ -305,6 +414,11 @@ def main():
 
     if args.controller == 'position_controller':
         adapter = PositionControllerAdapter(args.move_action, args.server_timeout_sec)
+    elif args.controller == 'dwb':
+        adapter = DwbFollowPathAdapter(
+            args.follow_path_action, args.controller_id, args.goal_checker_id,
+            args.path_spacing, args.dwb_timeout_sec, args.server_timeout_sec,
+            args.corner_radius)
     else:  # pragma: no cover - 未来 controller
         raise SystemExit(f'unknown controller {args.controller}')
 
@@ -319,7 +433,39 @@ def main():
         seg_status = adapter.drive(node, ref)
         duration = time.time() - t0
 
+        # 落盘本次实际下发的 dense path(圆弧化后),供 plot/离线分析对照
+        dense = getattr(adapter, 'last_dense', None)
+        if dense:
+            side_csv = os.path.join(args.output_dir,
+                                    f'track_{run_id}_commanded.csv')
+            with open(side_csv, 'w', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(['x', 'y', 'yaw'])
+                w.writerows(dense)
+            node.get_logger().info(f'commanded path sidecar: {side_csv}')
+
+        # 等机身停稳再读终点:DWB/position_controller 声明到达时机身常还在转/滑
+        # (末端 RotateToGoal + caster 拖尾),过早读会把"正在收敛的 yaw"虚报成超调。
+        # 真值位姿连续 stable 一小段 或 到 settle_sec 上限 才读。
+        deadline = time.time() + args.settle_sec
+        prev = node.read_map_pose()
+        stable_since = None
+        while time.time() < deadline:
+            time.sleep(0.2)
+            cur = node.read_map_pose()
+            if prev is not None and cur is not None:
+                if (math.hypot(cur[0] - prev[0], cur[1] - prev[1]) < 0.005
+                        and abs(wrap_to_pi(cur[2] - prev[2])) < math.radians(0.5)):
+                    if stable_since is None:
+                        stable_since = time.time()
+                    elif time.time() - stable_since > 0.6:
+                        break
+                else:
+                    stable_since = None
+            prev = cur
         end_pose = node.read_map_pose()
+        node.get_logger().info(
+            f'settle 等停后终点: {end_pose} (等了 {time.time()-(deadline-args.settle_sec):.1f}s)')
         goal = ref['goal']
         gx, gy, gyaw = float(goal['x']), float(goal['y']), float(goal['yaw'])
         if end_pose is not None:

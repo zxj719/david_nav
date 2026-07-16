@@ -156,6 +156,17 @@ def plot(run_id, out_dir, ref, map_bg):
         ax.arrow(wx, wy, 0.25 * math.cos(wyaw), 0.25 * math.sin(wyaw),
                  head_width=0.06, color='#1f6feb', alpha=0.6, zorder=4)
 
+    # 实际下发的 dense path(iter3 起拐角圆弧化;有 sidecar 才画)
+    cmd_csv = os.path.join(out_dir, f'track_{run_id}_commanded.csv')
+    if os.path.exists(cmd_csv):
+        with open(cmd_csv) as f:
+            cpts = [(_f(r['x']), _f(r['y'])) for r in csv.DictReader(f)]
+        cpts = [p for p in cpts if not (math.isnan(p[0]) or math.isnan(p[1]))]
+        if cpts:
+            ax.plot([p[0] for p in cpts], [p[1] for p in cpts], '-',
+                    color='#1a7f37', lw=1.1, alpha=0.9, zorder=4,
+                    label='commanded (fillet)')
+
     # 真值轨迹
     if ax_xy:
         tx = [p[0] for p in ax_xy]
@@ -208,7 +219,7 @@ def main():
     p = argparse.ArgumentParser()
     here = os.path.dirname(os.path.abspath(__file__))
     p.add_argument('--run-id', required=True)
-    p.add_argument('--output-dir', default='/tmp/david_nav_logs/bench')
+    p.add_argument('--output-dir', default=os.path.expanduser('~/david_nav_logs/bench'))
     p.add_argument('--reference', default=os.path.join(here, 'reference_path.yaml'))
     p.add_argument('--map-yaml',
                    default=os.path.expanduser(
