@@ -65,13 +65,16 @@ def generate_launch_description():
         allow_substs=True,
     )
 
+    # 2026-08-28 开销压缩：移除 smoother_server 与 waypoint_follower。
+    # 已核对 behavior_trees/ 下全部三棵 BT，均未出现 SmoothPath 或任何 waypoint
+    # 节点，导览 executor 也只用 /navigate_to_pose —— 二者是纯常驻空转进程。
+    # ⚠ 将来若在 BT 里加 SmoothPath，或改用 follow_waypoints 动作，
+    #   必须把对应 Node 定义与 lifecycle 名字一起加回来，否则 BT 加载失败。
     _core_lifecycle_nodes = [
         'controller_server',
-        'smoother_server',
         'planner_server',
         'behavior_server',
         'bt_navigator',
-        'waypoint_follower',
         'velocity_smoother',
     ]
     # map_server 必须排在最前：lifecycle_manager 按列表顺序 configure/activate，
@@ -87,16 +90,6 @@ def generate_launch_description():
         parameters=[configured_nav2_params_file],
         arguments=['--ros-args', '--log-level', log_level],
         remappings=nav2_remappings + [('cmd_vel', 'cmd_vel_nav')],
-    )
-
-    smoother_server_node = Node(
-        package='nav2_smoother',
-        executable='smoother_server',
-        name='smoother_server',
-        output='screen',
-        parameters=[configured_nav2_params_file],
-        arguments=['--ros-args', '--log-level', log_level],
-        remappings=nav2_remappings,
     )
 
     planner_server_node = Node(
@@ -127,16 +120,6 @@ def generate_launch_description():
         parameters=[configured_nav2_params_file],
         arguments=['--ros-args', '--log-level', log_level],
         remappings=nav2_remappings + [('cmd_vel', 'cmd_vel_nav')],
-    )
-
-    waypoint_follower_node = Node(
-        package='nav2_waypoint_follower',
-        executable='waypoint_follower',
-        name='waypoint_follower',
-        output='screen',
-        parameters=[configured_nav2_params_file],
-        arguments=['--ros-args', '--log-level', log_level],
-        remappings=nav2_remappings,
     )
 
     velocity_smoother_node = Node(
@@ -601,11 +584,9 @@ def generate_launch_description():
         robot_state_publisher_node,
         pointcloud_to_scan_node,
         controller_server_node,
-        smoother_server_node,
         planner_server_node,
         behavior_server_node,
         bt_navigator_node,
-        waypoint_follower_node,
         velocity_smoother_node,
         velocity_smoother_passthrough_node,
         map_server_node,
