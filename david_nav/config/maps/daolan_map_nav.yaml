@@ -1,0 +1,30 @@
+# 导览地图 —— nav2 侧的元数据副本（2026-08-28 新建）
+#
+# image 指向 lightning 地图目录里的原图，**不复制图像**：
+#   lightning 启动脚本 /home/agx/lightning_ws_new/src/start_loc_david001.sh
+#     ROOT=/home/agx/lightning_ws_new/src/embodied_intelligence
+#     CFG=$ROOT/config/David001_c16.yaml  ->  map_path: ./data/daolan_map/
+#   解析后 = $ROOT/data/daolan_map/
+# 因此 lightning 更新 map.pgm 后，导航侧下次启动自动跟进，无需同步图像。
+#
+# 为什么不直接用 lightning 自己的 map.yaml：
+#   那份写的是 `mode: scale`。这张图用 **px=128 (occ=0.498) 表示未知**
+#   （占全图 51.82%，不是 ROS 惯用的 205）。scale 模式没有 unknown 输出，
+#   会把 occ=0.498 线性映射成 99*(0.498-0.25)/(0.65-0.25) ≈ 61，
+#   再经 static_layer 的 trinary_costmap:true + lethal_cost_threshold:50
+#   判为致命 —— 实测全图 59.83% 变成障碍物，机器人根本走不了。
+#   改成 mode: trinary 后实测：致命 3.05% / 空闲 34.31% / 未知 62.63%，
+#   与 planner 的 allow_unknown:false 配合正常。
+#
+# ⚠ 同步责任：下面的 resolution / origin / 阈值是从 lightning 的 map.yaml
+#   抄来的快照。lightning 重建地图导致这些值变化时，必须同步本文件，
+#   否则 costmap 会整体错位。核对命令：
+#     diff <(grep -E "resolution|origin|negate|thresh" \
+#            /home/agx/lightning_ws_new/src/embodied_intelligence/data/daolan_map/map.yaml) -
+image: /home/agx/lightning_ws_new/src/embodied_intelligence/data/daolan_map/map.pgm
+mode: trinary
+resolution: 0.0500000007
+origin: [-10.04957683783141, -11.601833570748568, 0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25

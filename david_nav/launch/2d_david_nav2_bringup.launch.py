@@ -36,6 +36,8 @@ def generate_launch_description():
     nav_through_poses_bt_xml = LaunchConfiguration('nav_through_poses_bt_xml')
     log_level = LaunchConfiguration('log_level')
     map_topic = LaunchConfiguration('map_topic')
+    map_yaml_file = LaunchConfiguration('map_yaml_file')
+    enable_map_server = LaunchConfiguration('enable_map_server')
     # 2026-07-20: STM32 固件重调位置环/速度环后，软件侧速度整形可整体停用
     # （cmd_shaping:=false）：velocity_smoother 转 OPEN_LOOP 直通、david_move
     # 死区抬升归零（只剩限幅+看门狗）。默认 on = 原行为。
@@ -49,7 +51,8 @@ def generate_launch_description():
             'default_nav_through_poses_bt_xml': nav_through_poses_bt_xml,
             'local_costmap.local_costmap.ros__parameters.scan_priority_layer.require_live_scan':
                 scan_observation_active,
-            # 地图来源可切：lightning(/lightning/grid_map) 或 slam_gt(/map)。
+            # 地图来源可切：本 launch 内的 map_server(/map) 或 slam_gt(/map)。
+            # 2026-08-28 起不再默认订阅 lightning 的 /lightning/grid_map。
             'global_costmap.global_costmap.ros__parameters.static_layer.map_topic':
                 map_topic,
             'local_costmap.local_costmap.ros__parameters.static_layer.map_topic':
@@ -62,7 +65,7 @@ def generate_launch_description():
         allow_substs=True,
     )
 
-    lifecycle_nodes = [
+    _core_lifecycle_nodes = [
         'controller_server',
         'smoother_server',
         'planner_server',
@@ -71,6 +74,10 @@ def generate_launch_description():
         'waypoint_follower',
         'velocity_smoother',
     ]
+    # map_server 必须排在最前：lifecycle_manager 按列表顺序 configure/activate，
+    # 让地图先就位再激活 costmap，避免 global_costmap 在 Activating 里空等。
+    lifecycle_nodes_with_map = ['map_server'] + _core_lifecycle_nodes
+    lifecycle_nodes = _core_lifecycle_nodes
     nav2_remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
 
     controller_server_node = Node(
@@ -162,7 +169,44 @@ def generate_launch_description():
         condition=UnlessCondition(cmd_shaping),
     )
 
+    # 2026-08-28: 导航侧不再订阅 lightning 的 /lightning/grid_map，改由
+    # nav2_map_server 从磁盘一次性读入静态地图并 latch 到 /map。
+    # 原因：lightning 以 10Hz x 770KB 重发该图（内容与 map.pgm 逐字节相同：
+    # 948*813=770724 = OccupancyGrid.data 长度 = map.pgm 去掉 PGM 头的字节数），
+    # 是 /tf 投递被挤住的主因之一。详见 docs 的 TF 投递延迟分析。
+    map_server_node = Node(
+        package='nav2_map_server',
+        executable='map_server',
+        name='map_server',
+        output='screen',
+        parameters=[{
+            'yaml_filename': map_yaml_file,
+            'topic_name': 'map',
+            'frame_id': 'map',
+            'use_sim_time': use_sim_time,
+        }],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=nav2_remappings,
+        condition=IfCondition(enable_map_server),
+    )
+
     nav2_lifecycle_manager = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_navigation',
+        output='screen',
+        arguments=['--ros-args', '--log-level', log_level],
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'autostart': True,
+            'node_names': lifecycle_nodes_with_map,
+        }],
+        condition=IfCondition(enable_map_server),
+    )
+
+    # enable_map_server:=false 变体（bench / slam_gt 环境用）：同名节点，
+    # node_names 里不含 map_server（地图由 slam_gt 自己发 /map）。
+    nav2_lifecycle_manager_no_map = Node(
         package='nav2_lifecycle_manager',
         executable='lifecycle_manager',
         name='lifecycle_manager_navigation',
@@ -173,6 +217,7 @@ def generate_launch_description():
             'autostart': True,
             'node_names': lifecycle_nodes,
         }],
+        condition=UnlessCondition(enable_map_server),
     )
 
     robot_state_publisher_node = Node(
@@ -510,10 +555,28 @@ def generate_launch_description():
             description='Launch pointcloud_to_laserscan to publish /scan from lidar.',
         ),
         DeclareLaunchArgument(
+            'map_yaml_file',
+            default_value=os.path.join(
+                pkg_david_nav, 'config', 'maps', 'daolan_map_nav.yaml'),
+            description='nav2_map_server 读取的静态地图 yaml。默认那份的 image 直接'
+                        '指向 lightning 地图目录的 map.pgm（路径由 '
+                        'start_loc_david001.sh 的 ROOT + David001_c16.yaml 的 '
+                        'map_path 解析得到），只是把 mode 从 scale 改成 trinary —— '
+                        'lightning 的 map.yaml 用 mode:scale，会让 51.82%% 的未知'
+                        '栅格(px=128)被 static_layer 判成致命障碍。详见该文件注释。',
+        ),
+        DeclareLaunchArgument(
+            'enable_map_server',
+            default_value='true',
+            description='起 nav2_map_server 从磁盘读静态地图并 latch 发布 /map。'
+                        'slam_gt / bench 环境自己发 /map，必须传 false 避免抢话题。',
+        ),
+        DeclareLaunchArgument(
             'map_topic',
-            default_value='/lightning/grid_map',
-            description='costmap static_layer 订阅的地图话题。lightning 栈用默认 '
-                        '/lightning/grid_map；slam_gt 栈传 /map。',
+            default_value='/map',
+            description='costmap static_layer 订阅的地图话题。默认 /map（由本 launch '
+                        '内的 map_server 从磁盘 latch 发布）。2026-08-28 前默认是 '
+                        '/lightning/grid_map，已停用。',
         ),
         DeclareLaunchArgument(
             'enable_map_warmup_spin',
@@ -545,7 +608,9 @@ def generate_launch_description():
         waypoint_follower_node,
         velocity_smoother_node,
         velocity_smoother_passthrough_node,
+        map_server_node,
         nav2_lifecycle_manager,
+        nav2_lifecycle_manager_no_map,
         map_warmup_spin_node,
         frontier_explorer,
         rviz_node,
