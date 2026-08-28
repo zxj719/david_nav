@@ -378,8 +378,16 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 5.0
-      publish_frequency: 5.0
+      # 2026-08-28 开销压缩：5.0 -> 1.0。全局 costmap 被 static_layer 对齐到静态
+      # 地图的 948x813@0.05m = 770k 栅格（本节的 resolution: 0.1 不生效），每个
+      # 周期要重跑 static 拷贝 + inflation 膨胀，且它跑在 planner_server 进程内
+      # （改前实测该进程 18.5% CPU）。全局图基本静态，1Hz 足够；
+      # 局部避障由 local_costmap(3x3m@0.1m=30x30 栅格) 负责。
+      update_frequency: 1.0
+      # 2026-08-28: 5.0 -> 0.5。headless 下无人订阅全局 costmap
+      # （BT 的 RobotEmbeddedInObstacle 用的是 local_costmap/costmap_raw），
+      # 仅供 rviz / 回放。
+      publish_frequency: 0.5
       global_frame: map
       robot_base_frame: base_footprint
       use_sim_time: false
@@ -441,7 +449,12 @@ global_costmap:
         enabled: True
         cost_scaling_factor: 1.5             # 可能会影响路径太长的计算
         inflation_radius: 0.60
-      always_send_full_costmap: True
+      # 2026-08-28 开销压缩：True -> False。True 时每次发布都推送 948x813 全图
+      # (770KB)，costmap 与 costmap_raw 各一份 = 4.8MB/s，占导览录制全部话题字节
+      # 量的 99.6%（实测 440s 窗口）。要付序列化 + DDS 投递 + rosbag 写盘三笔钱，
+      # 而 headless 下无人订阅。改 False 后走增量 /global_costmap/costmap_updates。
+      # 注意：rviz 的 Map display 需订阅 costmap_updates 才能正常刷新。
+      always_send_full_costmap: False
 
 # map_server / amcl：
 # - 本工程使用 SLAM（slam_toolbox）时，通常直接消费 /map，而不是启 map_server+AMCL。

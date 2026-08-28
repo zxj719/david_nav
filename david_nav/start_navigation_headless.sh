@@ -139,8 +139,15 @@ LIGHT_BAG_TOPICS=(
   /local_costmap/costmap
   /local_costmap/costmap_raw
   /local_costmap/published_footprint
-  /global_costmap/costmap
-  /global_costmap/costmap_raw
+  # /global_costmap/costmap + /global_costmap/costmap_raw —— 2026-08-28 移出默认
+  # 录制，与上面 /lightning/grid_map 同一个原因，当时只换了来源没降量级：
+  # 全局 costmap 被 static_layer 对齐到 948x813@0.05m，单帧 770KB，两个话题
+  # 3.1Hz 双发 = 4.8MB/s，占本清单全部字节量的 99.6%（实测 440s 导览窗口），
+  # 22 分钟就写出 5.9GB。回放定位/轨迹问题只需 /tf + /plan + /cmd_vel*。
+  # 另：nav2 的 Costmap2DPublisher 仅在 subscription_count>0 时才序列化发布，
+  # 所以移出录制 = 生产环境里这两个话题彻底不产生开销。
+  # 需要全局 costmap 时用 --full-bag。
+  /global_costmap/costmap_updates
   /global_costmap/published_footprint
   /navigate_to_pose/_action/status
   /navigate_to_pose/_action/feedback
