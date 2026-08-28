@@ -81,6 +81,16 @@ BRINGUP_PID=""
 CHASSIS_PID=""
 CHASSIS_LIVENESS_PID=""
 CHASSIS_LIVENESS_INTERVAL_SEC="${CHASSIS_LIVENESS_INTERVAL_SEC:-5}"
+
+# 2026-08-28: Nav2 bringup liveness watcher。此前只有 wait_for_nav_ready 在
+# 启动阶段检查 BRINGUP_PID，启动成功之后没有任何东西盯着它。实测
+# 20260828_040511 那轮：bringup.log 停在 04:23、chassis.log 停在 04:12，
+# 而 rosbag 录制进程一直活到 04:25 之后，bag 涨到 5.9GB。
+# 与底盘看护不同，nav2 死掉不尝试重启（重启后位姿/BT 状态都不可信），
+# 直接走标准 cleanup 收摊。
+BRINGUP_LIVENESS_PID=""
+BRINGUP_LIVENESS_INTERVAL_SEC="${BRINGUP_LIVENESS_INTERVAL_SEC:-5}"
+BRINGUP_EXECUTOR_KILL_GRACE_SEC="${BRINGUP_EXECUTOR_KILL_GRACE_SEC:-5}"
 ZERO_CMD_VEL_ON_SHUTDOWN="${ZERO_CMD_VEL_ON_SHUTDOWN:-true}"
 ZERO_CMD_VEL_DURATION_SEC="${ZERO_CMD_VEL_DURATION_SEC:-0.6}"
 
@@ -479,6 +489,72 @@ stop_chassis_liveness_watch() {
   CHASSIS_LIVENESS_PID=""
 }
 
+start_bringup_liveness_watch() {
+  # 与 start_chassis_liveness_watch 同构，但发 SIGUSR2 且不尝试重启。
+  if [[ -z "$BRINGUP_PID" ]] || [[ "$DRY_RUN" == true ]]; then
+    return 0
+  fi
+  local script_pid="$$"
+  local bringup_pid="$BRINGUP_PID"
+  local interval="$BRINGUP_LIVENESS_INTERVAL_SEC"
+  log "Starting nav2 bringup liveness watch (poll ${interval}s, bringup pid=${bringup_pid})"
+  (
+    while kill -0 "$bringup_pid" 2>/dev/null; do
+      sleep "$interval"
+    done
+    printf '[%s] WARN: Nav2 bringup (pid=%s) died. Notifying main.\n' \
+      "$(date '+%Y-%m-%dT%H:%M:%S')" "$bringup_pid" >&2
+    kill -USR2 "$script_pid" 2>/dev/null || true
+    # ⚠ 只发信号不够。bash 在等待前台命令时收到已设 trap 的信号，会把
+    # handler 推迟到该命令结束之后才执行（实测：前台 `sleep 6 | tee` 期间
+    # 第 2 秒发 USR2，handler 到第 6 秒才跑）。主脚本此刻正阻塞在
+    # `run_foreground ... | tee executor.log` 上，而 executor 在 nav2 死后
+    # 只会一直重连、永不退出 —— 不动它的话 trap 永远轮不上，rosbag 继续写盘。
+    # 所以这里主动终止 executor，让前台管道结束、被推迟的 USR2 handler 得以
+    # 执行（handle_bringup_death -> cleanup）。
+    # 只针对 executor 自身的 pid：它与主脚本同属一个进程组，按进程组 kill
+    # 会把主脚本和本 watcher 一起带走。
+    # 必须 TERM -> 等待 -> KILL 升级：2026-08-28 实测只发 TERM 时，
+    # `ros2 run` 包装进程死了但真正的 python 子进程活了下来，它继承着写向
+    # tee 的 stdout 管道 —— 只要它不退出，tee 的 stdin 就不关闭，前台管道
+    # 就不结束，被推迟的 trap 永远等不到（rosbag 继续写盘）。
+    ex_pids=$(pgrep -f "navigation_executor.py" 2>/dev/null || true)
+    for ex_pid in $ex_pids; do
+      printf '[%s] Terminating foreground executor (pid=%s) to unblock main.\n' \
+        "$(date '+%Y-%m-%dT%H:%M:%S')" "$ex_pid" >&2
+      kill -TERM "$ex_pid" 2>/dev/null || true
+    done
+    for _ in $(seq 1 "$BRINGUP_EXECUTOR_KILL_GRACE_SEC"); do
+      pgrep -f "navigation_executor.py" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    for ex_pid in $(pgrep -f "navigation_executor.py" 2>/dev/null || true); do
+      printf '[%s] Executor pid=%s survived SIGTERM; sending SIGKILL.\n' \
+        "$(date '+%Y-%m-%dT%H:%M:%S')" "$ex_pid" >&2
+      kill -KILL "$ex_pid" 2>/dev/null || true
+    done
+  ) &
+  BRINGUP_LIVENESS_PID=$!
+  disown "$BRINGUP_LIVENESS_PID" 2>/dev/null || true
+}
+
+stop_bringup_liveness_watch() {
+  if [[ -n "$BRINGUP_LIVENESS_PID" ]] && kill -0 "$BRINGUP_LIVENESS_PID" 2>/dev/null; then
+    kill "$BRINGUP_LIVENESS_PID" 2>/dev/null || true
+  fi
+  BRINGUP_LIVENESS_PID=""
+}
+
+handle_bringup_death() {
+  # SIGUSR2 from the bringup watcher. Nav2 死了之后继续跑没有意义 ——
+  # executor 会一直重连、rosbag 会一直写盘（改前实测 22 分钟 5.9GB）。
+  # 不重启：BT / costmap / 位姿状态在 nav2 重启后都不可信。
+  log 'Nav2 bringup death notification (SIGUSR2). Triggering full shutdown.'
+  BRINGUP_LIVENESS_PID=""
+  cleanup
+  exit 1
+}
+
 publish_zero_cmd_vel() {
   # Send a short burst of zero Twists on /cmd_vel right before tearing down
   # nav2 / separator. STM32 has no cmd_vel watchdog (yet), so the last frame
@@ -506,8 +582,9 @@ cleanup() {
   fi
   CLEANUP_DONE=true
 
-  # Stop watcher first — otherwise it can re-trigger us during cleanup.
+  # Stop watchers first — otherwise they can re-trigger us during cleanup.
   stop_chassis_liveness_watch
+  stop_bringup_liveness_watch
 
   cleanup_executor_lock
 
@@ -884,6 +961,7 @@ main() {
   trap 'handle_signal INT' INT
   trap 'handle_signal TERM' TERM
   trap 'handle_chassis_death' USR1
+  trap 'handle_bringup_death' USR2
   trap cleanup EXIT
 
   log "Using ROS_DOMAIN_ID=${ROS_DOMAIN_ID}"
@@ -1024,6 +1102,8 @@ main() {
     fi
     wait_for_nav_ready
     verify_nav2_runtime_config
+    # 2026-08-28: 起在 rosbag 之前，这样 nav2 一死 rosbag 立刻被 cleanup 收掉。
+    start_bringup_liveness_watch
   fi
 
   if [[ "$record_bag" == true ]]; then

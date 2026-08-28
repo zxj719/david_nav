@@ -37,4 +37,7 @@ executor:
   reconnect_delay: 3.0
   nav_event_timeout: 15.0
   show_logs: true
-  record_bag: true
+  # 2026-08-28 开销压缩：生产默认不录 bag。改前每轮都录，实测 22 分钟写出
+  # 5.9GB（4.8MB/s，其中 99.6% 是两个 global costmap 全图话题，已一并移出
+  # LIGHT_BAG_TOPICS）。需要录制时命令行加 --bag，全量用 --full-bag。
+  record_bag: false
