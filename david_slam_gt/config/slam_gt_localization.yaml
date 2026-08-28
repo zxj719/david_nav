@@ -39,8 +39,11 @@ slam_toolbox:
 
     use_scan_matching: true
     use_scan_barycenter: true
-    minimum_travel_distance: 0.3
-    minimum_travel_heading: 0.3
+    # 2026-08-27 A方案(降跳变): 0.3->0.15。map->odom 在两次 scan match 之间冻结，
+    # 期间纯轮速计误差全部暴露、下次匹配一次性 snap(实测 0.15s 跳 13.7cm)。
+    # 校正变勤 => 单次幅度约减半。代价=scan match 频率翻倍、CPU 上升。回滚改回 0.3。
+    minimum_travel_distance: 0.15
+    minimum_travel_heading: 0.15
     scan_buffer_size: 10
     scan_buffer_maximum_scan_distance: 10.0
     link_match_minimum_response_fine: 0.1

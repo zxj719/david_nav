@@ -1,5 +1,6 @@
 import importlib.util
 import asyncio
+import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -38,10 +39,30 @@ def test_navigation_executor_cli_parses_server_uri_and_store_path():
     assert ros_args == ["--ros-args", "-r", "__ns:=/robot"]
 
 
-def test_navigation_executor_uses_david_default_server_uri():
+def test_navigation_executor_cli_parses_nav_retry_options():
+    # 失败消抖(2026-07-24):默认失败后静默重发 1 次、间隔 1s;可用
+    # --nav-retry-count / --nav-retry-delay 调整。
     module = _load_module()
 
-    assert module.DEFAULT_SERVER_URI == "ws://172.16.21.205:8100/ws/navigation/executor"
+    default_config, _ = module._parse_cli_args([])
+    assert default_config["nav_retry_count"] == 1
+    assert default_config["nav_retry_delay_sec"] == 1.0
+
+    config, ros_args = module._parse_cli_args(
+        ["--nav-retry-count", "2", "--nav-retry-delay", "0.5"]
+    )
+    assert config["nav_retry_count"] == 2
+    assert config["nav_retry_delay_sec"] == 0.5
+    assert ros_args == []
+
+
+def test_navigation_executor_uses_nav_ws_v1_default_server_uri():
+    # nav WS v1 checklist:默认 $NAV_WS_URL,否则 ws://127.0.0.1:8101。
+    module = _load_module()
+
+    assert module.DEFAULT_SERVER_URI == os.environ.get(
+        "NAV_WS_URL", "ws://127.0.0.1:8101"
+    )
 
 
 def test_navigation_executor_log_prefix_is_stable(capsys):
@@ -97,20 +118,74 @@ def test_navigation_executor_drain_outbound_queue_sends_without_inbound_message(
 
     async def run_scenario():
         outbound_queue = asyncio.Queue()
+        pending: list = []
         await outbound_queue.put({"event_type": "on_error", "request_id": "req_1"})
-        drain_task = asyncio.create_task(module._drain_outbound_queue(FakeWebSocket(), outbound_queue))
+        drain_task = asyncio.create_task(
+            module._drain_outbound_queue(FakeWebSocket(), outbound_queue, pending)
+        )
         await asyncio.sleep(0)
         drain_task.cancel()
         try:
             await drain_task
         except asyncio.CancelledError:
             pass
+        return pending
 
-    asyncio.run(run_scenario())
+    pending_after = asyncio.run(run_scenario())
 
     assert sent_messages == [
         '{"event_type": "on_error", "request_id": "req_1"}'
     ]
+    # 发送成功后 pending 应清空
+    assert pending_after == []
+
+
+def test_navigation_executor_drain_outbound_queue_resends_after_disconnect():
+    """2026-07-27 送达保证：断联瞬间(send 抛异常)事件保留在 pending_holder，
+    重连后新 drain 任务优先重发 —— 修复"到点了但 on_arrived 落在断联窗口
+    丢失 → 服务端超时判导航失败"。"""
+    module = _load_module()
+    sent_messages = []
+
+    class DeadWebSocket:
+        async def send(self, payload):
+            raise ConnectionError("connection lost mid-send")
+
+    class LiveWebSocket:
+        async def send(self, payload):
+            sent_messages.append(payload)
+
+    async def run_scenario():
+        outbound_queue = asyncio.Queue()
+        pending: list = []
+        await outbound_queue.put({"event_type": "on_arrived", "request_id": "req_1"})
+        # 第一次连接：send 失败，事件必须留在 pending
+        dead_task = asyncio.create_task(
+            module._drain_outbound_queue(DeadWebSocket(), outbound_queue, pending)
+        )
+        try:
+            await dead_task
+        except ConnectionError:
+            pass
+        assert pending == [{"event_type": "on_arrived", "request_id": "req_1"}]
+        # "重连"后：新 drain 任务优先重发 pending
+        live_task = asyncio.create_task(
+            module._drain_outbound_queue(LiveWebSocket(), outbound_queue, pending)
+        )
+        await asyncio.sleep(0)
+        live_task.cancel()
+        try:
+            await live_task
+        except asyncio.CancelledError:
+            pass
+        return pending
+
+    pending_after = asyncio.run(run_scenario())
+
+    assert sent_messages == [
+        '{"event_type": "on_arrived", "request_id": "req_1"}'
+    ]
+    assert pending_after == []
 
 
 def test_navigation_executor_help_does_not_require_runtime_imports(capsys, monkeypatch):

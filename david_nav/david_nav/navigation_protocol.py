@@ -6,29 +6,26 @@ from typing import Union
 from david_nav.navigation_types import StoredPoi
 
 
+class CommandParseError(ValueError):
+    """navigate_to 等命令字段缺失/类型错。
+
+    v1 checklist:"target_id 缺字段/类型不对 → 发 on_error,不要启车"。
+    带上 request_id/sub_id(尽力从 payload 提取),core 据此构造 on_error;
+    request_id 也拿不到时 core 只能记日志丢弃。
+    """
+
+    def __init__(self, message: str, request_id: str | None, sub_id: int):
+        super().__init__(message)
+        self.request_id = request_id
+        self.sub_id = sub_id
+
+
 @dataclass(frozen=True)
 class NavigateToCommand:
     action: str
     request_id: str
     sub_id: int
     target_id: str
-
-
-@dataclass(frozen=True)
-class NavigateToPoseCommand:
-    """nav 协议 v2(2026-06-10): navigate_to 直接携带坐标三元组。
-
-    theta 单位由协议 §四 待确认;本层不做换算,按发来的数值原样保存,
-    换算(若需要)在 core 构造目标位姿时统一做。
-    """
-
-    action: str
-    request_id: str
-    sub_id: int
-    x: float
-    y: float
-    theta: float
-    label: str
 
 
 @dataclass(frozen=True)
@@ -55,34 +52,44 @@ class UpdatePoiListCommand:
 
 Command = Union[
     NavigateToCommand,
-    NavigateToPoseCommand,
     MarkCurrentPoiCommand,
     AbortNavigationCommand,
     UpdatePoiListCommand,
 ]
 
 
+def _extract_request_context(payload: dict) -> tuple[str | None, int]:
+    request_id = payload.get("request_id")
+    request_id = str(request_id).strip() if request_id is not None else None
+    try:
+        sub_id = int(payload.get("sub_id", 0))
+    except (TypeError, ValueError):
+        sub_id = 0
+    return request_id or None, sub_id
+
+
 def parse_command(payload: dict) -> Command:
     action = str(payload.get("action", "")).strip()
     if action == "navigate_to":
-        # v2(坐标)优先:有 target_pose 就走坐标;否则回落 v1 的 POI 查表。
-        # 两版并存,server 升级期间新旧消息都能处理。
-        if "target_pose" in payload:
-            target_pose = payload["target_pose"]
-            return NavigateToPoseCommand(
-                action="navigate_to",
-                request_id=str(payload["request_id"]).strip(),
-                sub_id=int(payload["sub_id"]),
-                x=float(target_pose["x"]),
-                y=float(target_pose["y"]),
-                theta=float(target_pose["theta"]),
-                label=str(payload.get("label", "")).strip(),
+        # nav 协议 v1(2026-07-22 回退定稿):只认 target_id(POI id 字符串)。
+        # v2 的 target_pose/label 字段按协议要求直接忽略——即使还带着,也
+        # 不再走坐标直达路径。target_id 缺失/类型错 → CommandParseError,
+        # core 回 on_error,不启车。
+        request_id, sub_id = _extract_request_context(payload)
+        if request_id is None:
+            raise CommandParseError("navigate_to 缺少 request_id", None, sub_id)
+        target_id = payload.get("target_id")
+        if not isinstance(target_id, str) or not target_id.strip():
+            raise CommandParseError(
+                "navigate_to 缺少有效 target_id(v1 只认 POI id,target_pose 已废弃)",
+                request_id,
+                sub_id,
             )
         return NavigateToCommand(
             action="navigate_to",
-            request_id=str(payload["request_id"]).strip(),
-            sub_id=int(payload["sub_id"]),
-            target_id=str(payload["target_id"]).strip(),
+            request_id=request_id,
+            sub_id=sub_id,
+            target_id=target_id.strip(),
         )
     if action == "mark_current_poi":
         poi = payload["poi"]

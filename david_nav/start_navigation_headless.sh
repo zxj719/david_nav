@@ -133,7 +133,9 @@ LIGHT_BAG_TOPICS=(
   /scan
   /map
   /lightning/odometry
-  /lightning/grid_map
+  # /lightning/grid_map —— 2026-07-23 移出默认录制：~10Hz 全图，3.4h 实测吃掉
+  # 107GB 并把 IO 压到 TF 频率从 92Hz 掉到 11Hz（定位反馈变慢=额外环路时延）。
+  # 静态环境回放用 /global_costmap/costmap 足够；确需原图用 --full-bag。
   /local_costmap/costmap
   /local_costmap/costmap_raw
   /local_costmap/published_footprint
@@ -157,6 +159,12 @@ Headless variant of navigate_semantic_pose_with_debug_bag.sh: same Nav2 bringup
 same runtime config check; only the foreground process differs --- this one
 runs navigation_executor.py which exposes a WebSocket service for remote
 navigation calls instead of an interactive terminal selection.
+
+nav WS v1.1: the executor is interruptible at any time --- an
+abort_navigation frame from the agent cancels the in-flight nav2 goal from
+ANY state (starting / navigating / retry-debounce), confirms with
+on_progress status="paused" and returns to idle. Repeated / stale / idle
+aborts are idempotent no-ops.
 
 Lightning SLAM is expected to be running independently. This script does not
 start SLAM, localization, or relocation.
@@ -815,19 +823,31 @@ main() {
 
   local bag_output="${BAG_ROOT}/${BAG_NAME}"
   local log_dir="${bag_output}/logs"
+  # 与 navigate_semantic_pose_with_debug_bag.sh 一致：rosbag2 要求 --output
+  # 目录不存在，而 logs/ 会先在 ${bag_output} 下建目录，导致 bag 静默录制
+  # 失败（2026-07-17 复盘）。bag 落独立子目录，不与 logs/ 共享父目录。
+  local bag_dir="${bag_output}/bag"
+  if [[ -e "$bag_dir" ]]; then
+    bag_dir="${bag_output}/bag_$(date +%H%M%S)"
+  fi
 
   local -a bringup_cmd=(
     "$ROS2_BIN" launch david_nav 2d_david_nav2_bringup.launch.py
     use_rviz:="$use_rviz"
     enable_scan_bridge:="$use_scan_bridge"
     enable_exploration:="$use_exploration"
+    # 临时（2026-07-23）：STM32 已重调位置环/速度环，软件侧速度整形停用
+    # （smoother OPEN_LOOP 直通@20Hz + david_move 死区抬升归零），与
+    # launch_nav_with_log.sh 保持一致，避免双重补偿。撤销=删下面这行；
+    # 单次覆盖=EXTRA_LAUNCH_ARGS 传 cmd_shaping:=true（后传者胜）。
+    cmd_shaping:=false
   )
   bringup_cmd+=("${EXTRA_LAUNCH_ARGS[@]}")
 
   local -a bag_cmd=(
     "$ROS2_BIN" bag record
     --max-cache-size 104857600
-    --output "$bag_output"
+    --output "$bag_dir"
   )
   if [[ "$FULL_BAG" == true ]]; then
     bag_cmd+=(
@@ -877,13 +897,48 @@ main() {
   # base_link ⇒ tf2 splits the tree ⇒ "no map frame" / "two unconnected
   # trees" ⇒ executor never gets goal feedback. Mirrors the same logic
   # in scripts/launch_nav_with_log.sh and navigate_semantic_pose_with_debug_bag.sh.
-  if [[ "$DRY_RUN" != true ]]; then
+  #
+  # 2026-07-24 扩展（当晨三连败复盘）：
+  #   04:13 TF 两棵树      = 残留 RSP/上代 URDF（原逻辑已覆盖）
+  #   04:19 controller_server lifecycle SIGABRT("publisher's context is
+  #        invalid", 07-23 04:48 同款) = 上代 nav2 栈还在退出中就重启新代
+  # 新增：① 清上代 nav2 全家 + bringup launch 包装 + david_move；
+  #      ② START_CHASSIS=true 时清残留 wheeltec（抢串口 + 双发 odom）；
+  #      ③ TERM 后轮询等待全部退净(≤8s)，残余再 SIGKILL —— 只 sleep 1 秒
+  #        不等退净正是 lifecycle race 的来源。
+  # DAVID_SKIP_PREFLIGHT_CLEANUP=true：跳过整个残留清理（供测试沙箱使用——
+  # 测试在真机上跑脚本时，pgrep 清理会误杀正在运行的真实 nav2/wheeltec 栈）。
+  if [[ "${DAVID_SKIP_PREFLIGHT_CLEANUP:-false}" == "true" ]]; then
+    log 'Pre-flight: skipped (DAVID_SKIP_PREFLIGHT_CLEANUP=true)'
+  elif [[ "$DRY_RUN" != true ]]; then
     local -a pre_kill_patterns=(
       "moveit_ros_move_group/move_group"
       "moveit_simple_controller_manager"
       "david_sdk_bridge/lib/david_sdk_bridge/arm_node"
+      # 上代 nav2 栈（先杀 launch 包装，让它自己 TERM 子进程，再逐个补刀）。
+      # pattern 刻意用"空格分隔的 launch 形态"或"安装路径形态"，避免误伤
+      # 恰好在编辑这些文件的 vim/grep（其 cmdline 只含 路径/文件名 形态）。
+      "launch david_nav 2d_david_nav2_bringup"
+      "nav2_controller/controller_server"
+      "nav2_planner/planner_server"
+      "nav2_smoother/smoother_server"
+      "nav2_behaviors/behavior_server"
+      "nav2_bt_navigator/bt_navigator"
+      "nav2_waypoint_follower/waypoint_follower"
+      "nav2_velocity_smoother/velocity_smoother"
+      "nav2_lifecycle_manager/lifecycle_manager"
+      "lib/david_cmd/david_move"
     )
-    log 'Pre-flight: killing MoveIt residues and stale RSPs'
+    if [[ "$START_CHASSIS" == true ]]; then
+      # 本脚本将自起 wheeltec；残留的会占住串口（PortNotOpenedException 复盘
+      # 见 2026-07-24）并双发 odom。--no-chassis 时不清，尊重外部 alias 5。
+      pre_kill_patterns+=(
+        "launch turn_on_wheeltec_robot"
+        "wheeltec_robot_node"
+        "twist_transform"
+      )
+    fi
+    log 'Pre-flight: killing MoveIt residues, stale RSPs and stale nav2/chassis generations'
     local script_self=$$
     local script_parent=$PPID
     local pat pid
@@ -904,8 +959,29 @@ main() {
       log "  killed stale robot_state_publisher pid=$pid"
       kill -9 "$pid" 2>/dev/null || true
     done
-    sleep 1
-    log 'Pre-flight done.'
+    # 等待所有残留真正退出（上代 nav2 处于 lifecycle 关闭中时，新代立刻
+    # 起会撞出 rcl context invalid / SIGABRT）。8s 超时后 SIGKILL 补刀。
+    local wait_deadline=$((SECONDS + 8))
+    local leftover=""
+    while (( SECONDS < wait_deadline )); do
+      leftover=""
+      for pat in "${pre_kill_patterns[@]}"; do
+        for pid in $(pgrep -f -- "$pat" 2>/dev/null); do
+          [[ "$pid" == "$script_self" || "$pid" == "$script_parent" ]] && continue
+          leftover+="$pid "
+        done
+      done
+      [[ -z "$leftover" ]] && break
+      sleep 0.3
+    done
+    if [[ -n "$leftover" ]]; then
+      log "  Pre-flight: force-killing leftovers after 8s: $leftover"
+      for pid in $leftover; do
+        kill -9 "$pid" 2>/dev/null || true
+      done
+      sleep 0.5
+    fi
+    log 'Pre-flight done (all stale generations gone).'
   fi
 
   if [[ "$START_CHASSIS" == true ]]; then
@@ -953,7 +1029,17 @@ main() {
   fi
 
   log 'Starting navigation_executor (foreground). Press Ctrl+C to stop everything.'
-  run_foreground "${executor_cmd[@]}"
+  # 2026-07-24: 导航失败原因必须落盘可查。executor 前台输出(含
+  # nav2_action_bridge 的逐次失败详情 + 1s 消抖重发日志 + 最终上报 server
+  # 的 on_error 帧)tee 到 executor.log,终端照常可见。
+  local executor_log_file="${log_dir}/executor.log"
+  if [[ "$DRY_RUN" == true ]]; then
+    run_foreground "${executor_cmd[@]}"
+  else
+    mkdir -p "$log_dir"
+    log "Executor log: ${executor_log_file}"
+    run_foreground env PYTHONUNBUFFERED=1 "${executor_cmd[@]}" 2>&1 | tee -a "$executor_log_file"
+  fi
 }
 
 main "$@"

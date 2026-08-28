@@ -80,3 +80,46 @@ def test_reproject_session_updates_map_pose_from_odom_anchor(tmp_path: Path):
     assert round(updated.map_pose.x, 3) == 10.54
     assert round(updated.map_pose.y, 3) == 2.841
     assert round(updated.map_pose.yaw, 3) == 1.2
+
+
+def test_prune_session_removes_stale_ids_but_keeps_other_sessions(tmp_path: Path):
+    # named_poses.json 是映射唯一真源:重新导入时清掉该会话里 json 已
+    # 不存在的旧 id;其他会话(如 mark_current_poi 的实测点)不受影响。
+    store = LocalPoiStore(tmp_path / "poi_store.yaml")
+    for poi_id in ("POI_001", "POI_002"):
+        store.upsert_marked_poi(
+            poi_id,
+            poi_id,
+            PoseRecord("map", 1.0, 2.0, 0.0, 0.0, 100.0),
+            PoseRecord("odom", 1.0, 2.0, 0.0, 0.0, 100.0),
+            "named_poses",
+        )
+    store.upsert_marked_poi(
+        "POI_MARKED",
+        "实测点",
+        PoseRecord("map", 5.0, 5.0, 0.0, 0.0, 100.0),
+        PoseRecord("odom", 5.0, 5.0, 0.0, 0.0, 100.0),
+        "session_live",
+    )
+
+    removed = store.prune_session("named_poses", {"POI_001"})
+
+    assert removed == ["POI_002"]
+    assert store.get_required("POI_001").poi_id == "POI_001"
+    assert store.get_required("POI_MARKED").slam_session_id == "session_live"
+    try:
+        store.get_required("POI_002")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("POI_002 should be pruned")
+
+    # 删除要落盘:重新 load 后旧 id 不能复活。
+    reloaded = LocalPoiStore(tmp_path / "poi_store.yaml")
+    reloaded.load()
+    try:
+        reloaded.get_required("POI_002")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("POI_002 revived after reload")

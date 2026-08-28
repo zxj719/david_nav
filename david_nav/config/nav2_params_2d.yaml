@@ -106,7 +106,8 @@ controller_server:                                  # 局部规划器服务器
     odom_topic: /lightning/odometry
     # NOTE：若遇到 SLAM 回环后局部控制抖动/TF 超时，可考虑让局部控制工作在 odom，
     # 并确保它与 local_costmap.global_frame（本文件为 odom）一致。
-    controller_frequency: 10.0                      # 对齐键盘遥控脚本约10Hz的/cmd_vel发布节奏
+    # 2026-07-16 feature/dwb-control-opt: 10→20，来自 dwb_bench 调优（降 cross-track/抖动）。
+    controller_frequency: 20.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.0
     min_theta_velocity_threshold: 0.02
@@ -134,12 +135,31 @@ controller_server:                                  # 局部规划器服务器
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.3
-      yaw_goal_tolerance: 3.14
-    # Direct DWB path following.
-    # RotationShim kept getting stuck before the robot could enter
-    # the straight-line tracking phase, so we bypass it on David.
+      # 2026-07-16 feature/dwb-control-opt: 终点不约束朝向。3.14(=180°,已是任意)→6.2832(360°)，
+      # 明确表达"到点即停、不关心朝向"。配合下方 critics 去掉 RotateToGoal（不做末端入位旋转）。
+      yaw_goal_tolerance: 6.2832
+    # 2026-07-27(晚): RotationShim 以 overlay 补丁版回归（用户要求必须最短
+    # 方向旋转，不接受绕远）。
+    # 史：07-24 启用原版 → 07-27 午发现其每控制周期做 map→base_footprint
+    #   变换、Humble 上游写死 0.1s tolerance，lightning TF 滞后 ~0.3s 下
+    #   每秒失败+阻塞（443 外推错误↔455 控制循环丢拍）→ 直线蛇形回归 → 撤。
+    # 现：~/ros2_ws/src/nav2_rotation_shim_controller 为 workspace overlay
+    #   补丁版（transform_tolerance 做成参数传入变换调用，见源内
+    #   "david 2026-07-27 overlay patch" 注释），0.5s > 滞后 0.3s →
+    #   变换用 latest-available TF 成功，不再拖垮控制循环。
+    # 验证指标：bringup 日志 Extrapolation Error 应为 0、无 missed-rate 刷屏。
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "dwb_core::DWBLocalPlanner"
+      # overlay 补丁读 FollowPath.transform_tolerance（与 DWB 共用同名参数，
+      # 本块下方已设 1.0 —— 覆盖 lightning ~0.3s TF 滞后绰绰有余）
+      # 与路径朝向差 > 45° 时先原地转（最短方向），小于后交 DWB 跟线
+      angular_dist_threshold: 0.785
+      forward_sampling_distance: 0.5
+      # 0.55 = david_move 原地 kick floor；低于它会被抬升，索性同值直达
+      rotate_to_heading_angular_vel: 0.55
+      max_angular_accel: 3.2
+      simulate_ahead_time: 1.0
       debug_trajectory_details: True
       # Keep normal path tracking forward-only.
       # Reverse motion is reserved for BT recovery BackUp actions, while
@@ -148,9 +168,18 @@ controller_server:                                  # 局部规划器服务器
       min_vel_y: 0.00
       # 2026-06-08: 0.50 → 0.20。换电机/轮 + 修正轮速计(原值小 3×)后，实测
       # 线速度 0.2 m/s 已让 70kg 上身明显晃动，0.2 为物理上限，不可更高。
-      max_vel_x: 0.20
+      # 2026-07-16 feature/dwb-control-opt: 0.20 → 0.15（bench iter4）。0.20 实跑 ~0.24(plant ~1.2×)
+      # 会冲进拐角弧、C3 过头螺旋；0.15/r=0.30 恰好 w=0.5=max_vel_theta，拐角物理可行、不需提前减速。
+      max_vel_x: 0.15
       max_vel_y: 0.0
-      max_vel_theta: 0.50
+      # 2026-07-23 止血（临时）：0.50 → 0.25。bag 闭环实测固件 cmd→响应纯滞后
+      # 0.6–0.9s（软件链仅 60ms），DWB 零延迟假设下直线极限环打满 ±0.5、
+      # 横向峰值 34–55cm；砍半 wz 上限直接砍半环幅。
+      # 拐角可行性：cmd_shaping:=false 后 min_vel_x=0 生效，DWB 可降速过弯
+      # （0.075/0.25 仍 = r0.30），不再依赖 w=0.5。
+      # 回退条件：STM32 速度环带宽修复（wz 阶跃 90% ≤200ms，见
+      # docs/reports/2026-07-23-stm32-velocity-loop-tuning-guide.md）后恢复 0.50。
+      max_vel_theta: 0.50   # 2026-08-27 S1 回灌: 0.25→0.50 回退止血期下调值。0.25 时拐角 DWB 只给 w=0.12, 远低于原地破启 0.55,而 david_move 抬升只对纯原地转(linear.x==0)生效 → 滚动态转不动 → Failed to make progress
       # 2026-06-05 restore-merge: 保留 0.0（物理调校结果）。
       # 和 max_speed_xy / acc_lim_x 一起属于"70kg + 小电机 + 万向轮"的硬件标定值，
       # 不随 nav2 策略一起回滚到 backup 的 0.10。
@@ -160,7 +189,8 @@ controller_server:                                  # 局部规划器服务器
       # backup 里是 0.2，会导致 isValidSpeed 把端点全部过滤 ⇒ DWB 不前进
       # （CLAUDE.md §5 已记录为"DWB 完全不前进"坑的根因）。
       # 2026-06-08: 同步 max_vel_x → 0.20（上身晃动物理上限）。
-      max_speed_xy: 0.20
+      # 2026-07-16 feature/dwb-control-opt: 同步 max_vel_x → 0.15。必须 == max_vel_x（isValidSpeed 坑）。
+      max_speed_xy: 0.15
       min_speed_theta: 0.0
       # Add high threshold velocity for turtlebot 3 issue.
       # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
@@ -182,25 +212,30 @@ controller_server:                                  # 局部规划器服务器
       vx_samples: 5
       vy_samples: 1
       vtheta_samples: 20
-      sim_time: 1.2
+      sim_time: 1.5                           # 2026-07-16 feature/dwb-control-opt: 1.2→1.5（更平滑前瞻，bench）
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 1.0                # controller的transform最大容忍时间差，实际工况下1.5秒内的时间差都存在
-      xy_goal_tolerance: 0.25
+      # 2026-07-16 feature/dwb-control-opt: 0.25→0.30，与 general_goal_checker 对齐。
+      # RotateToGoal 已从 critics 移除（不入位），此阈值仅剩 DWB 内部到点判定用途。
+      xy_goal_tolerance: 0.30
       trans_stopped_velocity: 0.05
       short_circuit_trajectory_evaluation: True
       stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      # 2026-07-16 feature/dwb-control-opt: 去掉 "RotateToGoal" —— 终点不做末端入位旋转
+      # （配合 general_goal_checker.yaw_goal_tolerance=360°，到 xy 容忍圈内即停，不关心朝向）。
+      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       BaseObstacle.scale: 0.2
       PathAlign.scale: 12.0
-      PathAlign.forward_point_distance: 0.2
+      PathAlign.forward_point_distance: 0.3   # 2026-07-16: 0.2→0.3（抗抖，bench）
       GoalAlign.scale: 6.0
       GoalAlign.forward_point_distance: 0.2
-      PathDist.scale: 24.0
+      PathDist.scale: 30.0                     # 2026-07-16: 24→30（路径贴合度，bench）
       GoalDist.scale: 10.0
-      RotateToGoal.scale: 1.0
-      RotateToGoal.slowing_factor: 2.0
-      RotateToGoal.lookahead_time: -1.0
+      # RotateToGoal.* 已随 critic 移除而失效，保留注释以备回退：
+      # RotateToGoal.scale: 1.0
+      # RotateToGoal.slowing_factor: 2.0
+      # RotateToGoal.lookahead_time: -1.0
 
       # # 纯追踪控制器插件
       # plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"      
@@ -386,13 +421,26 @@ global_costmap:
           raytrace_min_range: 0.2
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # 2026-05-18 保守路线：开启 inflation 并改半径到 0.40 (≥ inscribed 0.375)。
-        # 旧值 (enabled=False, radius=0.30) 不真正应用 inflation，
-        # 让全局路径可以贴着 lethal 走，机身角擦不过去时会 abort。
-        # 现在 inflation 真正生效，全局路径会主动绕开 0.40m 内的障碍。
+        # 2026-07-16: 全局 inflation_radius 0.40 -> 0.60，修拐角撞障。
+        # 根因（几何）：footprint 在 base_footprint 帧下 X[-0.465..0.255] Y[±0.30]，
+        #   inscribed = 0.255（最近边），circumscribed = √(0.465²+0.30²) = 0.553（后角）。
+        # 旧值 0.40 < circumscribed 0.553：NavfnPlanner 只把“机器人中心”规到离
+        #   lethal ~0.40m，但底盘在拐角处转身时后外角扫到 0.553m，于是规划器
+        #   看着安全的路径实际擦到拐角障碍。criterion 必须是 ≥ circumscribed，
+        #   不是 ≥ inscribed（旧注释的 0.375 既过时又用错了判据）。
+        # 2026-07-24: 0.60 -> 0.90，进一步扩大规划路径离障碍物的距离。
+        #   NavFn 会把路径贴在"代价降为 0"的膨胀边界外侧，所以 inflation_radius
+        #   ≈ 机器人中心到障碍的实际规划间距。0.60 时最坏拐角的机身净空只有
+        #   0.60 - circumscribed 0.553 ≈ 0.05m；0.90 给到 ≈ 0.35m 机身净空。
+        #   膨胀是渐变的（cost_scaling_factor 1.5 温柔），真正 lethal 只有
+        #   inscribed 0.255 那一圈，所以窄门/夹缝仍可穿，只是路径被推向
+        #   自由空间中心。只动 global：local_costmap 保持 0.40，避免 DWB
+        #   BaseObstacle critic 在窄处误 abort。
+        # 若还想更远：继续加 inflation_radius（每 +0.1 ≈ 多 0.1m 间距）；
+        #   降低 cost_scaling_factor 只影响被迫穿膨胀带时的代价坡度。
         enabled: True
         cost_scaling_factor: 1.5             # 可能会影响路径太长的计算
-        inflation_radius: 0.40
+        inflation_radius: 0.60
       always_send_full_costmap: True
 
 # map_server / amcl：

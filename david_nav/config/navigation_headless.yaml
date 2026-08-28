@@ -5,9 +5,11 @@ profiles:
     enable_exploration: true
     enable_scan_bridge: true
 
+  # 与 navigate_semantic_pose_with_debug_bag.sh 的 bringup 保持一致：
+  # enable_scan_bridge 默认 false、enable_exploration false。
   navigation_no_explore:
     enable_exploration: false
-    enable_scan_bridge: true
+    enable_scan_bridge: false
 
 cleanup:
   process_matchers:
@@ -24,7 +26,12 @@ launch:
   slam_start_delay_sec: 5
 
 executor:
-  server_uri: ws://172.16.22.205:8101/ws/navigation/executor
+  # nav WS v1(2026-07-22):agent server 直接监听根路径,不再有
+  # /ws/navigation/executor 子路径;协议默认端口 8101。
+  # 地址坑:协议文档里的 ws://192.168.55.1:8101 是 agent 那台 Jetson 自己
+  # 的 USB 口地址(每台 Jetson 都有自己的 192.168.55.1,从本机连只会连到
+  # 自己)。两机实际走 WiFi 172.16.20.0/22 同网段,agent 监听 0.0.0.0:8101。
+  server_uri: ws://192.168.123.186:8101
   server_timeout: 10.0
   heartbeat_interval: 30.0
   reconnect_delay: 3.0

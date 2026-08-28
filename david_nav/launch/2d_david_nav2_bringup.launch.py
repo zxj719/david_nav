@@ -6,7 +6,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
@@ -36,6 +36,10 @@ def generate_launch_description():
     nav_through_poses_bt_xml = LaunchConfiguration('nav_through_poses_bt_xml')
     log_level = LaunchConfiguration('log_level')
     map_topic = LaunchConfiguration('map_topic')
+    # 2026-07-20: STM32 固件重调位置环/速度环后，软件侧速度整形可整体停用
+    # （cmd_shaping:=false）：velocity_smoother 转 OPEN_LOOP 直通、david_move
+    # 死区抬升归零（只剩限幅+看门狗）。默认 on = 原行为。
+    cmd_shaping = LaunchConfiguration('cmd_shaping')
     scan_observation_active = enable_scan_bridge
     configured_nav2_params = RewrittenYaml(
         source_file=params_file,
@@ -136,6 +140,26 @@ def generate_launch_description():
         parameters=[configured_nav2_params_file],
         arguments=['--ros-args', '--log-level', log_level],
         remappings=nav2_remappings + [('cmd_vel', 'cmd_vel_nav')],
+        condition=IfCondition(cmd_shaping),
+    )
+
+    # cmd_shaping:=false 变体：同名节点（lifecycle manager 无感知），参数覆盖成
+    # 直通 —— OPEN_LOOP（不再闭环轮速计）、加速度限幅放开、20Hz 对齐 DWB
+    # （原 10Hz 平滑会额外引入 ~100ms 时延）。限速 max_velocity 仍由 yaml 生效。
+    velocity_smoother_passthrough_node = Node(
+        package='nav2_velocity_smoother',
+        executable='velocity_smoother',
+        name='velocity_smoother',
+        output='screen',
+        parameters=[configured_nav2_params_file, {
+            'feedback': 'OPEN_LOOP',
+            'smoothing_frequency': 20.0,
+            'max_accel': [99.0, 0.0, 99.0],
+            'max_decel': [-99.0, 0.0, -99.0],
+        }],
+        arguments=['--ros-args', '--log-level', log_level],
+        remappings=nav2_remappings + [('cmd_vel', 'cmd_vel_nav')],
+        condition=UnlessCondition(cmd_shaping),
     )
 
     nav2_lifecycle_manager = Node(
@@ -317,10 +341,31 @@ def generate_launch_description():
             # 线速度 lift 默认 0.20 → 0.15：实测命令 0.12 已能起步，0.15≈4×破启，
             # 给慢速接近留细度同时远离破启防 stutter。
             # ⚠ 现场需确认最慢档不抖再固化；不行就回 0.20。
-            'min_linear_x': 0.15,
+            # 2026-07-20: cmd_shaping:=false 时抬升归零（STM32 新位置环/速度环
+            # 自行处理死区，软件抬升会造成双重补偿）。david_move 保留 = 限幅
+            # + 2s 超时看门狗。
+            'min_linear_x': ParameterValue(PythonExpression([
+                "0.15 if '", cmd_shaping, "' == 'true' else 0.0",
+            ]), value_type=float),
             # 原地旋转破静摩擦 kick floor：实测角破启 0.15，但近破启纯抖(stick-slip)；
             # PI 阶跃实验显示 0.3 rad/s 仍 stuck-then-lurch，故保持 0.35 不下调。
-            'min_stationary_angular_z': 0.35,
+            # 2026-07-24: 不再随 cmd_shaping 归零。实测大角度原地旋转在新固件下
+            # 仍会静止卡死需人推 —— 纯旋转（无线速度）保留抬升；滚动态
+            # （v、w 同时非零）david_move 本身走 min_angular_z=0 不抬升，
+            # 正是"原地用旧参数、行进用新参数"的分工。
+            # 2026-07-27: 0.35 → 0.55。复盘 115741 run：原地 ±0.35 卡死 60s
+            # （3×progress fail）。0.35 是老链路的值——老链路能转靠 separator
+            # binary 把指令踢到端点；无 separator 后真实破启值 = 2026-06 实测
+            # 的 0.55。RotationShim 因 lightning TF 滞后 ~0.3s 常态性回退 DWB，
+            # 回退路径必须自足。max_angular_z 同步 0.5→0.6（否则 clamp 先于
+            # lift，0.55 的 floor 会被钳回 0.5）。
+            # 2026-08-28: 由写死改为 launch 参数（本文件被 alias 4 生产栈与 alias 7
+            # bench 共用，写死会让 bench 的调参外溢到生产）。默认仍是 0.55 =
+            # 生产行为不变；controller_bench 用 min_stationary_angular_z:=0.35
+            # 压末端旋转过冲（0.55 硬停惯性带出 ~15°）。
+            'min_stationary_angular_z': ParameterValue(
+                LaunchConfiguration('min_stationary_angular_z'), value_type=float),
+            'max_angular_z': 0.6,
         }],
     )
 
@@ -417,6 +462,27 @@ def generate_launch_description():
             ),
         ),
         DeclareLaunchArgument(
+            'min_stationary_angular_z',
+            default_value='0.55',
+            description=(
+                'david_move 纯原地转(linear.x==0)时的角速度地板 rad/s。'
+                '0.55 = 实测破启值(2026-07-27 复盘: 0.35 曾原地卡死 60s)。'
+                'controller_bench 传 0.35 以压末端旋转过冲。'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'cmd_shaping',
+            default_value='true',
+            description=(
+                'Software cmd_vel shaping between DWB and the chassis. '
+                'true (default) = velocity_smoother CLOSED_LOOP + david_move '
+                'deadzone lift (min_linear_x 0.15 / min_stationary_angular_z '
+                '0.35). false = smoother OPEN_LOOP pass-through @20Hz + lifts '
+                'zeroed - use after the 2026-07-20 STM32 position/velocity '
+                'loop retune so the firmware handles deadzones itself.'
+            ),
+        ),
+        DeclareLaunchArgument(
             'rviz_delay_sec',
             default_value='12.0',
             description=(
@@ -478,6 +544,7 @@ def generate_launch_description():
         bt_navigator_node,
         waypoint_follower_node,
         velocity_smoother_node,
+        velocity_smoother_passthrough_node,
         nav2_lifecycle_manager,
         map_warmup_spin_node,
         frontier_explorer,

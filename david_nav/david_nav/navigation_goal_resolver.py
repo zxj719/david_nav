@@ -21,12 +21,20 @@ class NavigationGoalResolver:
         snap_radius: float = 0.5,
         fallback_snap_radius: float = 1.0,
         goal_clearance_radius: float = 0.1,
+        max_snap_radius: float = 3.0,
+        snap_step: float = 0.25,
     ):
         self.node = node
         self.pose_provider = pose_provider
         self.snap_radius = snap_radius
         self.fallback_snap_radius = fallback_snap_radius
         self.goal_clearance_radius = goal_clearance_radius
+        # 2026-07-24: 两档固定半径(snap/fallback) → 连续外扩。POI 压在
+        # static costmap 障碍里时，从 snap_radius 起按 snap_step 逐圈外扩，
+        # 直到 max_snap_radius，取第一个可达点（圈内按离机器人最近排序）。
+        # fallback_snap_radius 保留作兼容：外扩上限取两者较大值。
+        self.max_snap_radius = max(max_snap_radius, fallback_snap_radius)
+        self.snap_step = max(snap_step, 0.05)
         self._map_msg = None
         self._global_costmap_msg = None
 
@@ -145,12 +153,11 @@ class NavigationGoalResolver:
         if self._is_goal_admissible(anchor_xy):
             return ResolvedNavigationGoal(poi=poi, used_snap=False)
 
+        # 2026-07-24: 连续外扩搜索。POI 在 static costmap / 全局代价里时，
+        # 逐圈向外找第一个可达点为止（圈内候选按离机器人最近优先）。
         robot_xy = self._robot_xy()
-        last_radius = None
-        for radius in (self.snap_radius, self.fallback_snap_radius):
-            if radius <= 0.0 or radius == last_radius:
-                continue
-            last_radius = radius
+        radius = max(self.snap_radius, self.snap_step)
+        while radius <= self.max_snap_radius + 1e-9:
             candidates = self._ring_candidates(anchor_xy, radius)
             if robot_xy is not None:
                 candidates.sort(key=lambda xy: _distance_xy(xy, robot_xy))
@@ -160,7 +167,25 @@ class NavigationGoalResolver:
                         poi=self._snapped_poi(poi, candidate_xy),
                         used_snap=True,
                     )
+            radius += self.snap_step
         return None
 
     def is_anchor_admissible(self, poi: StoredPoi) -> bool:
         return self._is_goal_admissible((poi.map_pose.x, poi.map_pose.y))
+
+    def is_anchor_static_blocked(self, poi: StoredPoi) -> bool:
+        """anchor 是否被【静态地图】占用（= 永久不可达）。
+
+        2026-07-24 需求：POI 压在静态图障碍里（标在货架/墙上的语义点）时，
+        扩圈可行点就是物理上能到的最好位置 —— core 据此把"到达扩圈点"
+        判为导航成功；只有"静态图自由、costmap 动态占用"（障碍可能散去）
+        才保留"仍不可达"报错。静态图未就绪时返回 False（信息不足，
+        维持原报错语义，不误判成功）。
+        """
+        grid_map = self._grid_view(self._map_msg)
+        if grid_map is None:
+            return False
+        cell = grid_map.world_to_cell(poi.map_pose.x, poi.map_pose.y)
+        if cell is None:
+            return True   # 出静态图边界，同样永久不可达
+        return not grid_map.is_goal_free(*cell)

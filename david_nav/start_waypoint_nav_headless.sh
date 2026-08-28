@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
-# Headless 坐标点导航(nav 协议 v2,2026-06-10)。
+# Headless waypoint 导航(nav 协议 v1,2026-07-22 回退定稿)。
 #
 # start_navigation_headless.sh 的 waypoint 版:
 #   * bringup 用 scripts/launch_waypoint_nav.sh(planner-only Nav2 +
 #     position_controller + waypoint_follower,pre-flight 清理/日志都在那边)
 #   * 前台跑 navigation_executor.py,WebSocket client 连 server,
-#     navigate_to 直接带 target_pose {x,y,theta} —— 不再查 named_poses.json
+#     navigate_to 带 target_id(POI id),由执行器查表解析坐标;
+#     v2 的 target_pose {x,y,theta} 已废弃,消息里残留该字段会被忽略
 #   * action 指向 /waypoint_follower/navigate(NavigateToPose 同类型,
 #     不是 bt_navigator)
-#
-# 协议差异(v2 vs v1):仅 navigate_to 的目标从 target_id(POI 字符串)变成
-# target_pose 坐标三元组;progress/arrived/error/abort/心跳 全部不变。
-# theta 默认按弧度;server 确认是度的话加 --theta-degrees。
 #
 # 本脚本只管导航侧:jetson_clocks 锁频 → wheeltec 底盘(默认带起,启动前
 # 查重、旧进程杀掉再起)→ waypoint 导航栈 → TF 守卫 → 前台执行器。
@@ -29,8 +26,7 @@
 #
 # 用法:
 #   start_waypoint_nav_headless.sh [options] [arg:=val …] [-- executor-args…]
-#     --server-uri URI     WebSocket server(默认 ws://172.16.22.205:8101/ws/navigation/executor)
-#     --theta-degrees      v2 target_pose.theta 按度解释(默认弧度)
+#     --server-uri URI     WebSocket server(默认 $NAV_WS_URL,否则 ws://127.0.0.1:8101)
 #     --no-chassis         不代起 wheeltec 底盘
 #     --use-rviz           bringup 带 RViz(默认 headless 不带)
 #     -d, --dry-run        只打印命令
@@ -54,7 +50,8 @@ INSTALL_SETUP="${DAVID_INSTALL_SETUP_FILE:-${WS_DIR}/install/setup.bash}"
 LAUNCH_WRAPPER="${SCRIPT_DIR}/scripts/launch_waypoint_nav.sh"
 EXECUTOR_SRC="${SCRIPT_DIR}/david_nav/navigation_executor.py"
 
-SERVER_URI="${NAV_SERVER_URI:-ws://172.16.22.205:8101/ws/navigation/executor}"
+# nav WS v1:server 监听根路径,无 /ws/navigation/executor 子路径。
+SERVER_URI="${NAV_SERVER_URI:-${NAV_WS_URL:-ws://127.0.0.1:8101}}"
 ACTION_NAME="${NAV_ACTION_NAME:-/waypoint_follower/navigate}"
 RECONNECT_DELAY="${NAV_RECONNECT_DELAY:-3.0}"
 WAYPOINT_NODE_WAIT_SEC="${WAYPOINT_NODE_WAIT_SEC:-60}"
@@ -73,7 +70,6 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 START_CHASSIS=true
 USE_RVIZ=false
 DRY_RUN=false
-THETA_DEGREES=false
 declare -a EXTRA_LAUNCH_ARGS=()
 declare -a EXECUTOR_EXTRA_ARGS=()
 
@@ -89,7 +85,6 @@ parse_args() {
     case "$1" in
       --server-uri)   SERVER_URI="${2:?}"; shift 2; continue ;;
       --server-uri=*) SERVER_URI="${1#*=}" ;;
-      --theta-degrees) THETA_DEGREES=true ;;
       --chassis)      START_CHASSIS=true ;;
       --no-chassis)   START_CHASSIS=false ;;
       --use-rviz)     USE_RVIZ=true ;;
@@ -282,7 +277,6 @@ main() {
     --action-name "$ACTION_NAME"
     --reconnect-delay "$RECONNECT_DELAY"
   )
-  [[ "$THETA_DEGREES" == true ]] && executor_cmd+=(--theta-degrees)
   (( ${#EXECUTOR_EXTRA_ARGS[@]} > 0 )) && executor_cmd+=("${EXECUTOR_EXTRA_ARGS[@]}")
 
   local -a bringup_cmd=("$LAUNCH_WRAPPER" "use_rviz:=${USE_RVIZ}")
@@ -294,7 +288,7 @@ main() {
 
   log "ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
   log "server: $SERVER_URI"
-  log "action: $ACTION_NAME (theta=$([[ "$THETA_DEGREES" == true ]] && echo 度 || echo 弧度))"
+  log "action: $ACTION_NAME"
   log "chassis: $([[ "$START_CHASSIS" == true ]] && echo "${WHEELTEC_LAUNCH_PACKAGE}/${WHEELTEC_LAUNCH_FILE}(查重杀旧后重启)" || echo '跳过(--no-chassis)')"
   log 'SLAM 侧(IMU/雷达/重定位)本脚本不管,需已在跑'
 

@@ -102,7 +102,8 @@ LIGHT_BAG_TOPICS=(
   /scan
   /map
   /lightning/odometry
-  /lightning/grid_map
+  # /lightning/grid_map —— 2026-07-23 移出 light 录制（107GB/3.4h 实测教训，
+  # 还把 TF 压到 11Hz）。确需原图用 --full-bag（EXPLICIT_TOPICS 仍含它）。
   /local_costmap/costmap
   /local_costmap/costmap_raw
   /local_costmap/published_footprint
@@ -700,6 +701,13 @@ main() {
 
   local bag_output="${BAG_ROOT}/${BAG_NAME}"
   local log_dir="${bag_output}/logs"
+  # rosbag2 要求 --output 目录**不存在**，而 logs/ 会先在 ${bag_output} 下建目录，
+  # 曾导致所有 run 的 bag 静默录制失败（2026-07-17 复盘：rosbag.log 只有一行
+  # "Output folder already exists"）。bag 落到独立子目录，绝不与 logs/ 共享父目录。
+  local bag_dir="${bag_output}/bag"
+  if [[ -e "$bag_dir" ]]; then
+    bag_dir="${bag_output}/bag_$(date +%H%M%S)"
+  fi
   local -a nav_cmd
   local -a bringup_cmd=(
     "$ROS2_BIN" launch david_nav 2d_david_nav2_bringup.launch.py
@@ -710,7 +718,7 @@ main() {
   local -a bag_cmd=(
     "$ROS2_BIN" bag record
     --max-cache-size 104857600
-    --output "$bag_output"
+    --output "$bag_dir"
   )
 
   if [[ "$FULL_BAG" == true ]]; then
@@ -763,7 +771,7 @@ main() {
   else
     log 'Target: interactive terminal selection'
   fi
-  log "Bag output: ${bag_output}"
+  log "Bag output: ${bag_dir}"
   log "Chassis: $([[ "$START_CHASSIS" == true ]] && echo "${WHEELTEC_LAUNCH_PACKAGE}/${WHEELTEC_LAUNCH_FILE}" || echo skipped)"
   log "Process logs: ${log_dir}"
 

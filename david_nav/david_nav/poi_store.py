@@ -64,6 +64,24 @@ class LocalPoiStore:
         self._write()
         return stored
 
+    def prune_session(self, slam_session_id: str, keep_ids: set[str]) -> list[str]:
+        """删掉某会话中不在 keep_ids 里的点位,返回被删的 id 列表。
+
+        named_poses.json 是点位映射的唯一真源(nav WS v1 §四.1):启动导入
+        时用它清理上次导入残留的旧 id,否则 json 里已删/已改的点位会一直
+        躺在持久化 store 里,agent 发旧 id 时会导航到过期坐标而不是报错。
+        """
+        removed = [
+            poi_id
+            for poi_id, poi in self._pois.items()
+            if poi.slam_session_id == slam_session_id and poi_id not in keep_ids
+        ]
+        for poi_id in removed:
+            del self._pois[poi_id]
+        if removed:
+            self._write()
+        return removed
+
     def apply_semantic_directory(self, semantic_pois: list[dict]) -> None:
         for item in semantic_pois:
             poi_id = str(item["id"])

@@ -1,4 +1,7 @@
+import pytest
+
 from david_nav.navigation_protocol import (
+    CommandParseError,
     build_arrived_event,
     build_error_event,
     build_mark_poi_ack,
@@ -26,38 +29,52 @@ def test_parse_navigate_to_command_accepts_go2w_flat_schema():
     assert command.target_id == "POI_001"
 
 
-def test_parse_navigate_to_command_v2_target_pose_coordinates():
+def test_parse_navigate_to_ignores_v2_target_pose_and_uses_target_id():
+    # v1(2026-07-22 回退定稿):target_pose/label 是已废弃的 v2 字段,
+    # 即使残留也要忽略,只认 target_id。
     command = parse_command(
         {
             "action": "navigate_to",
             "request_id": "nav_ab12cd34ef56",
             "sub_id": 0,
+            "target_id": "POI_012",
             "target_pose": {"x": 9.52, "y": -8.82, "theta": 0.0},
             "label": "前台",
         }
     )
 
     assert command.action == "navigate_to"
-    assert command.request_id == "nav_ab12cd34ef56"
-    assert command.sub_id == 0
-    assert command.x == 9.52
-    assert command.y == -8.82
-    assert command.theta == 0.0
-    assert command.label == "前台"
+    assert command.target_id == "POI_012"
+    assert not hasattr(command, "x")
 
 
-def test_parse_navigate_to_command_v2_label_is_optional():
-    command = parse_command(
-        {
-            "action": "navigate_to",
-            "request_id": "nav_x",
-            "sub_id": 0,
-            "target_pose": {"x": 1.0, "y": 2.0, "theta": -1.5},
-        }
-    )
+def test_parse_navigate_to_without_target_id_raises_command_parse_error():
+    # v1 checklist:target_id 缺字段/类型不对 → on_error,不启车。
+    # 只带 target_pose 的旧 v2 消息也落到这条路径。
+    with pytest.raises(CommandParseError) as exc_info:
+        parse_command(
+            {
+                "action": "navigate_to",
+                "request_id": "nav_x",
+                "sub_id": 0,
+                "target_pose": {"x": 1.0, "y": 2.0, "theta": -1.5},
+            }
+        )
 
-    assert command.label == ""
-    assert command.theta == -1.5
+    assert exc_info.value.request_id == "nav_x"
+    assert exc_info.value.sub_id == 0
+
+
+def test_parse_navigate_to_with_non_string_target_id_raises_command_parse_error():
+    with pytest.raises(CommandParseError):
+        parse_command(
+            {
+                "action": "navigate_to",
+                "request_id": "nav_y",
+                "sub_id": 0,
+                "target_id": 12,
+            }
+        )
 
 
 def test_parse_mark_current_poi_requires_flat_poi_object():

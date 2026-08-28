@@ -4,6 +4,8 @@ import signal
 import subprocess
 import time
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "start_navigation_headless.sh"
@@ -25,6 +27,11 @@ def _prepare_env(tmp_path: Path, *, websockets_available: bool = True):
 
     _write_file(ros_setup)
     _write_file(lightning_workspace / "install/setup.bash")
+    # 2026-07-27: 脚本 START_CHASSIS 默认 true，require_path wheeltec 安装文件
+    _write_file(
+        tmp_path
+        / "wheelhumanoidrobot/workspace_wheeltec/wheeltec_robot_ros2/install/setup.bash"
+    )
     _write_file(localization_config, "dummy: true\n")
     _write_file(auto_workspace / "install/setup.bash")
     _write_file(
@@ -63,6 +70,9 @@ exec python3 "$@"
             "NAMED_POSES_FILE": str(named_poses),
             "ENABLE_CPU_ONLINE": "false",
             "PYTHON_BIN": str(fake_python),
+            # 2026-07-27: 非 dry-run 测试在真机上跑时，禁止 pre-flight 的
+            # pgrep 清理误杀真实运行中的 nav2/wheeltec 栈
+            "DAVID_SKIP_PREFLIGHT_CLEANUP": "true",
         }
     )
     return env
@@ -106,57 +116,43 @@ def _pid_exists(pid: int) -> bool:
     return True
 
 
-def test_headless_navigation_defaults_to_relocation_nav2_and_executor_uri(tmp_path):
+# 2026-07-27 测试现代化：原有 5 个测试写于"脚本自启 IMU/lidar/loc + 老 URI +
+# -u 选项 + websockets 预检 + Would-import 步骤"的上古版本，与现行脚本
+# （lightning 独立启动、URI 来自 navigation_headless.yaml、上述特性均已删除）
+# 完全不匹配，长期红灯无人跑。以下按现行 dry-run 契约重写。
+def test_headless_navigation_dry_run_defaults(tmp_path):
     result = _run_script(tmp_path, "--dry-run")
 
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stderr
     assert "start_navigation_headless.sh" in result.stdout
-    assert "ws://192.168.123.102:8101/ws/navigation/executor" in result.stdout
-    assert "ros2 launch wit_imu_ros2 wit_imu.launch.py" in result.stdout
-    assert "sudo -S -p '' ifconfig eno1 192.168.1.102" in result.stdout
-    assert "run_loc_online --config" in result.stdout
+    # nav2 bringup：headless 默认关 rviz/scan_bridge/exploration，
+    # 且临时停用软件速度整形（2026-07-20 STM32 重调后）
     assert "2d_david_nav2_bringup.launch.py use_rviz:=false" in result.stdout
-    assert "enable_scan_bridge:=true" in result.stdout
+    assert "enable_scan_bridge:=false" in result.stdout
     assert "enable_exploration:=false" in result.stdout
-    assert "navigation_executor.py --server-uri ws://192.168.123.102:8101/ws/navigation/executor" in result.stdout
-    assert "--poi-store-file" in result.stdout
+    assert "cmd_shaping:=false" in result.stdout
+    # 自起 wheeltec 底盘
+    assert "turn_on_wheeltec_robot.launch.py" in result.stdout
+    # bag：light 列表不再录 /lightning/grid_map（107GB/3.4h 教训）
+    assert "ros2 bag record" in result.stdout
+    assert "/lightning/grid_map" not in result.stdout
+    # executor：URI 来自 config/navigation_headless.yaml
+    assert "navigation_executor.py --server-uri ws://" in result.stdout
+    assert "--pose-file" in result.stdout
 
 
-def test_headless_navigation_short_server_uri_override_updates_executor_command(tmp_path):
-    result = _run_script(
-        tmp_path,
-        "--dry-run",
-        "-u",
-        "ws://10.0.0.5:8100/ws/navigation/executor",
-    )
+def test_headless_navigation_no_chassis_skips_wheeltec(tmp_path):
+    result = _run_script(tmp_path, "--dry-run", "--no-chassis")
 
-    assert result.returncode == 0
-    assert "navigation_executor.py --server-uri ws://10.0.0.5:8100/ws/navigation/executor" in result.stdout
+    assert result.returncode == 0, result.stderr
+    assert "turn_on_wheeltec_robot.launch.py" not in result.stdout
+    assert "2d_david_nav2_bringup.launch.py" in result.stdout
 
 
-def test_headless_navigation_fails_fast_when_websockets_module_is_missing(tmp_path):
-    result = _run_script(tmp_path, "--dry-run", websockets_available=False)
-
-    assert result.returncode == 1
-    assert "Missing required Python module: websockets" in result.stderr
-    assert "sudo apt install python3-websockets" in result.stderr
-
-
-def test_headless_navigation_imports_named_poses_before_start(tmp_path):
-    poi_store = tmp_path / ".ros/david_nav/poi_store.yaml"
-    _write_file(poi_store, "old poi\n")
-
-    result = _run_script(
-        tmp_path,
-        "--dry-run",
-        websockets_available=True,
-    )
-
-    assert result.returncode == 0
-    assert f"Would import named poses:" in result.stdout
-    assert f"-> {poi_store}" in result.stdout
-
-
+@pytest.mark.skip(
+    reason="2026-07-27: 现行脚本已无 IMU_COMMAND/NAV2_COMMAND 等注入钩子，"
+    "无法在沙箱里替身启动；分离进程清理需要新的测试 harness 再覆盖"
+)
 def test_headless_navigation_ctrl_c_kills_detached_descendants(tmp_path):
     detached_pid_file = tmp_path / "detached.pid"
     detached_launcher = tmp_path / "detached_launcher.sh"

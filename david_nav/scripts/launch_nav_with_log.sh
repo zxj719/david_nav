@@ -100,7 +100,13 @@ source /opt/ros/humble/setup.bash
 # shellcheck disable=SC1091
 source "${HOME}/ros2_ws/install/setup.bash"
 
-CMD=(ros2 launch david_nav 2d_david_nav2_bringup.launch.py "$@")
+# ── 临时（2026-07-20）────────────────────────────────────────────────
+# STM32 已重调位置环/速度环，软件侧速度整形暂停以免双重补偿：
+#   velocity_smoother → OPEN_LOOP 直通@20Hz；david_move 死区抬升归零。
+# 撤销 = 删掉下面这行（或命令行显式传 cmd_shaping:=true 覆盖）。
+CMD_SHAPING_ARGS=(cmd_shaping:=false)
+# ────────────────────────────────────────────────────────────────────
+CMD=(ros2 launch david_nav 2d_david_nav2_bringup.launch.py "${CMD_SHAPING_ARGS[@]}" "$@")
 echo "[launch_nav_with_log] cmd: ${CMD[*]}" >&2
 
 # ---- start brake-trace recorder in background (optional) ----
