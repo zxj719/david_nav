@@ -16,9 +16,12 @@
 为什么用 Spin 而不是再发一次导航目标: Spin 行为只发角速度, 不会平移, 这是
 "入位失败后只能调角度不能位移"的硬保证。再发 NavigateToPose 则无法阻止它平移。
 
-⚠ 本节点与 bt_navigator 抢 /goal_pose: bt_navigator 自己也订阅该话题, 不 remap
-  会两条链路同时跑。precise_nav_bringup.launch.py 已把 bt_navigator 的 goal_pose
-  重映射到 goal_pose_unused。
+⚠ 话题分工, 别接错: bt_navigator 自己也订阅 /goal_pose, 若本节点也收 /goal_pose,
+  一个目标会同时触发两条链路。本节点默认收 **/dock_goal**(由 launch 传参设定):
+      /dock_goal -> dock_navigator  两段式入位(rviz "2D Goal Pose" 工具发这个)
+      /goal_pose -> bt_navigator    单段直达, 留作 CLI 对照测试
+  之所以用分话题而不是 remap: IncludeLaunchDescription 无法给被包含 launch 里的
+  节点追加 remapping, 而改 remap 就得动生产 launch 文件。
 """
 import math
 import threading
