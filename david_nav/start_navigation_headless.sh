@@ -712,22 +712,55 @@ run_foreground() {
 }
 
 wait_for_nav_ready() {
+  # 2026-09-08: 判据从 `ros2 node list | grep bt_navigator` 换成
+  # 直接探 /navigate_to_pose action server（scripts/wait_nav_ready.py，走 rclpy）。
+  #
+  # 换掉的原因：`ros2 node list` 走 ros2 CLI 守护进程，而守护进程会用它
+  # 【启动时】的环境建 DDS 参与者，且会僵死成 `!rclpy.ok()`。此时它静默返空 ->
+  # 本函数判定 nav2 没起来 -> 卡满 120s，而 nav2 其实好好在跑（rviz 里
+  # costmap 正常刷新即铁证）。2026-09-07 / 09-08 连续两天复现。
+  # prestart_dds_hygiene 里的 `ros2 daemon stop` 只是降低概率，本改动才是根治。
+  #
+  # 为什么探 action server 而不是节点名：节点名出现 ≠ 能下发导航目标。
+  # bt_navigator 的 action server 只在 lifecycle activate 之后才注册，
+  # 所以"server 可用"恰好等价于 executor 真正需要的条件，还顺带覆盖了
+  # lifecycle 没激活的情况。
+  #
+  # 保留原来的 BRINGUP_PID 存活检查与外层轮询结构：探针每次只等
+  # NAV2_PROBE_SLICE_SEC，这样 bringup 中途死掉仍能在一个切片内被发现。
   local deadline=$((SECONDS + NAV2_WAIT_TIMEOUT_SEC))
+  local probe="${SCRIPT_DIR}/scripts/wait_nav_ready.py"
+  local slice="${NAV2_PROBE_SLICE_SEC:-5}"
+  local use_probe=true
+  if [[ ! -f "$probe" ]]; then
+    log "WARN: 探针不存在($probe)，回退到 ros2 node list（会受守护进程影响）"
+    use_probe=false
+  fi
 
-  log "Waiting for bt_navigator for up to ${NAV2_WAIT_TIMEOUT_SEC}s"
+  log "Waiting for nav2 (/navigate_to_pose) for up to ${NAV2_WAIT_TIMEOUT_SEC}s"
   while (( SECONDS < deadline )); do
     if [[ -n "$BRINGUP_PID" ]] && ! is_pid_alive "$BRINGUP_PID"; then
-      printf 'Nav2 bringup exited before bt_navigator became ready\n' >&2
+      printf 'Nav2 bringup exited before nav2 became ready\n' >&2
       return 1
     fi
-    if "$ROS2_BIN" node list 2>/dev/null | grep -qE '(^|/)bt_navigator$'; then
-      log 'bt_navigator is ready'
-      return 0
+    if [[ "$use_probe" == true ]]; then
+      local rc=0
+      "$PYTHON_BIN" "$probe" --timeout "$slice" --quiet || rc=$?
+      case "$rc" in
+        0) log 'nav2 ready (/navigate_to_pose action server 可用)'; return 0 ;;
+        2) log 'WARN: 探针环境异常，本次起回退到 ros2 node list'; use_probe=false ;;
+        *) : ;;  # 1 = 本切片内还不可用，继续等
+      esac
+    else
+      if "$ROS2_BIN" node list 2>/dev/null | grep -qE '(^|/)bt_navigator$'; then
+        log 'bt_navigator is ready (fallback path)'
+        return 0
+      fi
+      sleep 1
     fi
-    sleep 1
   done
 
-  printf 'bt_navigator did not become ready within %ss\n' "$NAV2_WAIT_TIMEOUT_SEC" >&2
+  printf 'nav2 did not become ready within %ss\n' "$NAV2_WAIT_TIMEOUT_SEC" >&2
   return 1
 }
 
