@@ -391,6 +391,61 @@ cleanup_executor_lock() {
   fi
 }
 
+prestart_dds_hygiene() {
+  # 2026-09-08: DDS 层的启动前卫生。必须在 pre-flight 进程清理【之后】跑 ——
+  # 上面那段对 robot_state_publisher 用 kill -9、超时后也 SIGKILL 残留，
+  # 而 SIGKILL 正是僵死 SHM 段的来源，本函数顺手把它刚制造的孤儿一并收掉。
+  #
+  # 治两个反复咬人的故障：
+  #
+  # ① ros2 CLI 守护进程失效 -> wait_for_nav_ready 卡满 120s
+  #    守护进程会用它【启动时】的环境建 DDS 参与者，且会进入
+  #    `xmlrpc.client.Fault: !rclpy.ok()` 的僵死态。此时 `ros2 node list`
+  #    静默失败/返空，脚本据此判定 bt_navigator 没起来 —— 而 nav2 其实
+  #    好好在跑（rviz 里 costmap 正常刷新就是铁证）。
+  #    2026-09-07 / 09-08 连续两天复现。
+  #
+  # ② 僵死的 Fast DDS 共享内存段 -> 同机发现整体失效
+  #    带 config/fastdds_david.xml 白名单时 useBuiltinTransports=false，
+  #    同机通信【只剩 SHM 一条路】，孤儿段积压到一定程度就整机发现失效
+  #    （2026-09-04 实测 26 个孤儿段时，连自己起的 talker 都发现不了，
+  #     表现为"雷达有进程但无数据"）。不带白名单时内置 UDP 兜底会掩盖该问题。
+  #
+  # ⚠ 只删【没有任何活进程映射】的段。unlink 在用段不会杀死进程，但会让
+  #   它再也无法被新节点发现 —— 2026-09-04 我就这样把用户的感知栈弄成了孤岛。
+  if [[ "$DRY_RUN" == true ]]; then
+    return 0
+  fi
+
+  log 'Pre-flight(DDS): 停 ros2 daemon（下次 CLI 调用会用当前环境重建）'
+  "$ROS2_BIN" daemon stop >/dev/null 2>&1 || true
+
+  local shm_dir=/dev/shm
+  local total orphan=0 kept=0 f base
+  total=$(ls "$shm_dir" 2>/dev/null | grep -cE '^fastrtps_' || true)
+  if [[ "${total:-0}" -eq 0 ]]; then
+    log 'Pre-flight(DDS): 无 fastrtps 共享内存段'
+    return 0
+  fi
+
+  # 活进程正在映射的段名。注意 /proc/*/maps 里也会出现 librmw_fastrtps_cpp.so
+  # 这类库名，会被正则捞成 fastrtps_c / fastrtps_cpp —— 它们不对应任何
+  # /dev/shm 文件，只会让判定偏保守（少删），无害。
+  local inuse
+  inuse=$(cat /proc/[0-9]*/maps 2>/dev/null \
+          | grep -oE 'fastrtps_[0-9a-zA-Z_]+' | sort -u || true)
+
+  for f in $(ls "$shm_dir" 2>/dev/null | grep -E '^fastrtps_' || true); do
+    base="${f%_el}"
+    if grep -qx -- "$base" <<<"$inuse"; then
+      kept=$((kept + 1))
+    else
+      rm -f "${shm_dir}/${f}" 2>/dev/null && orphan=$((orphan + 1))
+    fi
+  done
+  log "Pre-flight(DDS): 共享内存段 总计 ${total} / 在用保留 ${kept} / 删除孤儿 ${orphan}"
+}
+
 stop_stale_executor() {
   local pid="" pgid=""
 
@@ -1067,6 +1122,7 @@ main() {
       sleep 0.5
     fi
     log 'Pre-flight done (all stale generations gone).'
+    prestart_dds_hygiene
   fi
 
   if [[ "$START_CHASSIS" == true ]]; then
