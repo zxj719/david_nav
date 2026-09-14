@@ -31,3 +31,10 @@ ruvector.db
 
 # Vendored third-party firmware reference (large, kept locally only)
 david_cmd/docs/3.STM32*
+
+# Refactor loop (P0.5): local artefacts seen in the production working tree
+*.bak.*
+agentdb.rvf
+agentdb.rvf.lock
+.codex-backups/
+david_nav/config/.fastdds_*
