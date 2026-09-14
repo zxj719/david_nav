@@ -1,0 +1,51 @@
+# dock_bench 的唯一真源：起点 / 入位目标 / 容差 / 轮次。
+#
+# 2026-09-10 实测填入。goal = 当时机器人停在原地时 map->base_footprint 的 60s 均值
+# （n=1178，车确认没动：同期轮式里程计位移 0.0mm、max|cmd_vel|=0）。
+#
+# ★★ lightning 静态位姿抖动（同一次测量，是全部指标的可信度下限）：
+#       x   std 11.92 mm   峰峰 75.08 mm
+#       y   std  7.79 mm   峰峰 44.65 mm
+#       yaw std  0.068°    峰峰  0.432°
+#       离均值径向偏差：均值 11.50 mm，最大 40.64 mm
+#     解读：位置达标阈值 100mm，而真值自己抖 ±12mm(最坏 41mm) —— **两轮之间
+#     小于 ~2-3cm 的位置差异是噪声，不能当结论**；yaw 抖动 0.068° 远小于 5° 容差，
+#     朝向类指标的可信度高得多。原始采样在 /tmp/pose_jitter.csv。
+#
+# 坐标系 = map（lightning 的地图，即 alias 3 加载的那张）。
+
+map_name: David001
+
+# 每轮入位前先自动导航回这里。用户指定 (6.45, 0.8)，**yaw 不固定**。
+# 这里填 32.9° = 从起点指向预备点的方位角，纯粹为了让回程结束时车already
+# 大致朝着入位方向，少转一次；yaw 本身不进任何指标，回程进 return_tol 就 cancel。
+start:
+  x: 6.45
+  y: 0.80
+  yaw_deg: 32.9
+
+goals:
+  - id: dock_A
+    x: 7.6957
+    y: 2.1093
+    yaw_deg: 90.397
+    # 预备点(bench 自算，列出来便于对照) = (7.6992, 1.6093)
+    # 起点到 goal 直线距离 1.81 m，够阶段1 走出有意义的一段
+
+# 必须与 dock_navigator 的 approach_dist 一致，否则 bench 画的理想直线
+# 和车实际走的入位段不是一回事。改这里就要同步改 alias 0 的 launch 参数。
+approach_dist: 0.5
+
+tolerances:
+  xy_ok: 0.10          # 达标判定，与 dock_navigator 的 xy_ok 同值
+  yaw_ok_deg: 25.0     # 达标判定，与 dock_navigator 的 yaw_ok(0.4363rad) 同值
+  # 2026-09-10 方案C: 5->25。5° 受底盘死区限制物理上达不到，见报告 §根因
+  return_tol: 0.30     # 回程进到这个半径就 cancel，不等 nav2 末端精确收敛
+  start_tol_hard: 1.00 # 回程最终离 start 超过这个距离 -> 本轮标 INVALID
+
+timing:
+  settle_sec: 2.0          # 回到起点后静置多久再发 dock 目标（等定位稳）
+  dock_timeout_sec: 180.0  # 发出 /dock_goal 后等判词的上限
+  return_timeout_sec: 180.0
+
+runs: 20   # 冒烟用 --runs 5 覆盖

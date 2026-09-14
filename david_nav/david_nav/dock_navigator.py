@@ -25,6 +25,7 @@
 """
 import math
 import threading
+import traceback
 
 import rclpy
 from action_msgs.msg import GoalStatus
@@ -35,6 +36,9 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from tf2_ros import Buffer, TransformListener
+
+from david_nav.dock_finish import DockTolerance, finish_docking
+from david_nav.dock_settle import SettleSpec
 
 
 def yaw_of(q):
@@ -58,6 +62,12 @@ class DockNavigator(Node):
         self.declare_parameter('global_frame', 'map')
         self.declare_parameter('nav_timeout_sec', 120.0)
         self.declare_parameter('spin_timeout_sec', 30.0)
+        # ---- 停稳判据（2026-09-10 新增）----
+        # 实测静态定位抖动 yaw std 仅 0.068°，20Hz 下表观角速度约 0.02-0.05 rad/s，
+        # 所以 max_rate 不能定得比这更严，否则永远等不到"停稳"。
+        self.declare_parameter('settle_max_rate_rad_s', 0.02)
+        self.declare_parameter('settle_window_sec', 0.4)
+        self.declare_parameter('settle_timeout_sec', 8.0)
 
         g = self.get_parameter
         self.approach_dist = g('approach_dist').value
@@ -68,6 +78,13 @@ class DockNavigator(Node):
         self.global_frame = g('global_frame').value
         self.nav_timeout = g('nav_timeout_sec').value
         self.spin_timeout = g('spin_timeout_sec').value
+        self.settle_timeout = g('settle_timeout_sec').value
+        self.settle_spec = SettleSpec(
+            max_rate_rad_s=g('settle_max_rate_rad_s').value,
+            window_sec=g('settle_window_sec').value)
+        self.dock_tol = DockTolerance(xy_ok=self.xy_ok, yaw_ok=self.yaw_ok,
+                                      max_yaw_retries=self.max_yaw_retries)
+        self._spin_idx = 0
 
         self.cbg = ReentrantCallbackGroup()
         self.tf_buf = Buffer()
@@ -108,22 +125,49 @@ class DockNavigator(Node):
         p.pose.orientation.w = math.cos(yaw / 2.0)
         return p
 
+    def wait_future(self, fut, timeout_sec):
+        """等 future 完成，但**自己绝不 spin** —— 由 main() 里的执行器负责转。
+
+        ⚠ 这里以前用的是 rclpy.spin_until_future_complete(self, fut)。那个函数会把
+        本节点 add_node 到 rclpy 的**全局 SingleThreadedExecutor**，而 main() 里的
+        MultiThreadedExecutor 同时还持有这个节点、并且已经把 action client 的实体
+        注册进了它自己的 wait set。两个执行器对同一个 action client 各建一套
+        wait set，取就绪实体时下标对不上，直接抛：
+
+            RCLError: Failed to get number of ready entities for action client:
+            wait set index for status subscription is out of bounds,
+            at ./src/rcl_action/action_client.c:623
+
+        进程 exit 1 —— 2026-09-08 实机第一个 dock 目标就是这么死的：bt_navigator
+        刚打印 "Begin navigating" 100ms 后就变成 "Client requested to cancel"，
+        rviz 里能看到路径、车一步不动。
+
+        换成事件等待：future 完成回调由本节点自己的执行器触发，这里只阻塞在
+        threading.Event 上，不再碰任何 wait set。返回 True=完成，False=超时。
+        """
+        ev = threading.Event()
+        fut.add_done_callback(lambda _f: ev.set())
+        if fut.done():  # add_done_callback 之前就完成的竞态
+            return True
+        return ev.wait(timeout_sec)
+
     def run_action(self, client, goal_msg, label, timeout):
         if not client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('[dock] %s: action server 不可用' % label)
             return False
         send = client.send_goal_async(goal_msg)
-        rclpy.spin_until_future_complete(self, send, timeout_sec=10.0)
+        if not self.wait_future(send, 10.0):
+            self.get_logger().error('[dock] %s: 发目标后 10s 没有应答' % label)
+            return False
         handle = send.result()
         if handle is None or not handle.accepted:
             self.get_logger().error('[dock] %s: 目标被拒绝' % label)
             return False
         res_fut = handle.get_result_async()
-        rclpy.spin_until_future_complete(self, res_fut, timeout_sec=timeout)
-        if not res_fut.done():
+        if not self.wait_future(res_fut, timeout):
             self.get_logger().error('[dock] %s: 超时 %.0fs，取消' % (label, timeout))
             cancel = handle.cancel_goal_async()
-            rclpy.spin_until_future_complete(self, cancel, timeout_sec=5.0)
+            self.wait_future(cancel, 5.0)
             return False
         status = res_fut.result().status
         ok = status == GoalStatus.STATUS_SUCCEEDED
@@ -146,8 +190,18 @@ class DockNavigator(Node):
         if not self._busy.acquire(blocking=False):
             self.get_logger().warn('[dock] 上一个目标还在执行，忽略本次')
             return
+        # 编排是阻塞的（单段最长等 nav_timeout_sec 秒），不能占着执行器的回调线程：
+        # 本节点的 action 应答、TF 回调都靠同一个执行器转，占着就是自己等自己。
+        # 丢给独立工作线程跑，回调立即返回。
+        threading.Thread(target=self._docking_worker, args=(msg,),
+                         name='dock_worker', daemon=True).start()
+
+    def _docking_worker(self, msg):
         try:
             self.execute_docking(msg)
+        except Exception:  # noqa: BLE001
+            self.get_logger().error('[dock] 编排线程异常，本次目标放弃：\n%s'
+                                    % traceback.format_exc())
         finally:
             self._busy.release()
 
@@ -180,47 +234,67 @@ class DockNavigator(Node):
         g2.pose = self.make_pose(gx, gy, gyaw)
         stage2_ok = self.run_action(self.nav_cli, g2, '阶段2(入位)', self.nav_timeout)
 
-        p = self.pose_now()
-        if p is None:
+        if not stage2_ok:
+            self.get_logger().warn('[dock] 阶段2 未 SUCCEEDED，仍按停稳后的实测位姿判定')
+
+        # ★ 2026-09-10：阶段2 之后的测量/判定/补偿整段交给 dock_finish，它会**先等车
+        #   真正停稳**。原来在这里直接 pose_now()，而阶段2 报 SUCCEEDED 时车仍以
+        #   0.55rad/s 在转（末端 RotateToGoal 满速收朝向的尾巴），测到的是运动中的
+        #   瞬时 yaw；据此下发的 Spin 又被 nav2 的 abs(relative_yaw) 判据 100ms 秒过，
+        #   两次补偿把误差从 6.8° 一路推到 19.6°。dock_bench 5 轮冒烟 3 轮栽在这。
+        outcome = finish_docking(
+            goal, self.pose_now, self._spin_by, self.dock_tol, self.settle_spec,
+            settle_timeout_sec=self.settle_timeout, on_event=self._log_dock_event)
+
+        if outcome.reason == 'no_pose':
             self.report(False, '入位后取不到位姿，无法判定')
-            return
-        exy = math.hypot(p[0] - gx, p[1] - gy)
-        eyaw = wrap(p[2] - gyaw)
-        self.get_logger().info('[dock] 入位实测 exy=%.3fm eyaw=%.1f° (阶段2 %s)'
-                               % (exy, math.degrees(eyaw),
-                                  'SUCCEEDED' if stage2_ok else 'FAILED'))
-
-        if exy <= self.xy_ok and abs(eyaw) <= self.yaw_ok:
-            self.report(True, '一次入位达标', p, goal)
-            return
-
-        if exy > self.xy_ok:
-            # 位置没到就不再挪 —— 用户明确要求: 入位失败后只能调角度, 不能位移
+        elif outcome.reason == 'not_settled':
+            self.report(False, '车未停稳（%.1fs 内角速度未降到 %.3frad/s 以下），'
+                               '按约定不做旋转补偿'
+                        % (self.settle_timeout, self.settle_spec.max_rate_rad_s),
+                        outcome.pose, goal)
+        elif outcome.reason == 'xy_out_of_tol':
             self.report(False, 'xy 超差 %.3f > %.3f，按约定不再下发位移目标'
-                        % (exy, self.xy_ok), p, goal)
-            return
+                        % (outcome.exy, self.xy_ok), outcome.pose, goal)
+        elif outcome.reason == 'yaw_not_converged':
+            self.report(False, 'yaw 经 %d 次旋转仍未收敛' % outcome.n_spin,
+                        outcome.pose, goal)
+        elif outcome.n_spin == 0:
+            self.report(True, '一次入位达标', outcome.pose, goal)
+        else:
+            self.report(True, '第%d次旋转后达标' % outcome.n_spin, outcome.pose, goal)
 
-        # xy 达标、只差朝向 -> 纯旋转补偿
-        for i in range(1, self.max_yaw_retries + 1):
+    # ---------- 供 dock_finish 注入的两个副作用 ----------
+    def _spin_by(self, target_yaw):
+        sg = Spin.Goal()
+        sg.target_yaw = float(target_yaw)
+        sg.time_allowance = rclpy.duration.Duration(
+            seconds=self.spin_timeout).to_msg()
+        return self.run_action(self.spin_cli, sg, 'Spin#%d' % self._spin_idx,
+                               self.spin_timeout + 5.0)
+
+    def _log_dock_event(self, name, **kw):
+        """把 dock_finish 的过程打进 /rosout。
+
+        ⚠ 这些字符串是 scripts/dock_bench/dock_common.py 解析阶段边界和失败分类的
+        **接口**，改动必须同步那边的正则与判词表。
+        """
+        if name == 'measured':
+            self.get_logger().info(
+                '[dock] 入位实测 exy=%.3fm eyaw=%.1f° (停稳=%s)'
+                % (kw['exy'], math.degrees(kw['eyaw']),
+                   '是' if kw['settled'] else '否'))
+        elif name == 'spin':
+            self._spin_idx = kw['index']
             self.get_logger().info('[dock] 第%d次纯旋转修正: Spin(%.1f°)'
-                                   % (i, math.degrees(-eyaw)))
-            sg = Spin.Goal()
-            sg.target_yaw = float(-eyaw)
-            sg.time_allowance = rclpy.duration.Duration(
-                seconds=self.spin_timeout).to_msg()
-            self.run_action(self.spin_cli, sg, 'Spin#%d' % i, self.spin_timeout + 5.0)
-            p = self.pose_now()
-            if p is None:
-                self.report(False, '旋转后取不到位姿')
-                return
-            exy = math.hypot(p[0] - gx, p[1] - gy)
-            eyaw = wrap(p[2] - gyaw)
-            self.get_logger().info('[dock] 旋转后 exy=%.3fm eyaw=%.1f°'
-                                   % (exy, math.degrees(eyaw)))
-            if abs(eyaw) <= self.yaw_ok:
-                self.report(True, '第%d次旋转后达标' % i, p, goal)
-                return
-        self.report(False, 'yaw 经 %d 次旋转仍未收敛' % self.max_yaw_retries, p, goal)
+                                   % (kw['index'], math.degrees(kw['target_yaw'])))
+        elif name == 'after_spin':
+            self.get_logger().info(
+                '[dock] 旋转后 exy=%.3fm eyaw=%.1f° (停稳=%s)'
+                % (kw['exy'], math.degrees(kw['eyaw']),
+                   '是' if kw['settled'] else '否'))
+        elif name == 'no_pose':
+            self.get_logger().warn('[dock] 停稳等待期间取不到位姿')
 
 
 def main():

@@ -154,7 +154,14 @@ controller_server:                                  # 局部规划器服务器
       xy_goal_tolerance: 0.10
       # 2026-08-31 精确版: 6.2832(360°,不关心朝向) -> 0.087(5°)。
       # 生产为"到点即停不关心朝向"，与本文件"入位要准"直接冲突，故改。
-      yaw_goal_tolerance: 0.087
+      # ★2026-09-10 方案C: 0.087(5°) -> 0.4363(25°)。5° 是**物理上达不到**的目标：
+      #   david_move 的死区补偿把任何纯原地旋转指令抬到 min_stationary_angular_z
+      #   =0.55rad/s，底盘惰走约 13.6°，即最小可执行原地转角就已是容差的 2.7 倍。
+      #   dock_bench 实测(n=10, 停稳后测量、无 Spin 补偿)：|eyaw| 均值 11.6°、
+      #   最大 22.0°、均值+2σ=24.0°。25° 覆盖全部实测且留余量。
+      #   收紧回 5° 的前提是底盘死区前馈落地（见 project_david_motor_control_improvements P0）。
+      #   顺带：容差放宽后 RotateToGoal 会更早停止满速旋转，末端过冲本身也会变小。
+      yaw_goal_tolerance: 0.4363
     # 2026-07-27(晚): RotationShim 以 overlay 补丁版回归（用户要求必须最短
     # 方向旋转，不接受绕远）。
     # 史：07-24 启用原版 → 07-27 午发现其每控制周期做 map→base_footprint
@@ -587,7 +594,14 @@ behavior_server:
       plugin: "nav2_behaviors/Wait"                       # 等待行为插件
     assisted_teleop:
       plugin: "nav2_behaviors/AssistedTeleop"             # 辅助遥控行为插件
-    global_frame: map                                   # 全局坐标系名称
+    # 2026-09-10 map -> odom：必须与 local_costmap 的 global_frame 一致。
+    # behavior_server 的 costmap_topic 指向 local_costmap/costmap_raw，该图发布在
+    # odom 系且是 3x3m rolling window；这里写 map 的话，Spin 会在 map 系算出
+    # 模拟位姿(如 7.7, 2.1)再拿去查 odom 系的小图 -> 坐标出图 ->
+    # `Pose Goes Off Grid` -> `Collision Ahead - Exiting Spin` -> 每次 ~100ms 内
+    # ABORT。实测这台车上 spin/backup 等恢复行为**从来没成功过**。
+    # 用 odom 还顺带让 Spin 的相对转角基于平滑的里程计，不受定位跳变影响。
+    global_frame: odom                                  # 必须 == local_costmap.global_frame
     robot_base_frame: base_footprint                              # 机器人基座坐标系名称
     transform_tolerance: 1.0                             # 坐标变换容差(秒)
     use_sim_time: false                                    # 是否使用仿真时间

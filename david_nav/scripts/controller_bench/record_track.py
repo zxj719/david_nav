@@ -32,6 +32,7 @@ import rclpy
 from action_msgs.msg import GoalStatusArray
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import Odometry, Path
+from rcl_interfaces.msg import Log
 from rclpy.node import Node
 from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
                        ReliabilityPolicy)
@@ -101,6 +102,21 @@ class TrackRecorder(Node):
         self.create_subscription(GoalStatusArray,
                                  '/navigate_to_pose/_action/status',
                                  self._on_action_status, qos)
+        # ---- dock_bench 用的两个可选订阅(不传参数时完全不生效)----
+        # 追加一个 action status(dock 用 /spin/_action/status 数纯旋转补偿)
+        self._extra_status = None
+        if getattr(args, 'extra_action_status', ''):
+            self.row['extra_action_status'] = ''
+            self.create_subscription(GoalStatusArray, args.extra_action_status,
+                                     self._on_extra_status, qos)
+        # /rosout 只留指定节点(dock 用 dock_navigator，判词即状态机)。
+        # rosout 发布端是 depth 1000，这里也开大，别在忙的时候丢判词。
+        self._rosout = []
+        if getattr(args, 'rosout_node', ''):
+            self.create_subscription(
+                Log, '/rosout', self._on_rosout,
+                QoSProfile(depth=1000, reliability=ReliabilityPolicy.RELIABLE,
+                           history=HistoryPolicy.KEEP_LAST))
         # 参考路径 + planner:latched 各存一份 sidecar
         self.create_subscription(Path, '/bench/reference_path',
                                  self._on_reference, latched)
@@ -112,6 +128,7 @@ class TrackRecorder(Node):
         self.csv_path = os.path.join(args.output_dir, f'track_{rid}.csv')
         self.ref_path = os.path.join(args.output_dir, f'track_{rid}_reference.csv')
         self.plan_path = os.path.join(args.output_dir, f'track_{rid}_plan.csv')
+        self.rosout_path = os.path.join(args.output_dir, f'rosout_{rid}.csv')
         self._ref_written = False
         self._plan = None
 
@@ -163,6 +180,25 @@ class TrackRecorder(Node):
             self.row['event'] = f'ACTION_STATUS_CHANGE->{name}'
         self.get_logger().info(f'>>> ACTION STATUS {name} ({code})')
 
+    def _on_extra_status(self, msg: GoalStatusArray):
+        if not msg.status_list:
+            return
+        code = max(msg.status_list, key=lambda s: s.status).status
+        if code == self._extra_status:
+            return
+        self._extra_status = code
+        with self.lock:
+            self.row['extra_action_status'] = STATUS_NAMES.get(code, str(code))
+            self.row['event'] = (self.row['event'] + '|' if self.row['event'] else '') \
+                + f'extra:{STATUS_NAMES.get(code, code)}'
+
+    def _on_rosout(self, msg: Log):
+        if msg.name != self.args.rosout_node:
+            return
+        with self.lock:
+            self._rosout.append(
+                (msg.stamp.sec + msg.stamp.nanosec * 1e-9, msg.name, msg.msg))
+
     def _on_reference(self, msg: Path):
         if self._ref_written or not msg.poses:
             return
@@ -210,6 +246,12 @@ class TrackRecorder(Node):
         self.csv_file.flush()
 
     def cleanup(self):
+        if self._rosout:
+            with open(self.rosout_path, 'w', newline='', encoding='utf-8') as f:
+                w = csv.writer(f)
+                w.writerow(['t_unix', 'node', 'msg'])
+                w.writerows(self._rosout)
+            self.get_logger().info(f'rosout sidecar: {self.rosout_path}')
         if self._plan is not None:
             with open(self.plan_path, 'w', newline='') as f:
                 w = csv.writer(f)
@@ -231,6 +273,11 @@ def main():
     p.add_argument('--truth-topic', default='/groundtruth/pose',
                    help='david_slam_gt 真值话题(主源;拿不到退回 map->base TF)')
     p.add_argument('--rate-hz', type=float, default=20.0)
+    # ---- dock_bench 用；不传时行为与改动前完全一致 ----
+    p.add_argument('--extra-action-status', default='',
+                   help='追加订阅的 action status 话题(dock: /spin/_action/status)')
+    p.add_argument('--rosout-node', default='',
+                   help='只记录该节点的 /rosout 消息(dock: dock_navigator)')
     args = p.parse_args()
 
     rclpy.init()
