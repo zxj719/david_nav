@@ -11,7 +11,8 @@ This package is robot independent: robot-specific values live in a
 | `nav_bringup.lint.docstrings` | available | refactor plan §5.4, RUNBOOK §1 |
 | `nav_bringup.recorder`: run directory, manifest, `code.diff`, events, resource samples, summary, retention | available (PROGRESS P1.2a) | plan §13.2 |
 | Recorder ROS side: effective parameter dump, topic rates and TF lag | planned (P1.2b) | plan §13.2 |
-| `navrun wrap` / `navrun up` / `navrun doctor` | planned (P1.3, P1.5, P4.2) | plan §13.1, §13.3 |
+| `navrun wrap -- <command>`: record a run around an existing launch command | available (P1.3) | plan §13.1, §16.2 Phase 1 |
+| `navrun up` / `navrun doctor` | planned (P1.5, P4.2) | plan §13.1, §13.3 |
 | `navcfg render` / `validate` / `doc` | planned (P2.3 – P2.6) | plan §12 |
 | `nav.launch.py` | planned (P4.1) | plan §7.1 |
 
