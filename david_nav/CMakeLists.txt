@@ -372,9 +372,11 @@ if(BUILD_TESTING)
     test/test_waypoint_sparsifier.py
   )
 
+  # test_dock_common.py is a script-style self check without test_* functions;
+  # run it through a pytest wrapper so a failure is reported correctly.
   ament_add_pytest_test(
     dock_bench_common_test
-    scripts/dock_bench/test_dock_common.py
+    test/test_dock_bench_common_script.py
   )
 
   # Characterization (golden) tests of the executor wire contract, SPEC §6 P0.
