@@ -61,16 +61,14 @@ exec python3 "$@"
     # (sudo nvpmodel / jetson_clocks) even with --dry-run. Shadow them so the
     # tests can never signal real processes or change the Jetson power mode
     # when they run on the robot.
-    for name, body in (
-        ("sudo", "exit 1"),
-        ("nvpmodel", "exit 0"),
-        ("jetson_clocks", "exit 0"),
-        ("pgrep", "exit 1"),
+    for name, exit_code in (
+        ("sudo", 1),
+        ("nvpmodel", 0),
+        ("jetson_clocks", 0),
+        ("pgrep", 1),
     ):
         shim = fake_ifconfig.parent / name
-        _write_file(shim, f"#!/usr/bin/env bash
-{body}
-")
+        _write_file(shim, f"#!/usr/bin/env bash\nexit {exit_code}\n")
         shim.chmod(0o755)
 
     env = os.environ.copy()
