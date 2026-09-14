@@ -19,5 +19,8 @@ import pytest
 @pytest.mark.linter
 @pytest.mark.pep257
 def test_pep257():
-    rc = main(argv=['.', 'test'])
+    # Google style places the docstring summary on the first line (D212), which
+    # the default ament convention forbids (D213). Legacy packages keep the rest
+    # of the ament rules; new packages use --convention google.
+    rc = main(argv=['.', 'test', '--add-ignore', 'D213', '--add-select', 'D212'])
     assert rc == 0, 'Found code style errors / warnings'

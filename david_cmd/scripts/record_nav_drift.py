@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record nav2 cmd_vel pipeline + /odom feedback for drift diagnosis.
+r"""Record nav2 cmd_vel pipeline + /odom feedback for drift diagnosis.
 
 Subscribes to every step of the cmd_vel chain plus encoder feedback, and
 reports per-stage statistics so we can see where (if anywhere) a persistent
@@ -17,7 +17,7 @@ Usage::
 
     source /opt/ros/humble/setup.bash
     source /home/agx/ros2_ws/install/setup.bash
-    python3 /home/agx/ros2_ws/src/david_cmd/scripts/record_nav_drift.py \\
+    python3 /home/agx/ros2_ws/src/david_cmd/scripts/record_nav_drift.py \
         --duration 30 --label drift_run1
 
 Run a Nav2 goal while the script is recording. After ``--duration`` seconds
@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import os
 import statistics
 import time
 from pathlib import Path
@@ -208,7 +207,8 @@ def main():
     parser.add_argument("--output-dir", default="/tmp/nav_drift",
                         help="Output directory (default /tmp/nav_drift)")
     parser.add_argument("--motion-threshold", type=float, default=0.02,
-                        help="|linear_x| > threshold to count a sample as 'active' (default 0.02 m/s)")
+                        help=("|linear_x| > threshold to count a sample as 'active' "
+                              "(default 0.02 m/s)"))
     args = parser.parse_args()
 
     rclpy.init()

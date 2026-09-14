@@ -138,9 +138,11 @@ def test_stationary_nav2_yaw_is_lifted_to_turning_deadzone(rclpy_initialized):
 
 
 def test_moving_yaw_uses_lower_arc_deadzone(rclpy_initialized):
-    """Legacy behaviour: when min_angular_z is explicitly set, arc motion
-    lifts small angular commands. Documents that the deadzone-lift code
-    path still works when the parameter is non-zero."""
+    """Arc motion lifts small angular commands when min_angular_z is set.
+
+    Legacy behaviour: documents that the deadzone-lift code path still works
+    when the parameter is non-zero.
+    """
     bridge = make_bridge(max_linear_x=0.40, min_angular_z=0.20)
 
     try:
@@ -157,10 +159,13 @@ def test_moving_yaw_uses_lower_arc_deadzone(rclpy_initialized):
 
 
 def test_arc_motion_passes_small_angular_through_by_default(rclpy_initialized):
-    """Default-config regression: with DEFAULT_MIN_ANGULAR_Z=0.0, DWB's small
+    """Small angular corrections pass through unchanged by default.
+
+    Default-config regression: with DEFAULT_MIN_ANGULAR_Z=0.0, DWB's small
     path-tracking corrections (e.g. +0.026 rad/s during forward motion) must
     pass through unchanged. The old default 0.20 amplified them 5x and
-    caused the controller to oscillate (see drift_run1 recording)."""
+    caused the controller to oscillate (see drift_run1 recording).
+    """
     bridge = make_bridge(max_linear_x=0.40, min_angular_z=0.0)
 
     try:
@@ -177,9 +182,11 @@ def test_arc_motion_passes_small_angular_through_by_default(rclpy_initialized):
 
 
 def test_stationary_yaw_still_lifts_after_arc_default_change(rclpy_initialized):
-    """Regression: even with the new MIN_ANGULAR_Z=0.0 arc default, a
-    stationary in-place rotation must still get lifted to
-    min_stationary_angular_z so the robot actually moves."""
+    """Stationary in-place rotation is still lifted with the new arc default.
+
+    Regression: even with MIN_ANGULAR_Z=0.0 for arcs, a stationary rotation
+    must still get lifted to min_stationary_angular_z so the robot moves.
+    """
     bridge = make_bridge(min_angular_z=0.0, min_stationary_angular_z=0.35)
 
     try:

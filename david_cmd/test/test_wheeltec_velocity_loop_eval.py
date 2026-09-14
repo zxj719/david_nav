@@ -10,7 +10,6 @@ import math
 import pytest
 
 from david_cmd.wheeltec_velocity_loop_eval import (
-    RepeatabilityStats,
     Sample,
     SegmentSummary,
     aggregate_repetitions,

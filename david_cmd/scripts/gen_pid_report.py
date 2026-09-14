@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""根据最近几组 PI 阶跃实验生成 Word 调参报告（含阶跃响应图 + 参数/结果对比 + 分析）。"""
+"""根据最近几组 PI 阶跃实验生成 Word 调参报告（含阶跃响应图 + 参数/结果对比 + 分析）."""
 import glob
 import importlib.util
 import os
@@ -40,8 +40,8 @@ def labels_of(suf):
     fs = glob.glob(os.path.join(dpath(suf), "vle", "PI_*_pos.csv"))
     labs = [os.path.basename(f)[3:-8] for f in fs]
 
-    def key(l):
-        kp, ki = parse_kpki(l)
+    def key(label):
+        kp, ki = parse_kpki(label)
         try:
             return (float(kp), float(ki) if ki != "-" else -1)
         except ValueError:
@@ -59,9 +59,11 @@ def trace(suf, label, axis):
                 continue
             p = line.strip().split(",")
             if len(p) > col:
-                t.append(float(p[0])); v.append(float(p[col]))
+                t.append(float(p[0]))
+                v.append(float(p[col]))
     if t:
-        t0 = t[0]; t = [x - t0 for x in t]
+        t0 = t[0]
+        t = [x - t0 for x in t]
     return t, v
 
 
@@ -92,12 +94,15 @@ def fig_overlay(suf, labels, axis, target, unit, title, fname):
         plt.plot(t, v, linewidth=1.0, label=lab.replace("_", " "))
     plt.axhline(target, color="k", linestyle="--", linewidth=0.8,
                 label="target %.2f" % target)
-    plt.xlabel("time (s)"); plt.ylabel("odom %s (%s)" %
-                                       ("wz" if axis == "angular" else "vx", unit))
-    plt.title(title); plt.legend(fontsize=7); plt.grid(alpha=0.3)
+    plt.xlabel("time (s)")
+    plt.ylabel("odom %s (%s)" % ("wz" if axis == "angular" else "vx", unit))
+    plt.title(title)
+    plt.legend(fontsize=7)
+    plt.grid(alpha=0.3)
     plt.tight_layout()
     p = os.path.join(FIGDIR, fname)
-    plt.savefig(p, dpi=130); plt.close()
+    plt.savefig(p, dpi=130)
+    plt.close()
     return p
 
 
@@ -124,7 +129,8 @@ def h(text, lvl=1):
 
 def p(text, bold=False):
     par = doc.add_paragraph()
-    run = par.add_run(text); run.bold = bold
+    run = par.add_run(text)
+    run.bold = bold
     return par
 
 
@@ -186,9 +192,10 @@ for suf, desc, axis, tgt, unit in RUNS:
     rows = []
     for lab in labs:
         m = metric_row(suf, lab, axis)
+        hold = 4.0 if axis == "angular" else 3.0
+        unsettled = m[5] is not None and m[5] >= 0.8 * hold
         rows.append([lab, m[0], m[1], fmt(m[2], 1), fmt(m[3], 1), fmt(m[4]),
-                     fmt(m[5]) + ("⚠" if (m[5] is not None and m[5] >= 0.8 *
-                     (4.0 if axis == "angular" else 3.0)) else ""),
+                     fmt(m[5]) + ("⚠" if unsettled else ""),
                      fmt(m[6], 3), fmt(m[7], 1)])
     table(["PI 组", "Kp", "Ki", "稳态误差%", "超调%", "上升s", "整定s", "反冲", "振荡"], rows)
     doc.add_paragraph()
@@ -207,7 +214,8 @@ cap = [
 for img, c in cap:
     doc.add_picture(img, width=Inches(5.6))
     doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
-    cp = doc.add_paragraph(c); cp.runs[0].font.size = Pt(9)
+    cp = doc.add_paragraph(c)
+    cp.runs[0].font.size = Pt(9)
     cp.runs[0].font.color.rgb = RGBColor(0x55, 0x55, 0x55)
 
 h("5. 分析与解释", 1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A 组（A1 死区 / A2 增益 / A4 动态）一键辨识 + 自动生成 md 报告。
+"""A 组（A1 死区 / A2 增益 / A4 动态）一键辨识 + 自动生成 md 报告.
 
 判定一律用**轮速计 /odom 的速度值**（linear.x / angular.z），不使用 IMU。
 场地约束：2x2 m。线速度试验默认值已收紧；旋转类原地不占地。
@@ -51,13 +51,13 @@ def sh(cmd, timeout=15):
 
 
 def run_streaming(cmd, log_path, timeout):
-    """跑节点，实时打印 + 落盘日志，返回 (rc, text)。"""
+    """跑节点，实时打印 + 落盘日志，返回 (rc, text)."""
     print("\n\033[36mRUN:\033[0m " + " ".join(cmd))
     lines = []
     with open(log_path, "w") as lf:
         lf.write("CMD: " + " ".join(cmd) + "\n\n")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                stderr=subprocess.STDOUT, text=True, bufsize=1)
         start = time.time()
         try:
             for line in proc.stdout:
@@ -109,7 +109,7 @@ def f(x, nd=4):
 
 
 def load_cmd_yaml_lift():
-    """读 cmd.yaml 现行 deadzone-lift 生产值，用于对照。"""
+    """读 cmd.yaml 现行 deadzone-lift 生产值，用于对照."""
     try:
         import yaml
         with open(CMD_YAML) as fh:
@@ -133,7 +133,7 @@ def load_vle_summary(out_dir, label):
 
 
 def deadzone_from_summary(summary, floor):
-    """死区 = 最小的正命令档，其 /odom 稳态实速 >= floor（超出噪声地板=破启）。
+    """死区 = 最小的正命令档，其 /odom 稳态实速 >= floor（超出噪声地板=破启）.
 
     返回 (破启命令, 该档实速)；全程没动返回 (None, None)。
     """
@@ -150,7 +150,7 @@ def deadzone_from_summary(summary, floor):
 
 
 def segment_veer(out_dir, label, seg_name, tail_frac=0.3):
-    """读某 linear 段 CSV，取末尾 tail_frac 的 odom_ang_z 均值 = 左右不对称代理。"""
+    """读某 linear 段 CSV，取末尾 tail_frac 的 odom_ang_z 均值 = 左右不对称代理."""
     path = os.path.join(out_dir, f"{label}_{seg_name}.csv")
     if not os.path.exists(path):
         return None
@@ -173,7 +173,7 @@ def responded(target, ss_mean, frac=0.3):
 
 
 def analyze_step(csv_path, axis=None, floor=0.01):
-    """从一段阶跃 CSV 提取 PI 整定指标：稳态误差/超调/上升/整定/反冲/振荡。
+    """从一段阶跃 CSV 提取 PI 整定指标：稳态误差/超调/上升/整定/反冲/振荡.
 
     需 hold 足够长（已到稳态平台）才有意义。返回 dict 或 None。
     """
@@ -367,7 +367,7 @@ def _avg(mp, mn, key):
 
 
 def pi_score(sse, ov, settle, rev, osc):
-    """启发式评分（越低越好）：稳态误差 + 超调 + 整定×20 + 反冲×120 + 振荡×6。"""
+    """启发式评分（越低越好）：稳态误差 + 超调 + 整定×20 + 反冲×120 + 振荡×6."""
     if sse is None:
         return None
     return (abs(sse) + max(0.0, ov or 0.0) + 20.0 * (settle if settle is not None else 1.5)
@@ -375,7 +375,7 @@ def pi_score(sse, ov, settle, rev, osc):
 
 
 def parse_kpki(label):
-    """从标签里抠出 Kp / Ki 数字，如 'Kp600_Ki40' -> ('600','40')。"""
+    """从标签里抠出 Kp / Ki 数字，如 'Kp600_Ki40' -> ('600','40')."""
     kp = re.search(r"kp[_\-]?(\d+\.?\d*)", label, re.I)
     ki = re.search(r"ki[_\-]?(\d+\.?\d*)", label, re.I)
     return (kp.group(1) if kp else "-", ki.group(1) if ki else "-")
@@ -393,9 +393,12 @@ def build_pi_report(results, axis, args):
     for r in results:
         mp, mn = r["pos"], r["neg"]
         kp, ki = parse_kpki(r["label"])
-        sse = _avg(mp, mn, "sse_pct"); ov = _avg(mp, mn, "overshoot_pct")
-        rise = _avg(mp, mn, "rise_s"); st = _avg(mp, mn, "settle_s")
-        rev = _avg(mp, mn, "reversal"); osc = _avg(mp, mn, "osc_crossings")
+        sse = _avg(mp, mn, "sse_pct")
+        ov = _avg(mp, mn, "overshoot_pct")
+        rise = _avg(mp, mn, "rise_s")
+        st = _avg(mp, mn, "settle_s")
+        rev = _avg(mp, mn, "reversal")
+        osc = _avg(mp, mn, "osc_crossings")
         sc = pi_score(sse, ov, st, rev, osc)
         # 整定时间逼近 hold = 根本没整定（持续振荡）
         never = (st is not None and st >= 0.8 * hold)
@@ -416,7 +419,7 @@ def build_pi_report(results, axis, args):
         L.append(f"\n**推荐：`{best['label']}`** —— 通过门槛(超调<25%、能整定、不振荡)中评分最低。")
     elif valid:
         worst_ov = min(valid, key=lambda m: (m["ov"] if m["ov"] is not None else 1e9))
-        L.append(f"\n**⚠ 全部不合格**：没有一组通过门槛（超调<25% 且能整定 且不振荡）。")
+        L.append("\n**⚠ 全部不合格**：没有一组通过门槛（超调<25% 且能整定 且不振荡）。")
         L.append(f"所有组都在**持续极限环振荡**（整定时间≈hold、超调极大）。相对最不烂的是 "
                  f"`{worst_ov['label']}`，但仍不可用。")
         L.append("\n说明这套速度环在当前增益区间根本稳不住，下一步二选一：")
@@ -582,7 +585,7 @@ def main():
         return run_streaming(cmd, log, timeout)
 
     def precond(axis, mode):
-        """扫描前用一记明显高于死区的命令把脚轮甩到已知朝向（机器人自驱，不用手推）。
+        """扫描前用一记明显高于死区的命令把脚轮甩到已知朝向（机器人自驱，不用手推）.
 
         aligned = 朝待测正方向先动一下 → 脚轮甩到对该方向顺的位置；
         adverse = 朝反方向先动 → 脚轮指向相反，待测时需翻 180°（最坏情况）。
@@ -636,7 +639,8 @@ def main():
                    "--rest-seconds", str(args.rest_sec), "--output-dir", vle_dir,
                    "--label", label]
             if args.dry_run:
-                print("DRY-RUN:", " ".join(cmd)); continue
+                print("DRY-RUN:", " ".join(cmd))
+                continue
             run_streaming(cmd, os.path.join(out_dir, f"{label}.log"), args.seg_timeout)
             mp = analyze_step(os.path.join(vle_dir, f"{label}_pos.csv"), axis=dzaxis)
             vmax = mp.get("vmax") if mp else None
