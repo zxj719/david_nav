@@ -1,0 +1,7 @@
+{
+  "names": {
+    "nav2_rotation_shim_controller": {
+      "cmake-args": ["-DBUILD_TESTING=OFF"]
+    }
+  }
+}
