@@ -12,7 +12,9 @@ This package is robot independent: robot-specific values live in a
 | `nav_bringup.recorder`: run directory, manifest, `code.diff`, events, resource samples, summary, retention | available (PROGRESS P1.2a) | plan §13.2 |
 | Recorder ROS side: effective parameter dump, topic rates and TF lag | planned (P1.2b) | plan §13.2 |
 | `navrun wrap -- <command>`: record a run around an existing launch command | available (P1.3) | plan §13.1, §16.2 Phase 1 |
-| `navrun up` / `navrun doctor` | planned (P1.5, P4.2) | plan §13.1, §13.3 |
+| `navrun doctor`: read-only checks (ROS/DDS environment, orphan Fast DDS segments, map yaml mode, duplicate robot_state_publisher, stale copied scripts, chassis serial device) | available (P1.5a) | plan §13.3 |
+| `navrun doctor` live checks (ros2 daemon, duplicate publishers, map→odom TF) | planned (P1.5b) | plan §13.3 |
+| `navrun up` | planned (P4.2) | plan §13.1 |
 | `navcfg render` / `validate` / `doc` | planned (P2.3 – P2.6) | plan §12 |
 | `nav.launch.py` | planned (P4.1) | plan §7.1 |
 

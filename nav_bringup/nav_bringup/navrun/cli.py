@@ -2,16 +2,19 @@
 
 Example:
     navrun wrap --mode tour --alias 4 -- ~/ros2_ws/src/david_nav/start_navigation_headless.sh
+    navrun doctor
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import sys
 from typing import Dict, Optional, Sequence
 
+from nav_bringup.doctor import checks
 from nav_bringup.navrun import wrap
 from nav_bringup.recorder import run_dir
 
@@ -49,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
         '--no-gc', action='store_true', help='do not prune old runs before starting')
     wrap_parser.add_argument(
         'command', nargs=argparse.REMAINDER, help='command to run, placed after --')
+
+    doctor_parser = subparsers.add_parser(
+        'doctor', help='read-only checks for known navigation failure modes')
+    doctor_parser.add_argument(
+        '--json', action='store_true', help='print results as JSON instead of text')
     return parser
 
 
@@ -84,7 +92,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     """
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
+    if args.subcommand == 'doctor':
+        return _doctor(args)
     return _wrap(parser, args)
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    results = checks.run_checks(checks.default_context(os.environ))
+    if args.json:
+        print(json.dumps([result.to_dict() for result in results], ensure_ascii=False, indent=2))
+    else:
+        print(checks.format_report(results), end='')
+    return 1 if checks.worst_status(results) is checks.Status.FAIL else 0
 
 
 def _wrap(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
