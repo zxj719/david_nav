@@ -1,0 +1,26 @@
+# Wheeltec C50C uplink status frames (golden data, PROGRESS P0.8 / TODO-W1)
+#
+# Captured 2026-09-14 17:14 on David (AGX 172.16.22.51) from /dev/wheeltec_controller
+# (ttyACM0) while no driver process held the port: stty 115200 raw -echo, then a
+# read-only `timeout 2 cat`. 960 bytes, 40 frames (20 Hz), all passing the XOR check.
+# The robot was stationary with motor output disabled (flag_stop = 1).
+#
+# Frame layout (24 bytes, big-endian int16 fields):
+#   [0]      0x7B frame header
+#   [1]      flag_stop (1 = motors disabled)
+#   [2..3]   vx   mm/s
+#   [4..5]   vy   mm/s
+#   [6..7]   wz   mrad/s
+#   [8..13]  accelerometer x, y, z (raw)
+#   [14..19] gyroscope x, y, z (raw)
+#   [20..21] power voltage raw (driver formula: v/1000 + (v%1000)*0.001)
+#   [22]     XOR of bytes [0..21]
+#   [23]     0x7D frame tail
+#
+# Note: voltage raw 4338 (~4.34 V by the driver formula) suggests the motor supply
+# was off and the board was powered over USB only. Recorded as observed.
+#
+# hex bytes                                                              | decoded
+7B 01 00 00 00 00 00 00 00 16 FF F4 40 02 00 01 FF FF 00 00 10 F2 C6 7D | flag_stop=1 vx=0 vy=0 wz=0 acc=(22,-12,16386) gyro=(1,-1,0) volt_raw=4338
+7B 01 00 00 00 00 00 00 FF EA FF FC 3F A0 00 03 FF FE 00 00 10 F2 13 7D | flag_stop=1 vx=0 vy=0 wz=0 acc=(-22,-4,16288) gyro=(3,-2,0) volt_raw=4338
+7B 01 00 00 00 00 00 00 FF F8 FF FA 3F D4 FF FE FF FF 00 00 10 F2 70 7D | flag_stop=1 vx=0 vy=0 wz=0 acc=(-8,-6,16340) gyro=(-2,-1,0) volt_raw=4338
