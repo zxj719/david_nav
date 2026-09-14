@@ -1,0 +1,41 @@
+# Robot profile keys consumed by nav_bringup (navrun up, run recorder).
+# Format: nav_bringup/navcfg/schema.py. Values for a robot live in its
+# <robot>_config package; defaults here are robot independent and conservative.
+schema_version: 1
+package: nav_bringup
+parameters:
+  platform.jetson:
+    type: bool
+    default: false
+    description: 主机是 NVIDIA Jetson；为 true 时 navrun up 才处理功耗模式与 jetson_clocks
+  platform.maxn:
+    type: bool
+    default: false
+    description: 启动前把 Jetson 切到最高功耗模式（nvpmodel MAXN）；需要 platform.jetson 为 true
+  platform.jetson_clocks:
+    type: bool
+    default: false
+    description: 启动前运行 jetson_clocks 固定 CPU/GPU 频率；需要 platform.jetson 为 true
+  preflight.kill_patterns:
+    type: list
+    items: string
+    default: []
+    description: 启动前结束的本导航栈残留进程的命令行匹配式
+  preflight.kill_foreign_stacks:
+    type: bool
+    default: false
+    description: 是否结束不属于本导航栈的其它 ROS 栈进程；默认不动
+  preflight.kill_stale_robot_state_publishers:
+    type: bool
+    default: false
+    description: 启动前结束残留的 robot_state_publisher，避免 TF 分裂成两棵树
+  record.light_topics:
+    type: list
+    items: string
+    default: []
+    description: 每次运行默认录制的轻量话题；为空则不录包
+  record.storage:
+    type: string
+    default: sqlite3
+    choices: [sqlite3]
+    description: rosbag2 存储插件；mcap 插件未安装（TODO）
