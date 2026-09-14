@@ -335,6 +335,54 @@ if(BUILD_TESTING)
     test/test_position_control_core.py
   )
 
+  # Refactor loop P0.4/P0.6: these unit tests existed but were never
+  # registered, so colcon test did not run them.
+  ament_add_pytest_test(
+    nav2_action_bridge_test
+    test/test_nav2_action_bridge.py
+  )
+
+  ament_add_pytest_test(
+    dock_finish_test
+    test/test_dock_finish.py
+  )
+
+  ament_add_pytest_test(
+    dock_settle_test
+    test/test_dock_settle.py
+  )
+
+  ament_add_pytest_test(
+    grid_map_view_test
+    test/test_grid_map_view.py
+  )
+
+  ament_add_pytest_test(
+    nav2_frame_consistency_test
+    test/test_nav2_frame_consistency.py
+  )
+
+  ament_add_pytest_test(
+    odometry_tf_broadcaster_test
+    test/test_odometry_tf_broadcaster.py
+  )
+
+  ament_add_pytest_test(
+    waypoint_sparsifier_test
+    test/test_waypoint_sparsifier.py
+  )
+
+  ament_add_pytest_test(
+    dock_bench_common_test
+    scripts/dock_bench/test_dock_common.py
+  )
+
+  # Characterization (golden) tests of the executor wire contract, SPEC §6 P0.
+  ament_add_pytest_test(
+    executor_golden_test
+    test/test_executor_golden.py
+  )
+
   ament_add_gtest(
     scan_priority_geometry_test
     test/scan_priority_geometry_test.cpp
