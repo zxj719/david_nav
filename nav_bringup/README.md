@@ -9,7 +9,8 @@ This package is robot independent: robot-specific values live in a
 | Component | State | Plan reference |
 |---|---|---|
 | `nav_bringup.lint.docstrings` | available | refactor plan §5.4, RUNBOOK §1 |
-| Run recorder (`manifest`, parameter snapshots, logs, resources, events, summary) | planned (PROGRESS P1.2) | plan §13.2 |
+| `nav_bringup.recorder`: run directory, manifest, `code.diff`, events, resource samples, summary, retention | available (PROGRESS P1.2a) | plan §13.2 |
+| Recorder ROS side: effective parameter dump, topic rates and TF lag | planned (P1.2b) | plan §13.2 |
 | `navrun wrap` / `navrun up` / `navrun doctor` | planned (P1.3, P1.5, P4.2) | plan §13.1, §13.3 |
 | `navcfg render` / `validate` / `doc` | planned (P2.3 – P2.6) | plan §12 |
 | `nav.launch.py` | planned (P4.1) | plan §7.1 |
