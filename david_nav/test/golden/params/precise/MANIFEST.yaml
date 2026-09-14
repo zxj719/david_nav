@@ -1,0 +1,9 @@
+mode: precise
+params_file: david_nav/config/nav2_params_2d_precise.yaml
+params_file_md5: a4f4f1f3c02d25fe98015f5556d2350c
+launch: david_nav/launch/2d_david_nav2_bringup.launch.py cmd_shaping:=false
+fake_tf: map->odom->base_link identity (static)
+ros_domain_id: 99
+git_head: f898cf01fcdf6b7636bba55233a83d779875a832
+captured_at: 2026-09-14T17:53:11+02:00
+dump_failures: 0

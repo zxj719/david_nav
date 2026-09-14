@@ -1,0 +1,14 @@
+/david_move:
+  ros__parameters:
+    cmd_vel_timeout: 2.0
+    input_cmd_vel_topic: cmd_vel_smoothed
+    max_angular_z: 0.6
+    max_linear_x: 0.2
+    min_angular_z: 0.0
+    min_linear_x: 0.0
+    min_stationary_angular_z: 0.55
+    output_cmd_vel_topic: /cmd_vel
+    publish_hz: 50.0
+    stationary_angular_threshold: 0.025
+    use_sim_time: false
+

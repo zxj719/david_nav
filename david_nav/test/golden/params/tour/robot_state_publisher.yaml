@@ -1,0 +1,154 @@
+/robot_state_publisher:
+  ros__parameters:
+    frame_prefix: ''
+    ignore_timestamp: false
+    publish_frequency: 20.0
+    qos_overrides:
+      /joint_states:
+        subscription:
+          depth: 5
+          history: keep_last
+          reliability: best_effort
+      /parameter_events:
+        publisher:
+          depth: 1000
+          durability: volatile
+          history: keep_last
+          reliability: reliable
+      /tf:
+        publisher:
+          depth: 100
+          durability: volatile
+          history: keep_last
+          reliability: reliable
+      /tf_static:
+        publisher:
+          depth: 1
+          history: keep_last
+          reliability: reliable
+    robot_description: "<?xml version=\"1.0\"?>\n<!--\n  David David URDF - chassis\
+      \ only\n  ============================================================\n  Wrapper\
+      \ navigation frames (top), then chassis CAD content\n  (chassis_root + wheels).\
+      \ Upper body (arms, hands, fingers)\n  has been removed.\n\n  TF layout (2026-06-18:\
+      \ base_link normalised to body-forward):\n    map -> odom -> base -> base_link\
+      \  (SLAM; base->base_link = Rz(-90deg)+z-0.275, base_link X=forward)\n     \
+      \     |- imu_link             Rz(+90deg) from base_link\n          |- laser_link\
+      \           0.352m forward (+X), same orientation\n          |- base_footprint\
+      \       ROTATION CENTER = wheel-axle midpoint;\n          |                \
+      \        0.165m forward (+X), 0.4075m below=ground\n          |            \
+      \            (axle -0.1875 - 0.22 wheel radius) (2026-06-22)\n          |- chassis_root\
+      \         CAD root, Rz(-90deg) from base_link\n              |- left_wheel_link\
+      \ / right_wheel_link  (moved +0.165m forward 2026-06-22)\n\n  ============================================================\n\
+      \  DIFF-DRIVE GEOMETRY \u2014 SINGLE SOURCE OF TRUTH (edit here, keep 3 origins\
+      \ consistent)\n  ============================================================\n\
+      \    wheel_x_offset = 0.165    # wheels & rotation center forward of base_link,\
+      \ +X\n    half_track     = 0.2525   # half of 50.5cm track; wheel Y = \xB1half_track\n\
+      \    wheel_z        = -0.084   # wheel axle z in chassis_root (axle hub, unchanged)\n\
+      \    wheel_radius   = 0.22     # 22cm wheels (2026-06-22 hw upgrade); sets ground\
+      \ z\n  chassis_root is Rz(-90deg) from base_link, so base_link +X = chassis_root\
+      \ +Y,\n  base_link +Y = chassis_root -X. The wheel-axle z in base_link is\n\
+      \    axle_z = chassis_root_z(-0.1035) + wheel_z(-0.084) = -0.1875.\n  The three\
+      \ origins below are DERIVED:\n    left_wheel_joint  (chassis_root): xyz = [-half_track,\
+      \  wheel_x_offset, wheel_z]\n    right_wheel_joint (chassis_root): xyz = [ half_track,\
+      \  wheel_x_offset, wheel_z]\n    base_link_to_base_footprint:      xyz = [ wheel_x_offset,\
+      \ 0, axle_z - wheel_radius]\n                                          = [ 0.165,\
+      \ 0, -0.4075 ]   (ground)\n  NEXT diff-drive change: edit the 4 values above\
+      \ and re-derive these 3 origins.\n  NON-URDF CONSUMER (cannot read URDF): nav2\
+      \ footprint polygon in\n  config/nav2_params_2d.yaml (local+global). It is expressed\
+      \ in base_footprint\n  frame, so if wheel_x_offset changes by d, shift that\
+      \ polygon's X by -d.\n  ============================================================\n\
+      \n  HISTORY: base_link used to be a rotated frame and the launch aliased\n \
+      \ base->base_link (later base->world->base_link) because SLAM published\n  map->odom->base.\
+      \ SLAM now publishes map->odom->base_link directly with\n  base_link = standard\
+      \ forward frame, so the launch bridge is removed and\n  base_link is coincident\
+      \ in orientation with base_footprint.\n\n  These child joints were re-expressed\
+      \ by Rz(+90deg) from the OLD base_link\n  (old: imu identity, laser/footprint\
+      \ Rz(-90deg), chassis_root Rz(180deg)).\n  The PHYSICAL frames (laser_link,\
+      \ base_footprint, chassis_root, wheels) are\n  byte-for-byte unchanged in space\
+      \ \u2014 only base_link's axes were relabelled,\n  so costmap footprint / robot_base_frame\
+      \ / laser data are unaffected.\n\n  CROSS-STACK: the grasp (upper-body) URDF\
+      \ mounts its waist (Link1) on\n  base_link. base_link's orientation changed\
+      \ here, so the grasp side's\n  base_link->Link1 must use the SAME forward convention\
+      \ \u2014 confirm with the\n  grasp/SLAM owners that everyone agrees base_link\
+      \ = X-forward.\n\n  NOTE: laser_link / chassis_root / base_footprint offsets\
+      \ carried over from\n  the prior calibration; re-verify against the physical\
+      \ mount in RViz.\n-->\n<robot name=\"david\">\n\n  <!-- ============ wrapper\
+      \ navigation frames ============ -->\n\n  <!-- Root: SLAM publishes map->odom->base_link\
+      \ DIRECTLY (2026-06-12).\n       base_link is now the NORMAL body-forward frame\
+      \ (X=forward), coincident\n       in orientation with base_footprint. No more\
+      \ base->world->base_link\n       launch bridge. Children below were re-expressed\
+      \ by Rz(+90deg) from the\n       old (rotated) base_link so the physical robot\
+      \ is byte-for-byte the same;\n       only base_link's axes were relabelled to\
+      \ the forward convention. -->\n  <link name=\"base_link\"/>\n\n  <!-- IMU: was\
+      \ identity with the OLD base_link; that frame is now +90deg yaw. -->\n  <link\
+      \ name=\"imu_link\"/>\n  <joint name=\"base_link_to_imu_link\" type=\"fixed\"\
+      >\n    <parent link=\"base_link\"/>\n    <child  link=\"imu_link\"/>\n    <origin\
+      \ xyz=\"0 0 0\" rpy=\"0 0 1.5707963267948966\"/>\n  </joint>\n\n  <!-- LSLIDAR\
+      \ C16: published by lslidar driver as frame_id=\"laser_link\".\n       Now 0.352m\
+      \ FORWARD (+X) of base_link, same orientation. -->\n  <link name=\"laser_link\"\
+      />\n  <joint name=\"base_link_to_laser_link\" type=\"fixed\">\n    <parent link=\"\
+      base_link\"/>\n    <child  link=\"laser_link\"/>\n    <origin xyz=\"0.352 0\
+      \ 0.1275\" rpy=\"0 0 0\"/>\n  </joint>\n\n  <!-- base_footprint: projection\
+      \ of the two-wheel AXLE MIDPOINT on the ground.\n       This frame is the differential-drive\
+      \ ROTATION CENTER and is used as\n       nav2's robot_base_frame everywhere.\
+      \ It MUST track the wheel midpoint.\n       2026-06-22: wheels moved +0.165m\
+      \ forward (see diff-geometry block at top),\n       so base_footprint moved\
+      \ with them: x = wheel_x_offset = 0.165 (was 0).\n       z = axle_z - wheel_radius\
+      \ = -0.1875 - 0.22 = -0.4075 (true ground with the\n       22cm wheels; was\
+      \ -0.25, which was stale for the old 6.25cm-radius wheels).\n       Orientation\
+      \ coincident with base_link (X=forward). -->\n  <link name=\"base_footprint\"\
+      />\n  <joint name=\"base_link_to_base_footprint\" type=\"fixed\">\n    <parent\
+      \ link=\"base_link\"/>\n    <child  link=\"base_footprint\"/>\n    <origin xyz=\"\
+      0.165 0 -0.4075\" rpy=\"0 0 0\"/>\n  </joint>\n\n  <!-- CAD chassis root: was\
+      \ Rz(pi) from old base_link; with base_link now\n       +90deg, chassis_root\
+      \ is Rz(-90deg). z offset unchanged. -->\n  <joint name=\"base_link_to_chassis_root\"\
+      \ type=\"fixed\">\n    <parent link=\"base_link\"/>\n    <child  link=\"chassis_root\"\
+      />\n    <origin xyz=\"0 0 -0.1035\" rpy=\"0 0 -1.5707963267948966\"/>\n  </joint>\n\
+      \n  <!-- ============ chassis CAD content ============ -->\n  <link name=\"\
+      chassis_root\">\n    <inertial>\n      <origin xyz=\"0.0260324583597855 0.0179022760034589\
+      \ 0.0772389796790675\" rpy=\"0 0 0\" />\n      <mass value=\"16.6007220352047\"\
+      \ />\n      <inertia ixx=\"0.322365683606253\" ixy=\"-0.00355432435118943\"\
+      \ ixz=\"2.46907320009811E-05\" iyy=\"0.302813619372029\" iyz=\"-4.47427835668917E-05\"\
+      \ izz=\"0.617038509459363\" />\n    </inertial>\n    <visual>\n      <origin\
+      \ xyz=\"0 0 0\" rpy=\"0 0 0\" />\n      <geometry>\n        <mesh filename=\"\
+      package://david_nav/meshes/zongzhuang/base_link.STL\" />\n      </geometry>\n\
+      \      <material name=\"\">\n        <color rgba=\"0.898039215686275 0.917647058823529\
+      \ 0.929411764705882 1\" />\n      </material>\n    </visual>\n    <collision>\n\
+      \      <origin xyz=\"0 0 0\" rpy=\"0 0 0\" />\n      <geometry>\n        <mesh\
+      \ filename=\"package://david_nav/meshes/zongzhuang/base_link.STL\" />\n    \
+      \  </geometry>\n    </collision>\n  </link>\n\n  <link name=\"left_wheel_link\"\
+      >\n    <inertial>\n      <origin xyz=\"0.0215436228721596 -2.4871829294032E-06\
+      \ 1.96609603111576E-08\" rpy=\"0 0 0\" />\n      <mass value=\"0.272387982807766\"\
+      \ />\n      <inertia ixx=\"0.000637120767161904\" ixy=\"2.31687133017476E-09\"\
+      \ ixz=\"4.28905159983964E-11\" iyy=\"0.00035405432582222\" iyz=\"-4.78531137075495E-11\"\
+      \ izz=\"0.000354050438511622\" />\n    </inertial>\n    <visual>\n      <origin\
+      \ xyz=\"0 0 0\" rpy=\"0 0 0\" />\n      <geometry>\n        <mesh filename=\"\
+      package://david_nav/meshes/zongzhuang/left_wheel_link.STL\" />\n      </geometry>\n\
+      \      <material name=\"\">\n        <color rgba=\"1 1 1 1\" />\n      </material>\n\
+      \    </visual>\n    <collision>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\" />\n\
+      \      <geometry>\n        <mesh filename=\"package://david_nav/meshes/zongzhuang/left_wheel_link.STL\"\
+      \ />\n      </geometry>\n    </collision>\n  </link>\n  <joint name=\"left_wheel_joint\"\
+      \ type=\"revolute\">\n    <!-- base_link (0.165, +0.2525) -> chassis_root via\
+      \ Rz(-90): x=-half_track, y=+wheel_x_offset -->\n    <origin xyz=\"-0.2525 0.165\
+      \ -0.084\" rpy=\"1.5708 0 0\" />\n    <parent link=\"chassis_root\" />\n   \
+      \ <child link=\"left_wheel_link\" />\n    <axis xyz=\"1 0 0\" />\n    <limit\
+      \ lower=\"0\" upper=\"0\" effort=\"0\" velocity=\"0\" />\n  </joint>\n\n  <link\
+      \ name=\"right_wheel_link\">\n    <inertial>\n      <origin xyz=\"-0.0229440987977794\
+      \ -2.48637469096868E-06 -2.01838018354603E-08\" rpy=\"0 0 0\" />\n      <mass\
+      \ value=\"0.272387983874311\" />\n      <inertia ixx=\"0.000637120765320742\"\
+      \ ixy=\"-2.31077385129403E-09\" ixz=\"4.55453740824157E-11\" iyy=\"0.000354054337277639\"\
+      \ iyz=\"4.78235536475146E-11\" izz=\"0.000354050440979772\" />\n    </inertial>\n\
+      \    <visual>\n      <origin xyz=\"0 0 0\" rpy=\"0 0 0\" />\n      <geometry>\n\
+      \        <mesh filename=\"package://david_nav/meshes/zongzhuang/right_wheel_link.STL\"\
+      \ />\n      </geometry>\n      <material name=\"\">\n        <color rgba=\"\
+      1 1 1 1\" />\n      </material>\n    </visual>\n    <collision>\n      <origin\
+      \ xyz=\"0 0 0\" rpy=\"0 0 0\" />\n      <geometry>\n        <mesh filename=\"\
+      package://david_nav/meshes/zongzhuang/right_wheel_link.STL\" />\n      </geometry>\n\
+      \    </collision>\n  </link>\n  <joint name=\"right_wheel_joint\" type=\"revolute\"\
+      >\n    <!-- base_link (0.165, -0.2525) -> chassis_root via Rz(-90): x=+half_track,\
+      \ y=+wheel_x_offset -->\n    <origin xyz=\"0.2525 0.165 -0.084\" rpy=\"1.5708\
+      \ 0 0\" />\n    <parent link=\"chassis_root\" />\n    <child link=\"right_wheel_link\"\
+      \ />\n    <axis xyz=\"-1 0 0\" />\n    <limit lower=\"0\" upper=\"0\" effort=\"\
+      0\" velocity=\"0\" />\n  </joint>\n\n</robot>\n"
+    use_sim_time: false
+

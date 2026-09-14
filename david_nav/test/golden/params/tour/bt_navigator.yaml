@@ -1,0 +1,54 @@
+/bt_navigator:
+  ros__parameters:
+    /bond_disable_heartbeat_timeout: true
+    always_reload_bt_xml: false
+    bt_loop_duration: 50
+    default_bt_xml_filename: /home/agx/ros2_ws_refactor/install/david_nav/share/david_nav/behavior_trees/navigate_to_pose_w_david_embedded_recovery.xml
+    default_nav_through_poses_bt_xml: /home/agx/ros2_ws_refactor/install/david_nav/share/david_nav/behavior_trees/navigate_through_poses_w_david_embedded_recovery.xml
+    default_nav_to_pose_bt_xml: /home/agx/ros2_ws_refactor/install/david_nav/share/david_nav/behavior_trees/navigate_to_pose_w_david_embedded_recovery.xml
+    default_server_timeout: 5000
+    enable_groot_monitoring: true
+    global_frame: map
+    goal_blackboard_id: goal
+    goals_blackboard_id: goals
+    groot_zmq_publisher_port: 1666
+    groot_zmq_server_port: 1667
+    odom_topic: /lightning/odometry
+    path_blackboard_id: path
+    plugin_lib_names:
+    - nav2_compute_path_to_pose_action_bt_node
+    - nav2_compute_path_through_poses_action_bt_node
+    - nav2_follow_path_action_bt_node
+    - nav2_spin_action_bt_node
+    - nav2_wait_action_bt_node
+    - nav2_back_up_action_bt_node
+    - nav2_clear_costmap_service_bt_node
+    - nav2_remove_passed_goals_action_bt_node
+    - nav2_controller_cancel_bt_node
+    - nav2_is_stuck_condition_bt_node
+    - nav2_goal_updated_condition_bt_node
+    - nav2_rate_controller_bt_node
+    - nav2_recovery_node_bt_node
+    - nav2_pipeline_sequence_bt_node
+    - nav2_round_robin_node_bt_node
+    - david_robot_embedded_in_obstacle_condition_bt_node
+    - david_escape_obstacle_action_bt_node
+    - nav2_navigate_to_pose_action_bt_node
+    - nav2_navigate_through_poses_action_bt_node
+    qos_overrides:
+      /tf:
+        subscription:
+          depth: 100
+          durability: volatile
+          history: keep_last
+          reliability: reliable
+      /tf_static:
+        subscription:
+          depth: 100
+          history: keep_last
+          reliability: reliable
+    robot_base_frame: base_footprint
+    transform_tolerance: 0.1
+    use_sim_time: false
+    wait_for_service_timeout: 1000
+
