@@ -51,7 +51,7 @@ def test_render_summary_full_run():
     assert '| ROS_DOMAIN_ID | 0 |' in text
     assert '| escape_triggered | warn | 1 |' in text
     assert '另有 2 行无法解析，见 events.jsonl。' in text
-    assert '## 脱困与恢复触发（1 次）' in text
+    assert '## 脱困与恢复触发（1 次）\n\n按节点：RobotEmbeddedInObstacle 1 次\n' in text
     assert ('- 21:20:01 `escape_triggered` [bt] '
             '{"node": "RobotEmbeddedInObstacle", "x": 14.2}') in text
     assert '## 告警与错误（1 次）' in text

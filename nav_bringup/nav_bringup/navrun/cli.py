@@ -3,6 +3,7 @@
 Example:
     navrun wrap --mode tour --alias 4 -- ~/ros2_ws/src/david_nav/start_navigation_headless.sh
     navrun doctor
+    navrun watch-bt --run-dir ~/nav_runs/latest
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from typing import Dict, Optional, Sequence
 
 from nav_bringup.doctor import checks
 from nav_bringup.navrun import wrap
+from nav_bringup.recorder import bt_log_watcher
 from nav_bringup.recorder import run_dir
 
 DEFAULT_REPO_DIR = '~/ros2_ws/src'
@@ -57,6 +59,19 @@ def build_parser() -> argparse.ArgumentParser:
         'doctor', help='read-only checks for known navigation failure modes')
     doctor_parser.add_argument(
         '--json', action='store_true', help='print results as JSON instead of text')
+
+    watch_parser = subparsers.add_parser(
+        'watch-bt', help='report behavior tree escape and recovery triggers')
+    watch_parser.add_argument(
+        '--run-dir', type=Path, default=None,
+        help='run directory to record into (default: $NAVRUN_RUN_DIR; unset prints only)')
+    watch_parser.add_argument('--topic', default='/behavior_tree_log', help='tree log topic')
+    watch_parser.add_argument('--map-frame', default='map', help='frame of the reported pose')
+    watch_parser.add_argument(
+        '--base-frame', default='base_footprint', help='robot frame whose pose is reported')
+    watch_parser.add_argument(
+        '--min-interval', type=float, default=0.5,
+        help='minimum seconds between reports of the same trigger')
     return parser
 
 
@@ -94,7 +109,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     if args.subcommand == 'doctor':
         return _doctor(args)
+    if args.subcommand == 'watch-bt':
+        return _watch_bt(args)
     return _wrap(parser, args)
+
+
+def _watch_bt(args: argparse.Namespace) -> int:
+    directory = args.run_dir
+    if directory is None and os.environ.get('NAVRUN_RUN_DIR'):
+        directory = Path(os.environ['NAVRUN_RUN_DIR'])
+    run = None
+    if directory is not None:
+        directory = directory.expanduser()
+        run = run_dir.RunDirectory(directory.parent, directory.name)
+    return bt_log_watcher.spin(
+        run,
+        topic=args.topic,
+        map_frame=args.map_frame,
+        base_frame=args.base_frame,
+        min_interval_sec=args.min_interval,
+    )
 
 
 def _doctor(args: argparse.Namespace) -> int:

@@ -70,7 +70,7 @@ def render_summary(
         event for event in events
         if event.severity != 'info' and event.event_type not in RECOVERY_EVENT_TYPES
     ]
-    lines.extend(_listed_events('脱困与恢复触发', recoveries))
+    lines.extend(_listed_events('脱困与恢复触发', recoveries, by_node=True))
     lines.extend(_listed_events('告警与错误', problems))
     lines.extend(_resources(resources))
     return '\n'.join(lines).rstrip('\n') + '\n'
@@ -123,10 +123,14 @@ def _event_counts(events: Sequence[Event], skipped: int) -> List[str]:
     return lines
 
 
-def _listed_events(title: str, events: Sequence[Event]) -> List[str]:
+def _listed_events(title: str, events: Sequence[Event], by_node: bool = False) -> List[str]:
     lines = [f'## {title}（{len(events)} 次）', '']
     if not events:
         lines.append('无。')
+    elif by_node:
+        counts = Counter(str(event.data.get('node', '-')) for event in events)
+        ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        lines.extend(['按节点：' + '，'.join(f'{name} {count} 次' for name, count in ranked), ''])
     for event in events[:MAX_LISTED_EVENTS]:
         data = json.dumps(dict(event.data), ensure_ascii=False)
         if len(data) > _MAX_DATA_CHARS:
