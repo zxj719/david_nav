@@ -57,6 +57,21 @@ exec python3 "$@"
     fake_python.chmod(0o755)
     _write_file(fake_ifconfig, "#!/usr/bin/env bash\nexit 0\n")
     fake_ifconfig.chmod(0o755)
+    # The script runs stop_stale_executor (pgrep + kill) and pin_jetson_clocks
+    # (sudo nvpmodel / jetson_clocks) even with --dry-run. Shadow them so the
+    # tests can never signal real processes or change the Jetson power mode
+    # when they run on the robot.
+    for name, body in (
+        ("sudo", "exit 1"),
+        ("nvpmodel", "exit 0"),
+        ("jetson_clocks", "exit 0"),
+        ("pgrep", "exit 1"),
+    ):
+        shim = fake_ifconfig.parent / name
+        _write_file(shim, f"#!/usr/bin/env bash
+{body}
+")
+        shim.chmod(0o755)
 
     env = os.environ.copy()
     env.update(
