@@ -3,7 +3,7 @@
 Example:
     navrun wrap --mode tour --alias 4 -- ~/ros2_ws/src/david_nav/start_navigation_headless.sh
     navrun doctor
-    navrun watch-bt --run-dir ~/nav_runs/latest
+    navrun watch-bt --run-dir ~/nav_runs/latest --base-frame <frames.nav_base>
 """
 
 from __future__ import annotations
@@ -68,7 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     watch_parser.add_argument('--topic', default='/behavior_tree_log', help='tree log topic')
     watch_parser.add_argument('--map-frame', default='map', help='frame of the reported pose')
     watch_parser.add_argument(
-        '--base-frame', default='base_footprint', help='robot frame whose pose is reported')
+        '--base-frame', required=True,
+        help='robot frame whose pose is reported (robot profile frames.nav_base)')
     watch_parser.add_argument(
         '--min-interval', type=float, default=0.5,
         help='minimum seconds between reports of the same trigger')
@@ -124,9 +125,9 @@ def _watch_bt(args: argparse.Namespace) -> int:
         run = run_dir.RunDirectory(directory.parent, directory.name)
     return bt_log_watcher.spin(
         run,
+        base_frame=args.base_frame,
         topic=args.topic,
         map_frame=args.map_frame,
-        base_frame=args.base_frame,
         min_interval_sec=args.min_interval,
     )
 

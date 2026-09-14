@@ -7,6 +7,8 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from nav_bringup.navrun import cli
 from nav_bringup.recorder import bt_log_watcher
 from nav_bringup.recorder import bt_triggers
@@ -106,13 +108,23 @@ def test_cli_watch_bt_uses_navrun_run_dir(tmp_path, monkeypatch):
     run, kwargs = calls[0]
     assert Path(run.path) == run_path
     assert kwargs == {
+        'base_frame': 'base_link',
         'topic': '/behavior_tree_log',
         'map_frame': 'map',
-        'base_frame': 'base_link',
         'min_interval_sec': 1.5,
     }
 
     monkeypatch.delenv('NAVRUN_RUN_DIR')
-    assert cli.main(['watch-bt']) == 0
+    assert cli.main(['watch-bt', '--base-frame', 'robot_base']) == 0
     assert calls[1][0] is None
-    assert calls[1][1]['base_frame'] == 'base_footprint'
+    assert calls[1][1]['base_frame'] == 'robot_base'
+
+
+def test_cli_watch_bt_requires_base_frame(monkeypatch):
+    """The robot base frame has no default; it comes from the robot profile."""
+    monkeypatch.setattr(bt_log_watcher, 'spin', lambda run, **kwargs: 0)
+
+    with pytest.raises(SystemExit) as raised:
+        cli.main(['watch-bt'])
+
+    assert raised.value.code == 2

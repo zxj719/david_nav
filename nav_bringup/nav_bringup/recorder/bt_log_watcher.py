@@ -5,7 +5,8 @@ status changes to :class:`~nav_bringup.recorder.bt_triggers.TriggerDetector`
 and, for every trigger, appends an event to the run's ``events.jsonl``, prints
 a line to the terminal and appends the same line to ``logs/navrun.log``
 (refactor plan §10.3). The tree log carries no pose, so the pose is looked up
-in TF (``map`` → ``base_footprint`` by default).
+in TF from the map frame to the robot base frame. The base frame has no
+default: it comes from the robot profile (``frames.nav_base``, plan §5.4).
 
 ROS packages are imported only inside :func:`spin`, so the rest of
 ``nav_bringup`` and its unit tests do not need a ROS environment.
@@ -102,9 +103,9 @@ class TriggerReporter:
 def spin(
     run: Optional[run_dir.RunDirectory] = None,
     *,
+    base_frame: str,
     topic: str = '/behavior_tree_log',
     map_frame: str = 'map',
-    base_frame: str = 'base_footprint',
     min_interval_sec: float = 0.5,
     stdout: TextIO = sys.stdout,
 ) -> int:
@@ -112,9 +113,9 @@ def spin(
 
     Args:
         run: Run directory to record into, or ``None`` to only print.
+        base_frame: Robot frame whose pose is reported, from the robot profile.
         topic: Behavior tree log topic.
         map_frame: Frame of the reported pose.
-        base_frame: Robot frame whose pose is reported.
         min_interval_sec: Minimum tree time between reports of one rule.
         stdout: Terminal stream.
 
