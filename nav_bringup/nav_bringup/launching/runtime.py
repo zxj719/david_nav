@@ -2,27 +2,16 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import List
 
-from ament_index_python.packages import get_package_prefix
 from launch.action import Action
 from launch.actions import ExecuteProcess
 from launch_ros.actions import Node
 
+from nav_bringup.launching.executables import resolve_executable as _resolve
 from nav_bringup.launching.graph import LaunchGraph
 from nav_bringup.launching.graph import ProcessSpec
 from nav_bringup.launching.supervision import managed_actions
-
-
-def _resolve(package: str, executable: str) -> str:
-    if Path(executable).name != executable:
-        raise ValueError('package executable must be a basename')
-    path = Path(get_package_prefix(package)) / 'lib' / package / executable
-    if not path.is_file() or not os.access(path, os.X_OK):
-        raise ValueError(f'missing executable: {path}')
-    return str(path)
 
 
 def launch_actions(graph: LaunchGraph) -> List[Action]:

@@ -132,6 +132,33 @@ It rejects existing artifacts and symlinked destinations before writing, and
 writes `launch.json` last. A failed write leaves diagnostic partial files without
 publishing a launchable bundle; it does not overwrite or delete existing records.
 
+### Startup preview (P4.2, runtime integration still pending)
+
+The installed `navrun up --dry-run` combines robot/site selection, mode overlays,
+chassis auto-detection, bundle validation and executable availability. Resource
+lookup uses the current ament overlay; `--source-root <workspace/src>` selects
+source assets instead. Both paths use the same renderer and launch graph.
+Executable validation is shared with the real launch adapter and imports no ROS
+runtime. Missing executables are reported before any platform or cleanup work.
+
+```bash
+navrun up --mode tour --robot example_diffdrive --site offline --no-executor --dry-run
+navrun up --mode chassis --robot example_diffdrive --dry-run
+```
+
+The JSON report contains selected processes, proposed platform commands, cleanup
+PIDs, protected PIDs, warnings and missing dependencies. It never prints observed
+process command lines. Dry-run does not acquire the global lock, create a run
+directory, execute subprocesses, inspect/delete shared memory, or start ROS nodes.
+`dry_run_preview` is a prospective path only, not a real run record.
+
+Exit 0 means the preview is valid, not that live startup is available. Missing
+executables/configuration return 2; unbound legacy executor arguments are an
+explicit error unless `--no-executor` is selected. Actual `up` without `--dry-run`
+returns 2 before discovery, because recording/manifest, readiness/localization and
+exit-zero orchestration remain unfinished. The report says `runtime_enabled:
+false`. Do not replace production aliases with this intermediate entry point.
+
 ### Unit tests
 
 `navrun.dds_hygiene` separates read-only mapping observation and candidate planning
@@ -170,8 +197,8 @@ explicit arguments, with no implicit os.kill default.
 `navrun.process_backend` provides the Linux adapters for future up integration:
 read-only psutil snapshots reject incomplete views, and signaling opens a pidfd
 before rechecking PID/creation time/user/argv. It has no PID-only fallback, shell,
-sudo or permission change. These adapters are not called by imports or existing
-entry points. Tests replace all psutil/pidfd signal operations with fake objects;
+sudo or permission change. The snapshot adapter is used by startup preview; no
+entry point calls the signal adapter yet. Tests replace psutil/pidfd signals with fakes;
 no production residual has been stopped or restarted during this implementation.
 
 `navrun.locking.RunLock` implements the shared `/tmp/navrun.lock` lease for the

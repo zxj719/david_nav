@@ -1,0 +1,216 @@
+"""Read-only startup planning, using the same bundle and graph as ROS launch.
+
+The returned plan is a preview, not authority to mutate the host. Runtime wiring
+and legacy executor arguments remain explicit integration work. In particular,
+successful dry-run validation never claims that hardware was exercised.
+"""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from pathlib import Path
+import re
+from typing import Any, Callable, Dict, Sequence, Tuple
+
+import yaml
+
+from nav_bringup.launching.graph import build_graph, GraphOptions, LaunchGraph, MODES
+from nav_bringup.launching.graph import NAVIGATION_MODES
+from nav_bringup.navcfg import render, schema
+from nav_bringup.navrun.platform import plan_platform, PlatformStep
+from nav_bringup.navrun.preflight import plan_preflight, PreflightPlan, ProcessInfo
+from nav_bringup.navrun.preparation import BundleInputs, PreparedBundle, prepare_bundle
+
+
+@dataclass(frozen=True)
+class UpRequest:
+    """User selectors independent of ROS resource discovery.
+
+    Attributes:
+        mode: One of the five launch modes.
+        robot: Robot name, provided by the corresponding name_config package.
+        site: Site directory name within that package; ignored for chassis tools.
+        run_dir: Prospective absolute run directory, not created during planning.
+        chassis: auto, on or off; resolved by a read-only process snapshot.
+        record: Requested light, full or off recording policy.
+        no_executor: Explicitly omit the legacy WS executor.
+    """
+
+    mode: str
+    robot: str
+    site: str
+    run_dir: Path
+    chassis: str = 'auto'
+    record: str = 'light'
+    no_executor: bool = False
+
+
+@dataclass(frozen=True)
+class UpPlan:
+    """A validated bundle plus unresolved deployment requirements.
+
+    Attributes:
+        request: Original selectors.
+        bundle: Immutable rendered configuration.
+        graph: Processes selected from the rendered options.
+        preflight: Chassis ownership, cleanup identities and protected processes.
+        platform: Proposed noninteractive platform commands, not executed.
+        executables: Process name and resolved installed executable path.
+        errors: Missing dependencies or unfinished binding requirements.
+    """
+
+    request: UpRequest
+    bundle: PreparedBundle
+    graph: LaunchGraph
+    preflight: PreflightPlan
+    platform: Tuple[PlatformStep, ...]
+    executables: Tuple[Tuple[str, str], ...]
+    errors: Tuple[str, ...]
+
+
+def _validate(request: UpRequest) -> None:
+    if request.mode not in MODES:
+        raise ValueError('unknown mode')
+    for name in ('robot', 'site'):
+        value = getattr(request, name)
+        if not isinstance(value, str) or not re.fullmatch(r'[a-z][a-z0-9_]*', value):
+            raise ValueError(f'{name} must be a lowercase resource name')
+    if request.chassis not in ('auto', 'on', 'off'):
+        raise ValueError('chassis must be auto, on or off')
+    if request.record not in ('light', 'full', 'off'):
+        raise ValueError('record must be light, full or off')
+    if type(request.no_executor) is not bool:
+        raise ValueError('no_executor must be boolean')
+    if (not isinstance(request.run_dir, Path) or not request.run_dir.is_absolute()
+            or '..' in request.run_dir.parts or request.run_dir == Path('/')):
+        raise ValueError('run_dir must be an absolute normalized run directory')
+
+
+def discover_inputs(
+    request: UpRequest, package_share: Callable[[str], Path],
+) -> BundleInputs:
+    """Select source or installed assets without importing robot package code.
+
+    Args:
+        request: User selectors, validated before any resource lookup.
+        package_share: Read-only resolver returning a package's resource directory.
+
+    Returns:
+        Paths consumed by the shared offline bundle renderer. Non-navigation
+        modes do not look up Nav2, plugin, site, map or URDF resources.
+
+    Raises:
+        ValueError: A selector is invalid.
+        LookupError: A required resource package is unavailable.
+    """
+    _validate(request)
+    robot = Path(package_share(request.robot + '_config'))
+    navigation = request.mode in NAVIGATION_MODES
+    bringup = Path(package_share('nav_bringup')) if navigation else robot
+    plugins = Path(package_share('nav_plugins')) if navigation else robot
+    return BundleInputs(
+        robot / 'robot' / (request.robot + '.yaml'),
+        robot / 'modes' / (request.mode + '.yaml'),
+        bringup / 'config/nav2_base.yaml', bringup / 'config/nav2_bindings.yaml',
+        plugins / 'behavior_trees', plugins / 'config/bt_bindings.yaml',
+        site=robot / 'sites' / request.site / 'site.yaml' if navigation else None,
+        urdf=robot / 'urdf' / (request.robot + '.urdf') if navigation else None)
+
+
+def plan_up(
+    request: UpRequest, inputs: BundleInputs, catalog: schema.ParameterCatalog,
+    processes: Sequence[ProcessInfo], own_pid: int,
+    resolve: Callable[[str, str], str],
+) -> UpPlan:
+    """Prepare configuration and check every entry point before host mutations.
+
+    Args:
+        request: Requested startup selectors.
+        inputs: Resolved configuration paths.
+        catalog: Package-owned parameter schemas.
+        processes: Complete read-only process snapshot.
+        own_pid: Supervisor identity present in the snapshot.
+        resolve: Read-only package/executable resolver, injected by tests.
+
+    Returns:
+        Plan containing all missing executable errors, rather than stopping at
+        the first missing component. No cleanup, locks, ROS or writes occur.
+
+    Raises:
+        ValueError: Invalid inputs, mismatched identity or changing configuration.
+        OSError: A configuration file cannot be read.
+    """
+    _validate(request)
+    initial_profile = inputs.profile.read_bytes()
+    initial_mode = inputs.mode.read_bytes()
+    profile = yaml.safe_load(initial_profile)
+    if not isinstance(profile, dict):
+        raise ValueError('robot profile must be a mapping')
+    mode = render.parse_mode(yaml.safe_load(initial_mode), inputs.mode)
+    effective = render.deep_merge(profile, mode.profile)
+    preflight = plan_preflight(effective, processes, own_pid, chassis=request.chassis)
+    navigation = request.mode in NAVIGATION_MODES
+    executor = request.mode in ('tour', 'precise') and not request.no_executor
+    scan = effective.get('sensors', {}).get('scan_from_cloud', {}).get('enabled', False)
+    options = GraphOptions(
+        request.mode, str(request.run_dir), start_chassis=preflight.start_chassis,
+        start_executor=executor, scan_bridge=scan if navigation else False)
+    bundle = prepare_bundle(options, inputs, catalog)
+    artifacts = dict(bundle.artifacts)
+    if (artifacts['params/inputs/robot.yaml'] != initial_profile
+            or artifacts['params/inputs/mode.yaml'] != initial_mode):
+        raise ValueError('configuration changed during startup planning; retry')
+    if bundle.robot != request.robot or (navigation and bundle.site != request.site):
+        raise ValueError('requested robot/site identity does not match the rendered bundle')
+    graph = build_graph(bundle.options)
+    errors = []
+    executables = []
+    requirements = [(spec.name, spec.package, spec.executable) for spec in graph.processes]
+    if executor:
+        requirements.append(('ready_gate', 'nav_bringup', 'nav_ready_exec'))
+        errors.append('legacy executor argument binding is not yet migrated; '
+                      '--no-executor can preview the navigation graph alone')
+    for name, package, executable in requirements:
+        try:
+            path = resolve(package, executable)
+            if not isinstance(path, str) or not Path(path).is_absolute():
+                raise ValueError('resolver must return an absolute executable path')
+            executables.append((name, path))
+        except (ValueError, LookupError, OSError) as error:
+            errors.append(f'{package}/{executable}: {error}')
+    return UpPlan(request, bundle, graph, preflight, plan_platform(effective),
+                  tuple(executables), tuple(errors))
+
+
+def report_plan(plan: UpPlan) -> Dict[str, Any]:
+    """Serialize a preview without disclosing observed process command lines.
+
+    Args:
+        plan: Prepared startup plan.
+
+    Returns:
+        JSON-compatible report with explicit dry-run and runtime capability flags.
+    """
+    options = plan.bundle.options
+    return {
+        'dry_run': True, 'runtime_enabled': False,
+        'robot': plan.bundle.robot, 'site': plan.bundle.site, 'mode': options.mode,
+        'run_dir': options.run_dir, 'record': plan.request.record,
+        'launch': ['ros2', 'launch', 'nav_bringup', 'nav.launch.py',
+                   'run_dir:=' + options.run_dir, 'robot:=' + plan.bundle.robot,
+                   'site:=' + plan.bundle.site, 'mode:=' + options.mode],
+        'start_chassis': options.start_chassis,
+        'processes': [asdict(process) for process in plan.graph.processes],
+        'executables': dict(plan.executables),
+        'platform': [asdict(step) for step in plan.platform],
+        'preflight': {
+            'target_pids': [process.pid for process in plan.preflight.targets],
+            'protected_pids': list(plan.preflight.protected_pids),
+            'warnings': list(plan.preflight.warnings)},
+        'dds': 'not inspected or cleaned by dry-run; incomplete evidence retains all segments',
+        'artifacts': [name for name, _ in plan.bundle.artifacts],
+        'warnings': [asdict(issue) for issue in plan.bundle.issues],
+        'errors': list(plan.errors),
+        'pending_runtime': ['executor bindings', 'recording and manifest orchestration',
+                            'readiness and manual localization checks', 'exit zero and cleanup'],
+    }
