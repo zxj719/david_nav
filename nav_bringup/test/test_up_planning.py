@@ -27,7 +27,7 @@ def _plan(request, processes=(SELF,), resolve=lambda package, name: '/fake/' + n
     return up_planning.plan_up(request, inputs, catalog, processes, SELF.pid, resolve)
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'chassis'])
+@pytest.mark.parametrize('mode', ['tour', 'precise', 'chassis', 'teleop'])
 def test_plan_real_inputs_without_creating_run(tmp_path, mode):
     """Offline profile rendering is reachable without any process or file mutation."""
     request = _request(tmp_path, mode=mode)
@@ -50,6 +50,14 @@ def test_external_chassis_is_not_owned_or_resolved(tmp_path):
     assert all(process.name != 'wheeltec_robot' for process in plan.graph.processes)
     assert not plan.preflight.targets
     assert 101 in plan.preflight.protected_pids
+
+
+def test_teleop_refuses_legacy_navigation_instead_of_preflight_killing_it(tmp_path):
+    """A legacy stack without the new lease cannot be silently cleared to start teleop."""
+    old_nav = ProcessInfo(102, 1, 2.0, ('/opt/ros/lib/nav2_controller/controller_server',), 1000)
+    plan = _plan(_request(tmp_path, mode='teleop', robot='david'), (SELF, old_nav))
+    assert plan.preflight.targets
+    assert any('teleop refuses' in error for error in plan.errors)
 
 
 def test_missing_executables_are_aggregated_before_startup(tmp_path):

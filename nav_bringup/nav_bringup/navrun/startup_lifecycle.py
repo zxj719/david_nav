@@ -17,6 +17,7 @@ import time
 from typing import Callable, Mapping, Optional, Tuple
 
 from nav_bringup.navrun.locking import RunLock
+from nav_bringup.navrun.keyboard_session import KeyboardSession
 from nav_bringup.navrun.owned_process import OwnedProcess
 from nav_bringup.recorder.events import EventLog
 
@@ -48,6 +49,8 @@ class StartupCommands:
         zero: Required bounded stop command. It must publish only zero velocity.
         parameter_dump: Optional one-shot diagnostic, owned separately from the
             monitor so its children cannot escape the supervisor's cleanup group.
+        keyboard: Optional directly supervised keyboard, never a launch child.
+        tty_device: Profile-selected terminal, captured by the outer recorded owner.
     """
 
     launch: Tuple[str, ...]
@@ -56,6 +59,8 @@ class StartupCommands:
     monitor: Tuple[str, ...]
     zero: Tuple[str, ...]
     parameter_dump: Tuple[str, ...] = ()
+    keyboard: Tuple[str, ...] = ()
+    tty_device: str = ''
 
 
 @dataclass(frozen=True)
@@ -83,7 +88,7 @@ class _Finished(Exception):
 
 
 class _Supervisor:
-    def __init__(self, commands, run_dir, events, environ, stopped, stop_timeout):
+    def __init__(self, commands, run_dir, events, environ, stopped, stop_timeout, keyboard):
         self.commands = commands
         self.run_dir = run_dir
         self.events = events
@@ -99,6 +104,8 @@ class _Supervisor:
         self.record_broken = False
         self.monitor_failed = False
         self.dump_finished = False
+        self.keyboard = keyboard
+        self.keyboard_permitted = False
 
     def emit(self, event, severity='info', **data):
         # A broken event file must not prevent stop attempts on other children.
@@ -123,6 +130,13 @@ class _Supervisor:
             raise _Finished(128 + int(signum), reason)
         if self.record_broken:
             raise _Finished(2, 'record_failed')
+        keyboard = self.children.get('keyboard')
+        if keyboard is not None and keyboard.poll() is not None:
+            code = keyboard.poll()
+            if code == 0 and self.keyboard_permitted:
+                raise _Finished(0, 'keyboard_quit')
+            raise _Finished(code if code > 0 else 128 - code if code < 0 else 1,
+                            'keyboard_exited')
         for name in ('launch', 'record'):
             child = self.children.get(name)
             code = child.poll() if child is not None else None
@@ -166,8 +180,30 @@ class _Supervisor:
 
     def execute(self):
         self.check()
+        if self.keyboard is not None:
+            argv, descriptors = self.keyboard.command(self.commands.keyboard)
+            child = OwnedProcess(argv, self.environ, self.run_dir / 'logs/keyboard.log',
+                                 pass_fds=descriptors)
+            self.children['keyboard'] = child
+            self.keyboard.child_started()
+            self.emit('process_started', name='keyboard', pid=child.pid)
+            deadline = time.monotonic() + 30.0
+            while True:
+                self.check()
+                if self.keyboard.ready():
+                    break
+                if time.monotonic() >= deadline:
+                    raise _Finished(1, 'keyboard_ready_timeout')
+                time.sleep(0.05)
+            self.emit('keyboard_guard_ready')
+        self.check()
         self.start('launch', self.commands.launch)
         self.launched = True
+        if self.keyboard is not None:
+            self.check()
+            self.keyboard.permit()
+            self.keyboard_permitted = True
+            self.emit('keyboard_permitted')
         for gate in self.commands.gates:
             self.gate(gate)
         self.check()
@@ -221,9 +257,16 @@ class _Supervisor:
             self.close(name)
 
     def cleanup(self):
+        if self.keyboard is not None:
+            try:
+                self.keyboard.revoke()
+            except Exception as error:
+                self.cleanup_errors.append(f'keyboard revoke: {error}')
+                self.emit('keyboard_revoke_failed', 'error', error=str(error))
         if self.launched:
             # Attempt stopping before waiting on any diagnostic helper to exit.
             self.zero('zero_before')
+        self.close('keyboard')
         for gate in self.commands.gates:
             self.close(gate.name)
         if self.launched:
@@ -240,6 +283,7 @@ def supervise(
     commands: StartupCommands, run_dir: Path, events: EventLog,
     environ: Mapping[str, str], lease: RunLock,
     stopped: Callable[[], Optional[int]], stop_timeout_sec: float = 10.0,
+    keyboard: Optional[KeyboardSession] = None,
 ) -> LifecycleResult:
     """Run prepared commands and attempt every owned cleanup before returning.
 
@@ -258,6 +302,8 @@ def supervise(
         lease: Acquired single-instance lock, retained by the caller.
         stopped: Return the first requested signal number, or None to continue.
         stop_timeout_sec: Finite nonnegative per-group flushing grace period.
+        keyboard: Optional parent-owned terminal/socket capabilities, retained by
+            the outer recorder until every returned child handle has drained.
 
     Returns:
         Status including cleanup failures; no unexpected launcher exit is success.
@@ -269,8 +315,10 @@ def supervise(
     """
     lease.fileno()
     validate_commands(commands, run_dir, stop_timeout_sec)
+    if bool(commands.keyboard) != (keyboard is not None):
+        raise ValueError('keyboard command and parent-owned capabilities must agree')
     (run_dir / 'logs/ros').mkdir(exist_ok=True)
-    owner = _Supervisor(commands, run_dir, events, environ, stopped, stop_timeout_sec)
+    owner = _Supervisor(commands, run_dir, events, environ, stopped, stop_timeout_sec, keyboard)
     result = LifecycleResult(2, 'startup_failed')
     try:
         owner.execute()
@@ -304,7 +352,7 @@ def validate_commands(
     if not run_dir.is_absolute() or not (run_dir / 'logs').is_dir():
         raise ValueError('expected an absolute existing run directory with logs')
     _timeout(stop_timeout)
-    reserved = {'launch', 'record', 'monitor', 'parameter_dump',
+    reserved = {'launch', 'record', 'monitor', 'parameter_dump', 'keyboard',
                 'zero_before', 'zero_after', 'ros'}
     argv_list = [commands.launch, commands.zero]
     for gate in commands.gates:
@@ -314,8 +362,14 @@ def validate_commands(
         if gate.timeout_sec is not None:
             _timeout(gate.timeout_sec)
         argv_list.append(gate.argv)
-    argv_list.extend(argv for argv in (commands.record, commands.monitor, commands.parameter_dump)
-                     if argv)
+    argv_list.extend(argv for argv in (
+        commands.record, commands.monitor, commands.parameter_dump, commands.keyboard) if argv)
+    if bool(commands.keyboard) != bool(commands.tty_device):
+        raise ValueError('keyboard and terminal must be selected together')
+    if commands.tty_device and (
+            not isinstance(commands.tty_device, str) or '\0' in commands.tty_device
+            or not Path(commands.tty_device).is_absolute()):
+        raise ValueError('keyboard terminal must be an absolute path without NUL')
     if any(not argv or any(not isinstance(arg, str) or '\0' in arg for arg in argv)
            for argv in argv_list):
         raise ValueError('commands must be nonempty argument vectors without NUL')

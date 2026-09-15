@@ -157,7 +157,8 @@ def plan_up(
     scan = effective.get('sensors', {}).get('scan_from_cloud', {}).get('enabled', False)
     options = GraphOptions(
         request.mode, str(request.run_dir), start_chassis=preflight.start_chassis,
-        start_executor=executor, scan_bridge=scan if navigation else False)
+        start_executor=executor, scan_bridge=scan if navigation else False,
+        supervisor_keyboard=request.mode == 'teleop')
     bundle = prepare_bundle(options, inputs, catalog)
     artifacts = dict(bundle.artifacts)
     if (artifacts['params/inputs/robot.yaml'] != initial_profile
@@ -167,8 +168,9 @@ def plan_up(
         raise ValueError('requested robot/site identity does not match the rendered bundle')
     graph = build_graph(bundle.options)
     errors = []
-    if request.mode == 'teleop':
-        errors.append('combined teleop launch awaits supervisor-owned startup interlock')
+    if request.mode == 'teleop' and preflight.targets:
+        errors.append('teleop refuses existing navigation/residual processes; '
+                      'stop and inspect them before starting keyboard control')
     executables = []
     requirements = [(spec.name, spec.package, spec.executable) for spec in graph.processes]
     if executor:
@@ -197,7 +199,7 @@ def report_plan(plan: UpPlan) -> Dict[str, Any]:
     """
     options = plan.bundle.options
     return {
-        'dry_run': True, 'runtime_enabled': plan.request.mode != 'teleop',
+        'dry_run': True, 'runtime_enabled': True,
         'robot': plan.bundle.robot, 'site': plan.bundle.site, 'mode': options.mode,
         'run_dir': options.run_dir, 'record': plan.request.record,
         'recording': asdict(plan.recording),
@@ -216,5 +218,5 @@ def report_plan(plan: UpPlan) -> Dict[str, Any]:
         'artifacts': [name for name, _ in plan.bundle.artifacts],
         'warnings': [asdict(issue) for issue in plan.bundle.issues],
         'errors': list(plan.errors),
-        'pending_runtime': ['combined teleop ownership and navigation acceptance'],
+        'pending_runtime': ['navigation acceptance and operator deployment checks'],
     }

@@ -100,6 +100,7 @@ def test_profile_topics_and_optional_processes_are_respected() -> None:
     {'mode': 'chassis', 'scan_bridge': True},
     {'ready_timeout_sec': 0.0}, {'ready_timeout_sec': float('inf')},
     {'executor_arguments': 'not argv'}, {'ready_action': ''},
+    {'supervisor_keyboard': True}, {'supervisor_keyboard': 'true'},
 ])
 def test_invalid_graphs_are_rejected(changes) -> None:
     """Invalid switches fail while the graph is still pure data."""

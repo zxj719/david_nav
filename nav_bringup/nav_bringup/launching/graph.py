@@ -51,6 +51,7 @@ class GraphOptions:
         executor_arguments: Frozen legacy executor CLI arguments until Phase 6.
         ready_timeout_sec: Maximum wall-clock wait before refusing to start the executor.
         ready_action: Navigation action server checked without submitting any goal.
+        supervisor_keyboard: Teleop keyboard is owned directly by navrun, not launch.
     """
 
     mode: str
@@ -75,6 +76,7 @@ class GraphOptions:
     executor_arguments: Tuple[str, ...] = ()
     ready_timeout_sec: float = 90.0
     ready_action: str = '/navigate_to_pose'
+    supervisor_keyboard: bool = False
 
 
 @dataclass(frozen=True)
@@ -120,11 +122,13 @@ class LaunchGraph:
         mode: Selected mode.
         processes: Owned processes, in declaration order.
         lifecycle_nodes: Nav2 activation order, with an owned map server first.
+        supervisor_keyboard: Exclude the explicitly supervised keyboard from launch actions.
     """
 
     mode: str
     processes: Tuple[ProcessSpec, ...]
     lifecycle_nodes: Tuple[str, ...]
+    supervisor_keyboard: bool = False
 
 
 def _validate(options: GraphOptions) -> None:
@@ -133,7 +137,7 @@ def _validate(options: GraphOptions) -> None:
     if not PurePath(options.run_dir).is_absolute() or '..' in PurePath(options.run_dir).parts:
         raise ValueError('run_dir must be an absolute normalized run directory')
     for name in ('start_chassis', 'start_executor', 'map_server', 'scan_bridge',
-                 'robot_state', 'rviz'):
+                 'robot_state', 'rviz', 'supervisor_keyboard'):
         if not isinstance(getattr(options, name), bool):
             raise ValueError(f'{name} must be a resolved boolean')
     for delay in (options.chassis_delay_sec, options.rviz_delay_sec):
@@ -149,6 +153,8 @@ def _validate(options: GraphOptions) -> None:
         raise ValueError('executor_arguments must be a tuple of strings')
     if options.start_executor and options.mode not in ('tour', 'precise'):
         raise ValueError('the executor is only valid in tour or precise mode')
+    if options.supervisor_keyboard and options.mode != 'teleop':
+        raise ValueError('supervisor keyboard ownership is only valid in teleop mode')
     if options.scan_bridge and options.mode not in NAVIGATION_MODES:
         raise ValueError('preprocessing is only valid in a navigation mode')
     for name in ('driver_package', 'driver_executable', 'nav_command_topic',
@@ -191,9 +197,11 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
         return LaunchGraph(options.mode, tuple(processes), ())
     if options.mode == 'teleop':
         processes.append(ProcessSpec(
-            'chassis_teleop', 'chassis_teleop', 'chassis_teleop', params('teleop'),
+            'chassis_teleop', 'chassis_teleop',
+            'chassis_teleop_managed' if options.supervisor_keyboard else 'chassis_teleop',
+            params('teleop'),
             delay_sec=delay))
-        return LaunchGraph(options.mode, tuple(processes), ())
+        return LaunchGraph(options.mode, tuple(processes), (), options.supervisor_keyboard)
 
     tf = (('/tf', 'tf'), ('/tf_static', 'tf_static'))
     lifecycle = []

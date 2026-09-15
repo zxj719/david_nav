@@ -22,7 +22,7 @@ def _plan(tmp_path, robot='example_diffdrive', site='offline', mode='tour', reco
     own = ProcessInfo(100, 1, 1.0, ('navrun',), 1000)
     inputs = discover_inputs(request, lambda package: SOURCE / package)
     if not inputs.mode.exists():
-        overlay = {'chassis': {'adapter': {'input_topic': '/demo/smoothed'}}} if (
+        overlay = {'chassis': {'adapter': {'input_topic': '/demo/safe'}}} if (
             mode == 'teleop') else {}
         mode_path = tmp_path / 'mode.yaml'
         mode_path.write_text(yaml.safe_dump({'schema_version': 1, 'mode': mode,
@@ -98,7 +98,12 @@ def test_unresolved_ros2_is_rejected_before_launch(tmp_path):
                       which=lambda name: None)
 
 
-def test_teleop_cannot_bypass_unfinished_interlock(tmp_path):
-    """Runtime binding preserves the existing combined-keyboard rejection."""
-    with pytest.raises(ValueError, match='teleop'):
-        _bind(_plan(tmp_path, mode='teleop'))
+def test_teleop_binds_a_direct_managed_keyboard_and_no_navigation_gates(tmp_path):
+    """The inherited capabilities will go directly to keyboard, never through launch."""
+    plan = _plan(tmp_path, mode='teleop')
+    selected = _bind(plan)
+    assert selected.keyboard[0] == '/fixture/chassis_teleop_managed'
+    assert selected.keyboard[-1].endswith('/params/rendered/teleop.yaml')
+    assert selected.tty_device == '/dev/tty'
+    assert selected.gates == ()
+    assert plan.graph.supervisor_keyboard

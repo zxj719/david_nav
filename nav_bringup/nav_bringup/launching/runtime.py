@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import List
 
 from launch.action import Action
@@ -27,7 +28,10 @@ def launch_actions(graph: LaunchGraph) -> List[Action]:
         ValueError: If an executable is invalid, missing or not executable.
     """
     if graph.mode == 'teleop':
-        raise ValueError('combined teleop launch awaits supervisor-owned startup interlock')
+        if not graph.supervisor_keyboard:
+            raise ValueError('teleop requires navrun supervisor-owned keyboard startup')
+        graph = replace(graph, processes=tuple(
+            spec for spec in graph.processes if spec.name != 'chassis_teleop'))
     executables = {spec.name: _resolve(spec.package, spec.executable) for spec in graph.processes}
     gate = _resolve('nav_bringup', 'nav_ready_exec') if any(
         spec.wait_for_navigation for spec in graph.processes) else ''

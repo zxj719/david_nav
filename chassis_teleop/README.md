@@ -1,9 +1,10 @@
 # chassis_teleop (P4.4 in progress)
 
 The package provides a keyboard state machine, owned TTY reader and standalone
-`chassis_teleop` executable. It does **not yet provide the combined keyboard launch**:
-supervisor-owned lock and startup ordering remain pending. Combined teleop launch
-is explicitly rejected before spawning children. This is not a replacement for alias 5k.
+`chassis_teleop` executable. `navrun up --mode teleop` now provides recorded combined
+startup with driver, adapter and a separately supervised keyboard. The convenience
+`keyboard_teleop.launch.py` entry and its parameter overrides remain pending.
+This is not yet an operator-accepted replacement for alias 5k.
 
 Standalone startup acquires the navrun lock, opens the configured TTY and observes
 all configured command topics (including its own output) for `discovery_sec` before
@@ -12,7 +13,7 @@ an adapter. Rejection publishes nothing. Discovery errors fail closed, but DDS
 discovery is not an atomic barrier against uncoordinated processes starting later.
 INT/TERM, quit and terminal failures stop an armed output before restoring terminal
 attributes, destroying ROS and releasing the lock. An already running adapter is
-not exempted; combined startup needs the pending supervisor integration.
+not exempted; combined startup performs the keyboard check before starting its adapter.
 
 The internal `chassis_teleop_managed` entry accepts three explicit inherited
 descriptors: `--lock-fd`, `--control-fd` and `--tty-fd`, followed by ROS arguments.
@@ -30,8 +31,15 @@ nothing; after activation it stops the armed output. Liveness is checked both
 before and after a key read, so a key arriving with disconnection cannot publish
 motion. The supervisor must retain its lease until the keyboard and all other
 owned children drain, and retain a terminal-attribute snapshot for crash recovery.
-This child-side entry is implemented and tested; the combined launch's parent-side
-ordering, terminal backup and lifecycle integration remain unfinished and rejected.
+Navrun now supplies this parent-side ordering and terminal backup. A missing TTY
+fails before platform steps. The prepared graph records supervisor ownership;
+launch omits the keyboard rather than trying to pass capabilities through launch.
+Normal q finishes the recording with status zero; a killed keyboard fails the run
+and triggers chassis cleanup followed by parent-side terminal restoration.
+The lease is retained until all groups drain, including any cleanup retries.
+Teleop refuses preflight cleanup targets (including a legacy navigation stack
+without the new lock) before host operations. Its keyboard hard-limit checks do
+not require maps, localization or Nav2 inputs.
 
 `control.TeleopConfig` retains the Apache-2.0 `david_cmd.david_keyboard` standalone
 defaults. `KeyboardState` owns only one command and its last motion timestamp.

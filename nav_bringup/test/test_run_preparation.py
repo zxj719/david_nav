@@ -47,6 +47,19 @@ def _prepare(tmp_path: Path, mode: str = 'tour', **switches):
     return prepare_bundle(options, inputs, catalog)
 
 
+@pytest.mark.parametrize('limit', ['max_linear_x', 'max_angular_z'])
+def test_teleop_limits_checked_without_navigation_inputs(tmp_path, limit):
+    """Site-free teleop still enforces keyboard ceilings against the adapter hard limits."""
+    inputs = _inputs(tmp_path, 'teleop')
+    profile = yaml.safe_load(inputs.profile.read_text())
+    profile['teleop'][limit] = 9.0
+    inputs.profile.write_text(yaml.safe_dump(profile))
+    with pytest.raises(ValueError, match='teleop'):
+        prepare_bundle(GraphOptions('teleop', str(tmp_path / 'run')),
+                       replace(inputs, site=None, urdf=None),
+                       schema.load_catalog(schema.find_source_schemas(SOURCE)))
+
+
 @pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'])
 def test_prepare_is_read_only_and_written_bundle_roundtrips(tmp_path: Path, mode: str) -> None:
     """All five mode bundles satisfy the installed launch reader's contract."""

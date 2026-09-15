@@ -16,6 +16,18 @@ def test_combined_teleop_refuses_before_starting_hardware(monkeypatch) -> None:
         runtime.launch_actions(build_graph(GraphOptions('teleop', '/run/test')))
 
 
+def test_managed_teleop_launch_only_owns_driver_and_adapter(monkeypatch) -> None:
+    """The keyboard stays in the complete plan but must not be spawned twice."""
+    nodes = []
+    monkeypatch.setattr(runtime, '_resolve', lambda package, name: '/unused/' + name)
+    monkeypatch.setattr(runtime, 'Node', lambda **kwargs: (
+        nodes.append(kwargs['name']) or ExecuteProcess(cmd=['not-executed'])))
+    graph = build_graph(GraphOptions('teleop', '/run/test', supervisor_keyboard=True))
+    assert any(spec.executable == 'chassis_teleop_managed' for spec in graph.processes)
+    runtime.launch_actions(graph)
+    assert nodes == ['wheeltec_robot', 'chassis_adapter']
+
+
 def test_missing_package_fails_before_any_node_constructor(monkeypatch) -> None:
     """A late missing dependency cannot leave the early hardware driver started."""
     def resolve(package, executable):

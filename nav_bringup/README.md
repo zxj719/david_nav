@@ -21,7 +21,7 @@ This package is robot independent: robot-specific values live in a
 | `navrun wrap --monitor-base-frame FRAME [--monitor-topic TOPIC]`: runs `navrun monitor` next to the command (own session; output in the terminal and `console.log`; stopped after the command; failures recorded as warnings) and dumps effective parameters once `--ready-action` (default `/navigate_to_pose`) has a server | available (P1.4b) | plan §10.3, §13.2 |
 | `navrun doctor`: read-only checks (ROS/DDS environment, orphan Fast DDS segments, map yaml mode, duplicate robot_state_publisher, stale copied scripts, chassis serial device, ROS log directory size) | available (P1.5a, P1.5b) | plan §13.3 |
 | `navrun doctor --live [--cmd-topic T] [--watch-topic T]`: stale ros2 CLI daemon (compared with `--no-daemon`; never started or stopped), several publishers on a command topic, publishers from more than one host (Fast DDS GID host bytes), map→odom transform missing (hint) | available (P1.5b) | plan §13.3 |
-| `navrun up` | recorded navigation/chassis entry available; combined teleop pending (P4.2) | plan §13.1 |
+| `navrun up` | recorded navigation/chassis/teleop entry available; deployment acceptance pending (P4.2) | plan §13.1 |
 | `navcfg render --profile FILE [--mode FILE] --output FILE` (`nav_bringup.navcfg.render`): a base parameter tree whose robot-specific values are `<bind:KEY>` markers, a binding table listing every parameter each profile key is written to (markers and table must agree), the robot profile and a mode overlay (profile values plus `nav2_overrides`, which may not touch bound parameters); PyYAML and the standard library only | available (P2.3) | plan §12.3 |
 | `config/nav2_base.yaml` + `config/nav2_bindings.yaml`: Nav2 base parameters (the David tour values and their tuning notes) with frames, footprint, speed limits, goal tolerances and odom/scan/map topics bound to profile keys, which `config/schema.yaml` declares as required | available (P2.3) | plan §12.3 |
 | `navcfg validate --profile FILE --mode FILE --site FILE --urdf FILE --bt-dir DIR [--source-root SRC]`: schema checks plus the frame, speed, precise-mode, trinary-map, teleop, diff-drive BT and POI-frame rules; warnings do not reject the configuration | available (P2.5) | plan §12.4 |
@@ -96,8 +96,8 @@ owned action instead of an unlimited background restart loop. External drivers
 are omitted completely. The plain legacy executor CLI is protected by a
 read-only action-server readiness gate and receives its exact argv, without a shell.
 
-This is not yet an accepted production replacement for aliases: combined teleop
-ownership and navigation/physical acceptance remain pending. Bundle preparation,
+This is not yet an accepted production replacement for aliases: the convenience
+keyboard launch and navigation/physical acceptance remain pending. Bundle preparation,
 the Python chassis adapter and recorded supervision are available. No production alias has changed.
 The sandbox launch checks use disposable Python children and an optional fake
 Nav2 server; they never run the physical driver or submit a goal.
@@ -156,7 +156,7 @@ Exit 0 means the preview is valid, not that deployment is accepted. Missing
 executables/configuration return 2. Legacy executor arguments now come from the
 frozen robot/site inputs; `--no-executor` still explicitly omits that process.
 Actual `up` without `--dry-run` now enters the lock-scoped recorded workflow for
-tour, precise, bench_slamgt and chassis. `--repo` supplies the repository recorded
+tour, precise, bench_slamgt, chassis and teleop. `--repo` supplies the repository recorded
 in the manifest; `--source-root` also serves as the repository when `--repo` is
 absent. Installed layouts without a discoverable repository require `--repo`.
 `--strict` makes live-check errors stop navigation startup. Chassis never waits
@@ -169,19 +169,32 @@ Do not run it casually as a diagnostic or replace production aliases before
 operator acceptance. Implementation tests replace all platform/signal operations
 and the DDS directory; they never execute host cleanup on the robot.
 
-Teleop previews additionally report the pending supervisor-owned startup interlock.
-The standalone keyboard executable has its own lease and publisher guard, but
-launching it concurrently with the adapter would make startup ordering unsafe.
-Until the combined handoff is implemented, the launch runtime rejects teleop before
-resolving or spawning any child; no PID-name exemption or environment bypass exists.
-The child-side handoff now uses explicit inherited descriptors: `DelegatedLock`
+Teleop uses a supervisor-owned keyboard and an ordered startup interlock.
+The complete prepared graph records `supervisor_keyboard: true`; launch omits that
+one process because navrun owns it directly. Bare teleop graphs without this
+ownership selection are rejected; standalone keyboard startup retains its own
+lease and publisher guard. No PID-name exemption or environment bypass exists.
+The handoff uses explicit inherited descriptors: `DelegatedLock`
 checks Linux fdinfo for an exclusive FLOCK record on the expected open file
 description, without issuing flock or unlocking the parent. `KeyboardChannel`
 provides ready/permit and EOF detection over a local socket, using per-call
 nonblocking flags so it does not mutate the source descriptor's file status.
 `OwnedProcess(pass_fds=...)` delegates only those explicitly selected capabilities;
-its default still closes every nonstandard descriptor. Parent-side teleop ordering
-and terminal crash restoration still need integration before enabling that mode.
+its default still closes every nonstandard descriptor. Before host steps,
+`KeyboardSession` opens the configured TTY in the parent's original session and
+saves its attributes. Navrun starts only the keyboard first, waits for its completed
+publisher check, then starts the driver/adapter launch and permits keyboard output.
+No TTY or a graph conflict prevents chassis startup; rejection sends no zero.
+Teleop also refuses any preflight cleanup targets, including legacy navigation
+that does not hold the new lock; it cannot silently stop that stack to gain control.
+Keyboard ceilings are checked against adapter hard limits even without navigation
+assets. Suspicious leftovers require inspection, not a hidden cleanup exemption.
+The parent holds terminal recovery state and the navigation lease through all
+child cleanup retries. A killed keyboard fails the run but cannot leave cbreak
+mode behind while the parent remains alive. Normal q exits with status zero;
+signals and abnormal keyboard exits retain their recorded statuses.
+The `keyboard_teleop.launch.py` convenience entry and its layout/speed override
+selectors remain P4.4 work; this does not authorize switching production 5k.
 
 ### Executor and recording preparation (P4.2)
 
@@ -368,7 +381,10 @@ fake chassis, private lease and fake/private host operations. Their only velocit
 publications are zero. `zero_command` accepts topic/discovery selectors, no speed
 argument; it publishes five default-constructed Twist messages per topic and
 reports missing receivers. Publication is a stop attempt, not proof of physical
-stopping. Combined teleop ownership and navigation acceptance remain P4.2 work.
+stopping. Combined teleop tests also cover normal quit, parent interruption,
+pidfd-targeted SIGKILL of only the owned keyboard, and publisher-conflict rejection.
+They use private TTY/lease fixtures and fake chassis/host callbacks. Navigation
+acceptance and production deployment remain outstanding.
 
 ```bash
 source /opt/ros/humble/setup.bash

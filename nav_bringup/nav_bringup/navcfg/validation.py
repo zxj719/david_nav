@@ -213,6 +213,20 @@ def _check_map_mode(map_data: Mapping[str, Any], issues: List[ValidationIssue]) 
             'map_trinary', 'error', f'map YAML mode must be trinary, got {mode!r}'))
 
 
+def validate_teleop_limits(profile: Mapping[str, Any]) -> List[ValidationIssue]:
+    """Check keyboard ceilings without adding map or localization prerequisites.
+
+    Args:
+        profile: Fully merged robot and teleop-mode configuration.
+
+    Returns:
+        Existing hard-limit rule findings, also used by navigation validation.
+    """
+    issues: List[ValidationIssue] = []
+    _check_teleop_limits(profile, issues)
+    return issues
+
+
 def _check_teleop_limits(
     profile: Mapping[str, Any], issues: List[ValidationIssue]
 ) -> None:

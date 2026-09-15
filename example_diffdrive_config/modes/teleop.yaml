@@ -1,0 +1,7 @@
+schema_version: 1
+mode: teleop
+description: 示例键盘链路；实际验证仅在隔离域发送零速
+profile:
+  chassis:
+    adapter:
+      input_topic: /demo/safe

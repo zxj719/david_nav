@@ -8,7 +8,9 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import termios
 import time
+import tty
 
 import pytest
 import yaml
@@ -188,6 +190,53 @@ def test_cleanup_retry_keeps_unfinished_manifest_and_lock(tmp_path, monkeypatch)
     assert len(calls) == 2
     assert result.exit_code == 2
     assert result.run.summary.is_file()
+
+
+def test_terminal_restore_waits_until_keyboard_cleanup_retry_finishes(tmp_path, monkeypatch):
+    """A force-killed keyboard cannot leave cbreak mode behind or restore it too early."""
+    master, slave = os.openpty()
+    original = termios.tcgetattr(slave)
+    options = _options(tmp_path)
+    attempts = []
+
+    class Remaining:
+        pid = 999
+
+        def close(self, timeout_sec):
+            attempts.append(1)
+            assert not termios.tcgetattr(slave)[3] & termios.ICANON
+            with pytest.raises(LockBusy):
+                RunLock(options.lock_path).acquire()
+            if len(attempts) == 1:
+                raise OSError('not drained')
+
+    def run(*args, **kwargs):
+        assert kwargs['keyboard'] is not None
+        tty.setcbreak(slave)
+        return LifecycleResult(2, 'cleanup_failed', ('fixture',), (Remaining(),))
+
+    monkeypatch.setattr(startup, 'supervise', run)
+    monkeypatch.setattr(startup, '_retry_pause', lambda: None)
+    try:
+        result, _ = _run(options, commands=lambda plan: replace(
+            _commands(plan), keyboard=('fake_keyboard',), tty_device=os.ttyname(slave)))
+        assert result.exit_code == 2 and len(attempts) == 2
+        assert termios.tcgetattr(slave) == original
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
+def test_missing_terminal_prevents_host_steps(tmp_path):
+    """TTY discovery occurs under the lease but before platform or process mutations."""
+    called = []
+    result, _ = _run(_options(tmp_path), commands=lambda plan: replace(
+        _commands(plan), keyboard=('fake_keyboard',), tty_device=str(tmp_path / 'missing')),
+        steps=(startup.StartupStep('platform', lambda *args: called.append(1)),))
+    assert (result.exit_code, result.exit_reason) == (2, 'terminal_failed')
+    assert not called
+    assert not any(event.event_type == 'terminal_restored'
+                   for event in read_events(result.run.events)[0])
 
 
 def test_lock_busy_does_not_create_run_or_call_prepare(tmp_path):

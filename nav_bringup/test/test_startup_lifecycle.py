@@ -20,7 +20,7 @@ def rig(tmp_path, monkeypatch):
     controls = {}
 
     class Child:
-        def __init__(self, argv, environ, log):
+        def __init__(self, argv, environ, log, pass_fds=()):
             self.name = argv[0]
             self.pid = 123
             self.closed = False
@@ -33,7 +33,7 @@ def rig(tmp_path, monkeypatch):
         def poll(self):
             if self.name in controls:
                 return controls[self.name]
-            return None if self.name in ('launch', 'record', 'monitor') else 0
+            return None if self.name in ('launch', 'record', 'monitor', 'keyboard') else 0
 
         def close(self, timeout_sec=10):
             trace.append(('close', self.name))
@@ -80,6 +80,56 @@ def test_order_and_two_zero_attempts_with_lock_retained(rig, tmp_path):
     events, skipped = read_events(rig[3].path)
     assert skipped == 0
     assert any(event.event_type == 'startup_ready' for event in events)
+
+
+@pytest.mark.parametrize('outcome', ['quit', 'reject', 'signal', 'revoke_error'])
+def test_keyboard_readiness_precedes_launch_and_quit_is_normal(rig, tmp_path, outcome):
+    """Only an accepted keyboard can bring up the adapter; q completes the owned run."""
+    commands, trace, controls, events, lease = rig
+    commands = replace(commands, keyboard=('keyboard',), tty_device='/fixture/tty', gates=())
+
+    class Session:
+        def command(self, argv):
+            return argv, (30, 31, 32)
+
+        def child_started(self):
+            trace.append(('handoff',))
+
+        def ready(self):
+            trace.append(('keyboard_ready',))
+            if outcome == 'reject':
+                raise RuntimeError('conflict')
+            return True
+
+        def permit(self):
+            trace.append(('permit',))
+
+        def revoke(self):
+            trace.append(('revoke',))
+            if outcome == 'revoke_error':
+                raise OSError('revoke failed')
+
+    def stopped():
+        if outcome == 'signal' and ('handoff',) in trace:
+            return signal.SIGINT
+        if outcome in ('quit', 'revoke_error') and ('start', 'record') in trace:
+            controls['keyboard'] = 0
+        return None
+
+    result = lifecycle.supervise(commands, tmp_path, events, os.environ, lease, stopped,
+                                 keyboard=Session())
+    assert ('close', 'keyboard') in trace
+    if outcome in ('quit', 'revoke_error'):
+        assert (result.exit_code, result.exit_reason) == (
+            (0, 'keyboard_quit') if outcome == 'quit' else (2, 'cleanup_failed'))
+        assert ('close', 'launch') in trace
+        assert trace.index(('keyboard_ready',)) < trace.index(('start', 'launch'))
+        assert trace.index(('start', 'launch')) < trace.index(('permit',))
+        assert trace.index(('revoke',)) < trace.index(('close', 'launch'))
+    else:
+        assert result.exit_code == (130 if outcome == 'signal' else 2)
+        assert ('start', 'launch') not in trace
+        assert ('start', 'zero') not in trace
 
 
 @pytest.mark.parametrize('stage', ['ready', 'live_check'])

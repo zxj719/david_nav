@@ -244,6 +244,8 @@ def prepare_bundle(
     else:
         issues = tuple(validation.ValidationIssue('schema', issue.severity, issue.message)
                        for issue in catalog.check_profile(effective))
+        if options.mode == 'teleop':
+            issues += tuple(validation.validate_teleop_limits(effective))
         errors = [issue.message for issue in issues if issue.severity == 'error']
         if errors:
             raise ValueError('configuration rejected: ' + '; '.join(errors))

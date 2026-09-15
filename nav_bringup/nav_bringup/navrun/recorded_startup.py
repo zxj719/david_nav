@@ -24,6 +24,7 @@ import yaml
 
 from nav_bringup.navcfg import render
 from nav_bringup.navrun.locking import RunLock
+from nav_bringup.navrun.keyboard_session import KeyboardSession
 from nav_bringup.navrun.preparation import write_bundle
 from nav_bringup.navrun.startup_lifecycle import LifecycleResult, StartupCommands
 from nav_bringup.navrun.startup_lifecycle import supervise, validate_commands
@@ -191,6 +192,7 @@ def run_recorded_startup(
         stage = 'prepare'
         linked = None
         link_spec = None
+        keyboard = None
         try:
             events.append('navrun', 'run_started')
             observer.start()
@@ -218,6 +220,9 @@ def run_recorded_startup(
             _write_manifest(run.manifest, record)
             selected = commands(plan)
             validate_commands(selected, run.path)
+            if selected.keyboard:
+                stage = 'terminal'
+                keyboard = KeyboardSession(lease, selected.tty_device).__enter__()
             for step in steps:
                 _check_signal(stopped)
                 stage = step.name
@@ -226,7 +231,11 @@ def run_recorded_startup(
                 events.append('navrun', 'startup_step_finished', data={'name': stage})
             _check_signal(stopped)
             stage = 'launch'
-            result = supervise(selected, run.path, events, env, lease, stopped)
+            if keyboard is None:
+                result = supervise(selected, run.path, events, env, lease, stopped)
+            else:
+                result = supervise(selected, run.path, events, env, lease, stopped,
+                                   keyboard=keyboard)
         except StartupInterrupted as interrupted:
             result = LifecycleResult(128 + interrupted.signum,
                                      'ctrl_c' if interrupted.signum == signal.SIGINT
@@ -238,6 +247,13 @@ def run_recorded_startup(
             _event(events, 'startup_failed', 'error', {'stage': stage, 'error': str(error)})
         finally:
             _drain_remaining(result, events)
+            if keyboard is not None:
+                try:
+                    keyboard.close()
+                    _event(events, 'terminal_restored', 'info', {})
+                except Exception as error:
+                    result = LifecycleResult(2, 'terminal_restore_failed')
+                    _event(events, 'terminal_restore_failed', 'error', {'error': str(error)})
             observer.close()
         for error in observer.errors:
             _event(events, 'record_observer_failed', 'warn', {'error': error})

@@ -59,12 +59,10 @@ def bind_commands(
         Bound commands using the exact same run directory as the prepared bundle.
 
     Raises:
-        ValueError: Invalid selectors, unresolved paths or unfinished teleop ownership.
+        ValueError: Invalid selectors, unresolved paths or missing teleop ownership.
         LookupError: A required installed executable is unavailable.
     """
     options = plan.bundle.options
-    if options.mode == 'teleop':
-        raise ValueError('combined teleop awaits supervisor-owned startup interlock')
     if plan.errors:
         raise ValueError('cannot bind a rejected startup plan')
     if type(strict) is not bool or not Path(python).is_absolute():
@@ -100,5 +98,16 @@ def bind_commands(
     record = (ros2, *plan.recording.argv[1:]) if plan.recording.enabled else ()
     zero = (python, '-m', 'nav_bringup.navrun.zero_command',
             '--topic', '/' + options.chassis_command_topic.lstrip('/'))
+    keyboard = ()
+    terminal = ''
+    if options.mode == 'teleop':
+        if not options.supervisor_keyboard:
+            raise ValueError('teleop requires a supervisor-owned keyboard graph')
+        executable = resolve('chassis_teleop', 'chassis_teleop_managed')
+        if not Path(executable).is_absolute():
+            raise LookupError('managed keyboard must resolve to an absolute path')
+        keyboard = (executable, '--ros-args', '--params-file',
+                    str(Path(run_dir) / 'params/rendered/teleop.yaml'))
+        terminal = render.profile_value(profile, 'teleop.tty_device')
     return StartupCommands(launch, tuple(gates), record, monitor, zero,
-                           (navrun, 'dump-params', '--run-dir', run_dir))
+                           (navrun, 'dump-params', '--run-dir', run_dir), keyboard, terminal)

@@ -1,6 +1,7 @@
 """Execute real up/launch with fake chassis and private, fake host operations only."""
 
 import argparse
+from dataclasses import replace
 import os
 from pathlib import Path
 import sys
@@ -19,6 +20,8 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--mode', choices=('chassis', 'teleop'), default='chassis')
+    parser.add_argument('--tty', default='')
     args = parser.parse_args()
     if os.environ.get('ROS_DOMAIN_ID') != '99' or not args.root.is_absolute():
         parser.error('this fixture requires domain 99 and an absolute private root')
@@ -39,8 +42,18 @@ def main() -> int:
     up.DEFAULT_LOCK_PATH = args.root / 'lease'
     up._processes = own_view
     up.bind_host_steps = private_host
+    if args.mode == 'teleop':
+        original_bind = up.bind_commands
+
+        def private_keyboard(plan, **kwargs):
+            commands = original_bind(plan, **kwargs)
+            helper = Path(__file__).with_name('teleop_delegation_fixture.py')
+            return replace(commands, tty_device=args.tty, keyboard=(
+                sys.executable, str(helper), str(args.root / 'lease'), *commands.keyboard[1:]))
+
+        up.bind_commands = private_keyboard
     return cli.main([
-        'up', '--mode', 'chassis', '--robot', 'example_diffdrive', '--site', 'offline',
+        'up', '--mode', args.mode, '--robot', 'example_diffdrive', '--site', 'offline',
         '--record', 'off', '--no-executor', '--source-root', str(source), '--repo', str(source),
         '--runs-root', str(args.root / 'runs')])
 
