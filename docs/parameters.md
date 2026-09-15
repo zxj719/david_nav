@@ -29,9 +29,11 @@ This file lists every robot-profile key declared by package schemas.
 | `platform.jetson_clocks` | `bool` | — | default: `false` | — | 启动前运行 jetson_clocks 固定 CPU/GPU 频率；需要 platform.jetson 为 true | — |
 | `platform.maxn` | `bool` | — | default: `false` | — | 启动前把 Jetson 切到最高功耗模式（nvpmodel MAXN）；需要 platform.jetson 为 true | — |
 | `platform.maxn_mode_id` | `int` | — | default: `0` | range: `0 .. inf` | nvpmodel 的 MAXN 模式编号；David 旧入口为 0，不同 Jetson 板型可在档案覆盖 | — |
+| `preflight.foreign_patterns` | `list[string]` | — | default: `[]` | — | 机械臂或 MoveIt 等外部栈的程序匹配式；默认只告警，即使也命中 kill_patterns | — |
 | `preflight.kill_foreign_stacks` | `bool` | — | default: `false` | — | 是否结束不属于本导航栈的其它 ROS 栈进程；默认不动 | — |
 | `preflight.kill_patterns` | `list[string]` | — | default: `[]` | — | 启动前结束的本导航栈残留进程的命令行匹配式 | — |
 | `preflight.kill_stale_robot_state_publishers` | `bool` | — | default: `false` | — | 启动前结束残留的 robot_state_publisher，避免 TF 分裂成两棵树 | — |
+| `preflight.protected_patterns` | `list[string]` | — | default: `[]` | — | 永不清理的外部程序匹配式；额外保护其启动分支和祖先，定位 process_name 总是自动保护 | — |
 | `record.light_topics` | `list[string]` | — | default: `[]` | — | 每次运行默认录制的轻量话题；为空则不录包 | — |
 | `record.monitor_period_sec` | `float` | s | default: `5.0` | range: `1.0 .. 60.0` | navrun monitor 写一行 metrics/topics.csv 的间隔（默认 5 s，即 0.2 Hz） | — |
 | `record.monitor_topics` | `list[string]` | — | default: `[]` | — | navrun monitor 统计频率与发布者数的话题；只选轻量话题（大点云等仍有传输开销） | — |

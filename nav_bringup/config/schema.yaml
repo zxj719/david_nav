@@ -95,6 +95,16 @@ parameters:
     items: string
     default: []
     description: 启动前结束的本导航栈残留进程的命令行匹配式
+  preflight.foreign_patterns:
+    type: list
+    items: string
+    default: []
+    description: 机械臂或 MoveIt 等外部栈的程序匹配式；默认只告警，即使也命中 kill_patterns
+  preflight.protected_patterns:
+    type: list
+    items: string
+    default: []
+    description: 永不清理的外部程序匹配式；额外保护其启动分支和祖先，定位 process_name 总是自动保护
   preflight.kill_foreign_stacks:
     type: bool
     default: false

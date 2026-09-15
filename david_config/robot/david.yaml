@@ -139,7 +139,26 @@ platform:
   jetson_clocks: true
 
 preflight:
-  kill_patterns: [navigation_executor.py]
+  kill_patterns:
+    - navigation_executor.py
+    - launch david_nav 2d_david_nav2_bringup
+    - launch david_nav precise_nav_bringup
+    - launch nav_bringup nav.launch.py
+    - nav2_controller/controller_server
+    - nav2_planner/planner_server
+    - nav2_smoother/smoother_server
+    - nav2_behaviors/behavior_server
+    - nav2_bt_navigator/bt_navigator
+    - nav2_waypoint_follower/waypoint_follower
+    - nav2_velocity_smoother/velocity_smoother
+    - nav2_lifecycle_manager/lifecycle_manager
+    - lib/david_cmd/david_move
+    - lib/chassis_adapter/chassis_adapter
+    - lib/david_nav/dock_navigator
+  foreign_patterns:
+    - moveit_ros_move_group/move_group
+    - moveit_simple_controller_manager
+    - david_sdk_bridge/lib/david_sdk_bridge/arm_node
   kill_foreign_stacks: false
   kill_stale_robot_state_publishers: true
 

@@ -34,7 +34,7 @@ chassis:
       odom_topic: /demo/wheel_odom
       odom_frame: demo_encoder
       body_frame: demo_body
-    detect_patterns: []
+    detect_patterns: [fake_chassis]
     startup_delay_sec: 0.0
     max_restarts: 0
 teleop:

@@ -134,6 +134,28 @@ publishing a launchable bundle; it does not overwrite or delete existing records
 
 ### Unit tests
 
+`navrun.preflight.plan_preflight` consumes process snapshots and resolves chassis
+auto/on/off. Residual and foreign patterns live in the robot profile; foreign
+stacks are warn-only by default. Matching uses the executable/script or ROS launch
+prefix, never editor arguments or inline shell text. The provider's launch branch,
+its sensor/RSP siblings, higher ancestors, and external chassis branches are
+protected. A shared terminal server is protected without hiding unrelated tabs.
+Other users' processes are never cleanup targets.
+
+`cleanup_preflight` sends TERM, waits at most eight seconds, then sends KILL and
+confirms exit for up to 0.5 seconds. Every signal and poll uses a fresh snapshot;
+new matches, changed PID identities, newly protected targets and surviving
+processes reject startup instead of widening cleanup. Dry-run invokes none of
+the observation, signal, clock or sleep hooks. Signal and snapshot adapters are
+explicit arguments, with no implicit os.kill default.
+
+`navrun.process_backend` provides the Linux adapters for future up integration:
+read-only psutil snapshots reject incomplete views, and signaling opens a pidfd
+before rechecking PID/creation time/user/argv. It has no PID-only fallback, shell,
+sudo or permission change. These adapters are not called by imports or existing
+entry points. Tests replace all psutil/pidfd signal operations with fake objects;
+no production residual has been stopped or restarted during this implementation.
+
 `navrun.locking.RunLock` implements the shared `/tmp/navrun.lock` lease for the
 future `up` supervisor. Construction does no I/O. Acquire is nonblocking, checks
 file ownership/type/links, and only writes diagnostic PID metadata after flock
