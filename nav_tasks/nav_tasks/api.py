@@ -1,13 +1,14 @@
 """Public task and value contracts shared with in-process ingress adapters.
 
-Transport code calls only TaskApi. The assembly root can construct TaskManager
+Transport code calls only TaskApi/PoiApi. The assembly root can construct TaskManager
 and register skills through these exports without importing internal modules.
 This API does not start ROS or a transport and does not change legacy entry points.
 """
 
 import asyncio
-from typing import Protocol
+from typing import Iterable, Protocol
 
+from nav_tasks.core.handlers.poi_commands import MarkPoiResult
 from nav_tasks.core.registry import CommandRegistry, TaskContext
 from nav_tasks.core.state import TaskManager
 from nav_tasks.domain.errors import BusyError, ClosedError, ConfigError, NavTaskError
@@ -72,9 +73,33 @@ class TaskApi(Protocol):
         ...
 
 
+class PoiApi(Protocol):
+    """Administrative POI operations, separate from exclusive motion ownership."""
+
+    async def mark(self, poi_id: str, name: str) -> MarkPoiResult:
+        """Capture and persist a named POI without preempting navigation.
+
+        Args:
+            poi_id: Decoded POI identifier.
+            name: Decoded display name.
+
+        Returns:
+            Stored POI or a readable capture/freshness failure.
+        """
+        ...
+
+    def update_directory(self, id_to_name: Iterable[tuple[str, str]]) -> None:
+        """Apply directory names without creating unmeasured poses.
+
+        Args:
+            id_to_name: Decoded identifier/name pairs in input order.
+        """
+        ...
+
+
 __all__ = [
     'BusyError', 'CapturedPose', 'ClosedError', 'CommandRegistry', 'ConfigError',
-    'EventKind', 'NavOutcome', 'NavStatus', 'NavTaskError', 'PoseRecord',
-    'PreemptPolicy', 'StoredPoi', 'TaskApi', 'TaskContext', 'TaskEvent', 'TaskManager',
-    'TaskRequest', 'TaskSnapshot', 'TaskState', 'Transform2D',
+    'EventKind', 'MarkPoiResult', 'NavOutcome', 'NavStatus', 'NavTaskError', 'PoiApi',
+    'PoseRecord', 'PreemptPolicy', 'StoredPoi', 'TaskApi', 'TaskContext', 'TaskEvent',
+    'TaskManager', 'TaskRequest', 'TaskSnapshot', 'TaskState', 'Transform2D',
 ]

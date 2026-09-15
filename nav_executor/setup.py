@@ -1,4 +1,4 @@
-"""Install nav_executor pure contracts and package-owned documentation."""
+"""Install nav_executor protocol/transport adapters and package-owned documentation."""
 
 from glob import glob
 
@@ -16,6 +16,6 @@ setup(
     ],
     install_requires=['setuptools'], zip_safe=True,
     maintainer='zhangxingjian', maintainer_email='xingjian.zhang@amicro.com.cn',
-    description='nav_executor pure navigation contracts.',
+    description='Navigation protocol and public task API transport adapters.',
     license='Apache-2.0', tests_require=['pytest'],
 )
