@@ -139,9 +139,8 @@ def _profile_options(options: GraphOptions, profile: Mapping[str, Any]) -> Graph
         chassis_command_topic=_identity(profile, 'chassis.cmd_topic'),
         chassis_odom_topic=_identity(profile, 'chassis.odom_topic'),
         map_server=options.map_server and options.mode != 'bench_slamgt')
-    if options.mode != 'chassis':
-        resolved = replace(resolved, smooth_command_topic=_identity(
-            profile, 'chassis.adapter.input_topic'))
+    resolved = replace(resolved, smooth_command_topic=_identity(
+        profile, 'chassis.adapter.input_topic'))
     if options.scan_bridge:
         resolved = replace(
             resolved, cloud_topic=_identity(profile, 'sensors.scan_from_cloud.cloud_topic'),

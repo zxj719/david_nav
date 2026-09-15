@@ -4,6 +4,21 @@
 
 This file lists every robot-profile key declared by package schemas.
 
+## `chassis_adapter`
+
+| Key | Type | Unit | Required / default | Constraints | Description | Tuning |
+|---|---|---|---|---|---|---|
+| `chassis.adapter.cmd_timeout_sec` | `float` | s | default: `2.0` | — | 输入静默超过该 ROS 时间后只发一次零速并静默；非正值关闭超时；节点 cmd_vel_timeout | — |
+| `chassis.adapter.hard_max_angular_z` | `float` | rad/s | default: `0.5` | range: `0.0 .. inf` | 适配层角速度幅值上限；节点 max_angular_z | — |
+| `chassis.adapter.hard_max_linear_x` | `float` | m/s | default: `0.2` | range: `0.0 .. inf` | 适配层线速度幅值上限；节点 max_linear_x | — |
+| `chassis.adapter.input_topic` | `string` | — | default: `"cmd_vel_safe"` | — | 模式选择的适配层输入；节点 input_cmd_vel_topic | — |
+| `chassis.adapter.min_angular_z` | `float` | rad/s | default: `0.0` | range: `0.0 .. inf` | 弧形运动或小于原地转向门槛时的非零角速度地板 | — |
+| `chassis.adapter.min_linear_x` | `float` | m/s | default: `0.2` | range: `0.0 .. inf` | 非零线速度地板，先钳位再抬升，地板不超过最大值 | — |
+| `chassis.adapter.min_stationary_angular_z` | `float` | rad/s | default: `0.35` | range: `0.0 .. inf` | 明确原地转向的角速度地板；是否静止使用原始 linear.x/y 判定 | — |
+| `chassis.adapter.publish_hz` | `float` | Hz | default: `50.0` | — | 适配层指令定时频率；运行时与旧节点相同，最低按 1 Hz 执行 | — |
+| `chassis.adapter.stationary_angular_threshold` | `float` | rad/s | default: `0.025` | range: `0.0 .. inf` | 原地角速度绝对值达到该门槛时使用原地转向地板 | — |
+| `chassis.cmd_topic` | `string` | — | default: `"/cmd_vel"` | — | 底盘指令话题；绑定 adapter.output_cmd_vel_topic 与驱动输入 | — |
+
 ## `nav_bringup`
 
 | Key | Type | Unit | Required / default | Constraints | Description | Tuning |

@@ -30,17 +30,18 @@ def test_launch_handler_restarts_driver_once_then_emits_global_shutdown() -> Non
 
     def factory(spec):
         process = ExecuteProcess(cmd=['not-executed'], name=spec.name)
-        constructed.append(process)
+        constructed.append((spec.name, process))
         return process
 
     graph = build_graph(GraphOptions('chassis', '/run/test'))
     actions = managed_actions(graph, factory)
     context = LaunchContext()
     restarted = _exit(actions[0], actions[1], context)
-    assert len(constructed) == 2
+    assert [name for name, _ in constructed] == [
+        'wheeltec_robot', 'chassis_adapter', 'wheeltec_robot']
     assert restarted[1] is not actions[1]
     exhausted = _exit(restarted[0], restarted[1], context)
-    assert len(constructed) == 2
+    assert len(constructed) == 3
     assert len(exhausted) == 1 and isinstance(exhausted[0], EmitEvent)
 
 
@@ -56,7 +57,7 @@ def test_shutdown_does_not_construct_a_replacement_process() -> None:
     context = LaunchContext()
     context._set_is_shutdown(True)
     assert _exit(actions[0], actions[1], context) == []
-    assert len(constructed) == 1
+    assert [spec.name for spec in constructed] == ['wheeltec_robot', 'chassis_adapter']
 
 
 def test_critical_clean_exit_shuts_down_but_optional_rviz_exit_does_not() -> None:

@@ -43,10 +43,10 @@ def test_bench_external_map_does_not_start_or_manage_localization() -> None:
 
 
 def test_chassis_and_teleop_modes_never_start_nav2() -> None:
-    """Chassis owns only the driver, while teleop adds the adapter and keyboard."""
+    """Chassis includes its adapter; teleop additionally includes the keyboard."""
     chassis = build_graph(GraphOptions('chassis', '/run/test'))
     teleop = build_graph(GraphOptions('teleop', '/run/test'))
-    assert [node.name for node in chassis.processes] == ['wheeltec_robot']
+    assert [node.name for node in chassis.processes] == ['wheeltec_robot', 'chassis_adapter']
     assert [node.name for node in teleop.processes] == [
         'wheeltec_robot', 'chassis_adapter', 'chassis_teleop']
     assert chassis.lifecycle_nodes == teleop.lifecycle_nodes == ()
@@ -96,7 +96,7 @@ def test_profile_topics_and_optional_processes_are_respected() -> None:
     {'start_chassis': 'false'}, {'driver_restarts': -1}, {'driver_restarts': True},
     {'chassis_delay_sec': float('nan')}, {'rviz_delay_sec': -1.0},
     {'driver_package': ''}, {'chassis_command_topic': ''},
-    {'mode': 'teleop', 'start_executor': True}, {'mode': 'chassis', 'start_chassis': False},
+    {'mode': 'teleop', 'start_executor': True},
     {'mode': 'chassis', 'scan_bridge': True},
     {'ready_timeout_sec': 0.0}, {'ready_timeout_sec': float('inf')},
     {'executor_arguments': 'not argv'}, {'ready_action': ''},
@@ -112,3 +112,9 @@ def test_graph_construction_creates_no_run_directory(tmp_path: Path) -> None:
     missing = tmp_path / 'never_created'
     build_graph(GraphOptions('tour', str(missing)))
     assert not missing.exists()
+
+
+def test_chassis_external_driver_still_starts_adapter() -> None:
+    """An external driver is preserved while this graph owns only its adapter."""
+    graph = build_graph(GraphOptions('chassis', '/run/test', start_chassis=False))
+    assert [node.name for node in graph.processes] == ['chassis_adapter']

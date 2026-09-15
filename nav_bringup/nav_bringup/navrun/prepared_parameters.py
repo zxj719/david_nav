@@ -57,12 +57,12 @@ def node_parameters(
         if not isinstance(parameters, dict):
             raise ValueError('chassis.driver.parameters must be a mapping')
         output['driver'] = _node('wheeltec_robot', parameters)
-    if options.mode == 'chassis':
-        return output
     adapter = {target: render.profile_value(profile, 'chassis.adapter.' + source)
                for target, source in _ADAPTER_KEYS.items()}
     adapter['output_cmd_vel_topic'] = options.chassis_command_topic
     output['adapter'] = _node('chassis_adapter', adapter)
+    if options.mode == 'chassis':
+        return output
     if options.mode == 'teleop':
         teleop = {target: render.profile_value(profile, 'teleop.' + source)
                   for target, source in _TELEOP_KEYS.items()}

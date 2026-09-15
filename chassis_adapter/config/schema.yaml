@@ -1,0 +1,57 @@
+schema_version: 1
+package: chassis_adapter
+parameters:
+  chassis.cmd_topic:
+    type: string
+    default: /cmd_vel
+    description: 底盘指令话题；绑定 adapter.output_cmd_vel_topic 与驱动输入
+  chassis.adapter.input_topic:
+    type: string
+    default: cmd_vel_safe
+    description: 模式选择的适配层输入；节点 input_cmd_vel_topic
+  chassis.adapter.cmd_timeout_sec:
+    type: float
+    default: 2.0
+    unit: s
+    description: 输入静默超过该 ROS 时间后只发一次零速并静默；非正值关闭超时；节点 cmd_vel_timeout
+  chassis.adapter.min_linear_x:
+    type: float
+    default: 0.20
+    range: [0.0, null]
+    unit: m/s
+    description: 非零线速度地板，先钳位再抬升，地板不超过最大值
+  chassis.adapter.hard_max_linear_x:
+    type: float
+    default: 0.20
+    range: [0.0, null]
+    unit: m/s
+    description: 适配层线速度幅值上限；节点 max_linear_x
+  chassis.adapter.min_angular_z:
+    type: float
+    default: 0.0
+    range: [0.0, null]
+    unit: rad/s
+    description: 弧形运动或小于原地转向门槛时的非零角速度地板
+  chassis.adapter.min_stationary_angular_z:
+    type: float
+    default: 0.35
+    range: [0.0, null]
+    unit: rad/s
+    description: 明确原地转向的角速度地板；是否静止使用原始 linear.x/y 判定
+  chassis.adapter.stationary_angular_threshold:
+    type: float
+    default: 0.025
+    range: [0.0, null]
+    unit: rad/s
+    description: 原地角速度绝对值达到该门槛时使用原地转向地板
+  chassis.adapter.hard_max_angular_z:
+    type: float
+    default: 0.50
+    range: [0.0, null]
+    unit: rad/s
+    description: 适配层角速度幅值上限；节点 max_angular_z
+  chassis.adapter.publish_hz:
+    type: float
+    default: 50.0
+    unit: Hz
+    description: 适配层指令定时频率；运行时与旧节点相同，最低按 1 Hz 执行

@@ -183,15 +183,12 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
             params('driver'),
             (('cmd_vel', options.chassis_command_topic), ('odom', options.chassis_odom_topic)),
             restart_limit=options.driver_restarts))
-    if options.mode == 'chassis':
-        if not processes:
-            raise ValueError('chassis mode with chassis off has no owned process')
-        return LaunchGraph(options.mode, tuple(processes), ())
-
     delay = options.chassis_delay_sec if options.start_chassis else 0.0
     processes.append(ProcessSpec(
         'chassis_adapter', 'chassis_adapter', 'chassis_adapter', params('adapter'),
         delay_sec=delay))
+    if options.mode == 'chassis':
+        return LaunchGraph(options.mode, tuple(processes), ())
     if options.mode == 'teleop':
         processes.append(ProcessSpec(
             'chassis_teleop', 'chassis_teleop', 'chassis_teleop', params('teleop'),

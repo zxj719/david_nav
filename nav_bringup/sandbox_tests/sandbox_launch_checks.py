@@ -55,9 +55,10 @@ def test_ready_gate_discovers_fake_server_without_sending_a_goal(sessions, tmp_p
     assert not goal_log.exists(), 'readiness checking must never submit a goal'
 
 
+@pytest.mark.parametrize('entry', ['nav_bringup', 'chassis_adapter'])
 def test_installed_launch_entry_runs_only_a_zero_motion_fake_chassis(
-        sessions, tmp_path: Path) -> None:
-    """Exercise the installed launch file, bundle loader and runtime with a fake driver."""
+        sessions, tmp_path: Path, entry: str) -> None:
+    """Exercise both installed launch entries with an adapter and zero-motion driver."""
     from nav_msgs.msg import Odometry
     import rclpy
 
@@ -74,9 +75,13 @@ def test_installed_launch_entry_runs_only_a_zero_motion_fake_chassis(
     (rendered / 'driver.yaml').write_text(yaml.safe_dump({'wheeltec_robot': {'ros__parameters': {
         'odom_frame': 'entry_encoder', 'body_frame': 'entry_body',
         'cmd_topic': '/entry_fixture/command', 'odom_topic': '/entry_fixture/odom'}}}))
+    (rendered / 'adapter.yaml').write_text(yaml.safe_dump({
+        'chassis_adapter': {'ros__parameters': {
+            'input_cmd_vel_topic': '/entry_fixture/no_input',
+            'output_cmd_vel_topic': '/entry_fixture/command'}}}))
+    filename = 'nav.launch.py' if entry == 'nav_bringup' else 'chassis.launch.py'
     process = sessions.start('installed_entry', [
-        'ros2', 'launch', 'nav_bringup', 'nav.launch.py', f'run_dir:={root}',
-        'robot:=example', 'site:=offline', 'mode:=chassis'])
+        'ros2', 'launch', entry, filename, f'run_dir:={root}', 'robot:=example'])
     rclpy.init(args=[])
     observer = rclpy.create_node('launch_entry_observer')
     received = []
