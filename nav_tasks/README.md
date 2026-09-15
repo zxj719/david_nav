@@ -6,6 +6,8 @@ ownership, retry and supervision. It does **not** start a task manager process o
 switch a runtime entry point; the old core remains active pending integration.
 Sequential POI navigation, pure snap search and administrative POI handlers are
 implemented against fake-testable ports, with no subscriptions or storage I/O.
+The shared [Nav2 backend](docs/nav2-backend.md) implements one navigation attempt
+and owns late-handle cleanup; it is not yet connected to legacy entry points.
 
 ```python
 from nav_tasks.api import PoseRecord
@@ -24,6 +26,7 @@ rules; this relocation does not add origin rotation or new input validation.
 `core/handlers/poi_commands.py` marks/renames POIs without taking motion ownership.
 `core/goal_resolution.py` preserves the legacy snap search under differential tests.
 No ROS, WebSocket, YAML or filesystem implementation is imported by these layers.
+Concrete ROS adapters are kept outside the pure layers and import ROS lazily.
 
 The default settling threshold remains **0.05 rad/s**, continuously satisfied for
 0.4 s with a 0.05 s polling interval. `DockTolerance` still has the old helper

@@ -9,3 +9,5 @@ nav_tasks
 * Extract snap search and sequential POI/admin handlers behind pure ports; add
   per-attempt feedback and cancellation fences. Keep old runtime pending integration.
 * Preserve zero remaining distance for external cancellation, distinct from abort.
+* Add one-attempt Nav2 backend, shared action ownership and no-spin future helpers;
+  retain timed-out cleanup, wait for terminal cancellation and stamp after readiness.

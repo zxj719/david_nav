@@ -125,7 +125,10 @@ not another branch inside the manager. Wire actions remain owned by
 `dock_to` wire command would additionally need a message definition and protocol
 documentation; this change does not add that command.
 
-Still pending: adapters for the ports, shared Nav2 client, event-to-wire mapping
-and the replacement G1–G16 suite.
+The shared single-attempt NavigateToPose backend and ROS-future ownership helper
+are now implemented and tested with fake action clients; see
+[nav2-backend.md](nav2-backend.md) and [ADR-0005](adr-0005-ros-futures.md).
+Still pending: pose/storage/grid subscription adapters, Spin/Dock integration,
+event-to-wire mapping and the replacement G1–G16 suite.
 Only then can the old core be replaced. ROS task events, timeout/health integration
 and the WS assembly root follow their separately tracked plan tasks.
