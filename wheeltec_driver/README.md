@@ -15,7 +15,7 @@ P3.8 / D2 传输层：`ByteStream` 可注入内存假串口；`SerialStream` 连
 `config/wheeltec_driver.yaml`，可用普通 ROS 参数覆盖；话题可 remap。
 当前可执行文件仍叫 `wheeltec_robot_node`，节点名仍是 `wheeltec_robot`，后续 D9 独立改名。
 构造节点会连接配置的串口，故自动测试禁止运行该硬件入口。析构执行一次尽力零速并关闭；
-诊断和发布开关尚属后续 D7/D8，不在此步宣称完成。
+发布开关尚属后续 D8，不在此步宣称完成。
 
 D4：硬件入口构造节点后注册弱引用 pre-shutdown 回调，在 ROS context 关闭前停车并记录日志。
 rclcpp 的 SIGINT/SIGTERM 退出与节点析构
@@ -26,6 +26,11 @@ rclcpp 的 SIGINT/SIGTERM 退出与节点析构
 D5：`log_tx_frames` 默认 false；打开后非零指令帧仅在 DEBUG 级别记录，不再逐帧 INFO。
 校验/定界/读写失败、非法指令和重连次数由 1 秒 wall timer 汇总 WARN；无新增事件时不刷屏。
 日志策略不改变串口读写、重连与停车节奏。
+
+D7：1 Hz 发布可 remap 的 `/diagnostics`，包含串口在线、按实际 steady 时间差计算的有效
+收帧率、累计校验/读写错误、重连、看门狗停车、电压及原始 Flag_Stop。未收过有效帧的值
+写 unavailable，在线无首帧 WARN，离线 ERROR；OK 只表示串口在线且曾收到有效帧，并非
+定位健康或底盘停稳承诺。电压/Flag_Stop 不推断固件含义，不添加未经审核的电压告警阈值。
 
 D3：`cmd_timeout_sec` 默认 `0.0`（关闭），保持现有行为。显式设为正值后，启动或最后一次
 成功下发有效指令超过该时间，按 20 Hz 尽力发送零速直到新有效指令成功写出；非法指令不续租。

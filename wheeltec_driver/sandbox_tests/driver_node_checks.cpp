@@ -266,5 +266,26 @@ TEST_F(DriverNodeChecks, TransportErrorsAreAggregatedOncePerReportInterval)
   EXPECT_EQ(capture.count("serial 1s summary", RCUTILS_LOG_SEVERITY_WARN), 1u);
 }
 
+TEST_F(DriverNodeChecks, DiagnosticsArePublishedOnTheReportTimerWithoutStatusInput)
+{
+  Trace trace;
+  RecordingStream * stream{};
+  rclcpp::NodeOptions options;
+  options.arguments({"--ros-args", "-r", "/diagnostics:=/driver_check/diagnostics"});
+  auto driver = makeDriver(trace, &stream, options);
+  auto observer = std::make_shared<rclcpp::Node>("diagnostic_check_observer");
+  diagnostic_msgs::msg::DiagnosticArray::SharedPtr received;
+  auto subscription = observer->create_subscription<diagnostic_msgs::msg::DiagnosticArray>(
+    "/driver_check/diagnostics", 10,
+    [&received](diagnostic_msgs::msg::DiagnosticArray::SharedPtr message) {received = message;});
+  ASSERT_TRUE(spinUntil(driver, observer, [&]() {return subscription->get_publisher_count() > 0;}));
+  DriverNodeTestAccess::report(*driver);
+  ASSERT_TRUE(spinUntil(driver, observer, [&]() {return received != nullptr;}));
+  ASSERT_EQ(received->status.size(), 1u);
+  EXPECT_EQ(received->status[0].name, "wheeltec_driver/serial");
+  EXPECT_EQ(received->status[0].level, diagnostic_msgs::msg::DiagnosticStatus::WARN);
+  EXPECT_TRUE(trace.writes.empty());
+}
+
 }  // namespace
 }  // namespace wheeltec_driver

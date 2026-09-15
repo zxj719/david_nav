@@ -11,6 +11,7 @@
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "rclcpp/parameter_map.hpp"
+#include "wheeltec_driver/diagnostics.hpp"
 #include "wheeltec_driver/message_mapping.hpp"
 #include "wheeltec_driver/serial_stream.hpp"
 
@@ -37,6 +38,7 @@ WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, Stre
     declare_parameter(parameter.get_name(), parameter.get_parameter_value());
   }
   const auto port = get_parameter("usart_port_name").as_string();
+  hardware_id_ = port;
   const auto baud = get_parameter("serial_baud_rate").as_int();
   odom_frame_ = get_parameter("odom_frame_id").as_string();
   robot_frame_ = get_parameter("robot_frame_id").as_string();
@@ -67,6 +69,8 @@ WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, Stre
   voltage_publisher_ = create_publisher<std_msgs::msg::Float32>("PowerVoltage", 10);
   odom_publisher_ = create_publisher<nav_msgs::msg::Odometry>("odom", 50);
   imu_publisher_ = create_publisher<sensor_msgs::msg::Imu>("imu", 20);
+  diagnostics_publisher_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
+    "/diagnostics", 10);
   command_subscription_ = create_subscription<geometry_msgs::msg::Twist>(
     "cmd_vel", 100, std::bind(&WheeltecDriverNode::command, this, std::placeholders::_1));
   RCLCPP_INFO(get_logger(), "Data ready");
@@ -81,6 +85,7 @@ WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, Stre
   control_timer_ = create_wall_timer(
     std::chrono::milliseconds(10), std::bind(&WheeltecDriverNode::control, this));
   reported_driver_ = core_->counters();
+  report_time_ = steadySeconds();
   report_timer_ = create_wall_timer(
     std::chrono::seconds(1), std::bind(&WheeltecDriverNode::reportTransport, this));
 }
@@ -174,6 +179,11 @@ void WheeltecDriverNode::reportTransport()
   const auto writes = tx.transmit_errors - reported_driver_.transmit_errors;
   const auto rejected = tx.rejected_commands - reported_driver_.rejected_commands;
   const auto reconnects = tx.connection_attempts - reported_driver_.connection_attempts;
+  const auto report_now = steadySeconds();
+  const auto elapsed = report_now - report_time_;
+  const auto receive_hz = elapsed > 0.0 ?
+    (rx.valid_frames - reported_receive_.valid_frames) / elapsed : 0.0;
+  diagnostics_publisher_->publish(makeDiagnostics(*core_, receive_hz, hardware_id_, now()));
   if (checksum || framing || io || writes || rejected || reconnects) {
     RCLCPP_WARN_STREAM(
       get_logger(), "serial 1s summary: checksum=" << checksum << " framing=" << framing <<
@@ -182,6 +192,7 @@ void WheeltecDriverNode::reportTransport()
   }
   reported_receive_ = rx;
   reported_driver_ = tx;
+  report_time_ = report_now;
 }
 
 }  // namespace wheeltec_driver

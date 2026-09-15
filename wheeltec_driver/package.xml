@@ -10,6 +10,7 @@
   <depend>serial</depend>
   <depend>ament_index_cpp</depend>
   <depend>builtin_interfaces</depend>
+  <depend>diagnostic_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>rclcpp</depend>

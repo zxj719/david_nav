@@ -9,6 +9,7 @@
 #include <mutex>
 #include <string>
 
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -46,15 +47,18 @@ private:
   std::string odom_frame_;
   std::string robot_frame_;
   std::string gyro_frame_;
+  std::string hardware_id_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr voltage_publisher_;
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostics_publisher_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr command_subscription_;
   rclcpp::TimerBase::SharedPtr control_timer_;
   rclcpp::TimerBase::SharedPtr report_timer_;
   ReceiveCounters reported_receive_{};
   DriverCounters reported_driver_{};
   bool log_tx_frames_{};
+  double report_time_{};
   bool shutdown_requested_{};
 };
 
