@@ -63,6 +63,10 @@ parameters:
     type: string
     required: true
     description: 底盘轮式里程计话题（速度平滑器闭环反馈）
+  chassis.driver.executable:
+    type: string
+    default: null
+    description: 驱动包内的可执行文件名；navrun 准备运行参数时必须显式提供，不从机器人名字猜测
   platform.jetson:
     type: bool
     default: false

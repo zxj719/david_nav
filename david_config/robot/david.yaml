@@ -52,6 +52,7 @@ chassis:
     publish_hz: 50.0                # L3 后 20
   driver:
     package: wheeltec_driver
+    executable: wheeltec_driver_node
     parameters:
       usart_port_name: /dev/wheeltec_controller
       serial_baud_rate: 115200

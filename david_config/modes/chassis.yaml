@@ -1,0 +1,3 @@
+schema_version: 1
+mode: chassis
+description: 仅启动档案中的底盘驱动，不依赖导航、地图或定位

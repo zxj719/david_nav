@@ -28,6 +28,7 @@ chassis:
     publish_hz: 20.0
   driver:
     package: nav_sim
+    executable: fake_chassis
     parameters:
       cmd_topic: /demo/command
       odom_topic: /demo/wheel_odom

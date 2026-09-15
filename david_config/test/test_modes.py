@@ -74,10 +74,10 @@ def test_rendered_parameters_equal_the_production_file(mode):
 
 
 def test_mode_files_are_named_after_their_modes():
-    """The four plan modes exist and each file declares the mode of its name."""
+    """The five launch modes exist and each file declares the mode of its name."""
     names = sorted(path.stem for path in MODES_DIR.glob('*.yaml'))
 
-    assert names == ['bench_slamgt', 'precise', 'teleop', 'tour']
+    assert names == ['bench_slamgt', 'chassis', 'precise', 'teleop', 'tour']
     for name in names:
         assert render.parse_mode(_load(MODES_DIR / f'{name}.yaml'), name).name == name
 

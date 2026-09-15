@@ -8,6 +8,7 @@ This file lists every robot-profile key declared by package schemas.
 
 | Key | Type | Unit | Required / default | Constraints | Description | Tuning |
 |---|---|---|---|---|---|---|
+| `chassis.driver.executable` | `string` | — | default: `null` | — | 驱动包内的可执行文件名；navrun 准备运行参数时必须显式提供，不从机器人名字猜测 | — |
 | `chassis.odom_topic` | `string` | — | **required** | — | 底盘轮式里程计话题（速度平滑器闭环反馈） | — |
 | `footprint` | `list` | m | **required** | — | 机器人轮廓多边形 [[x, y], ...]，在 frames.nav_base 下表达，至少三个点 | — |
 | `frames.map` | `string` | — | **required** | — | 全局地图帧（Nav2 BT、全局代价图） | — |

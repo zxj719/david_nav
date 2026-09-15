@@ -102,6 +102,36 @@ and teleop packages referenced by the graph. No production alias has changed.
 The sandbox launch checks use disposable Python children and an optional fake
 Nav2 server; they never run the physical driver or submit a goal.
 
+### Offline bundle preparation (P4.2 component; up supervision pending)
+
+`navrun.preparation.prepare_bundle(GraphOptions, BundleInputs, catalog)` renders
+all five modes without creating directories, importing ROS clients, discovering
+processes or opening devices. Its explicit paths work with source or installed
+configuration packages. The caller still resolves chassis auto-detection and
+legacy executor CLI arguments; the complete `navrun up` workflow is not yet exposed.
+
+Preparation binds driver package/executable, delay/restart budget and chassis
+topics from the mode-merged profile. `chassis.driver.executable` is explicit in
+both David and the fictional robot profiles. Teleop requires a matching keyboard
+output and adapter input; chassis/teleop need neither map nor localization files.
+The bench mode does not start a second map server. Navigation uses the existing
+golden-tested Nav2/BT renderer and all offline cross-file checks. Dock receives
+profile frame names, the full footprint, static map topic and the 0.05 rad/s
+settle threshold. The temporary dock launch policy remains the legacy precise
+policy; configurable task policy belongs to the Phase 6 migration.
+
+The returned immutable artifacts include input snapshots, rendered node YAML,
+run-local BT XML, `checks.yaml`, input hashes and `launch.json`. Map image and
+manually maintained named poses are only hashed; neither is rewritten or copied.
+The rendered map metadata references its absolute original image path. Recorder
+manifest integration remains in the supervisor work; `fingerprints.json` is its
+prepared input, not a replacement manifest.
+
+`write_bundle` adds these files exclusively to a newly recorder-owned directory.
+It rejects existing artifacts and symlinked destinations before writing, and
+writes `launch.json` last. A failed write leaves diagnostic partial files without
+publishing a launchable bundle; it does not overwrite or delete existing records.
+
 ### Unit tests
 
 ```bash
