@@ -8,7 +8,11 @@ single extra DDS participant (refactor plan §10.3, §13.2):
   pose looked up in TF;
 * message rates and publisher counts of key topics, and the lag of the map to
   robot transform, appended to ``metrics/topics.csv`` once per sampling
-  period (:mod:`~nav_bringup.recorder.topic_stats`).
+  period (:mod:`~nav_bringup.recorder.topic_stats`);
+* optionally the moment an action server such as ``/navigate_to_pose``
+  appears: a ``ready_action_available`` event, and ``navrun dump-params`` into
+  the run directory in its own session. A dump still running when the monitor
+  stops is interrupted.
 
 Counted topics are subscribed with best-effort QoS, which matches reliable
 and best-effort publishers, and as raw bytes, so messages are never
@@ -21,6 +25,7 @@ ROS packages are imported only inside :func:`spin`, so the rest of
 from __future__ import annotations
 
 from dataclasses import dataclass
+import subprocess
 import sys
 import time
 from typing import Any, List, Optional, Sequence, TextIO, Tuple
@@ -29,9 +34,13 @@ from nav_bringup.recorder import bt_log_watcher
 from nav_bringup.recorder import bt_triggers
 from nav_bringup.recorder import events
 from nav_bringup.recorder import run_dir
+from nav_bringup.recorder import sessions
 from nav_bringup.recorder import topic_stats
 
 DEFAULT_BT_TOPIC = '/behavior_tree_log'
+EVENT_SOURCE = 'monitor'
+DUMP_LOG_NAME = 'dump_params.log'
+DUMP_STOP_TIMEOUT_SEC = 10.0
 
 
 @dataclass(frozen=True)
@@ -48,6 +57,10 @@ class MonitorOptions:
         min_trigger_interval_sec: Minimum tree time between reports of one
             trigger rule.
         node_name: Name of the monitor node.
+        ready_action: Action whose server marks the stack as ready, for
+            example ``/navigate_to_pose`` of Nav2; ``None`` disables the check.
+        dump_params_on_ready: Whether to dump effective parameters into the
+            run directory once ``ready_action`` has a server.
     """
 
     base_frame: str
@@ -57,13 +70,16 @@ class MonitorOptions:
     period_sec: float = topic_stats.DEFAULT_PERIOD_SEC
     min_trigger_interval_sec: float = 0.5
     node_name: str = 'navrun_monitor'
+    ready_action: Optional[str] = None
+    dump_params_on_ready: bool = False
 
     def __post_init__(self) -> None:
         """Validate the options.
 
         Raises:
-            ValueError: If a frame is empty, the period is not positive or the
-                trigger interval is negative.
+            ValueError: If a frame is empty, the period is not positive, the
+                trigger interval is negative, or a parameter dump is requested
+                without a ready action.
         """
         if not self.base_frame or not self.map_frame:
             raise ValueError('map and base frames must not be empty')
@@ -71,6 +87,8 @@ class MonitorOptions:
             raise ValueError(f'period must be positive, got {self.period_sec}')
         if self.min_trigger_interval_sec < 0:
             raise ValueError('minimum trigger interval must not be negative')
+        if self.dump_params_on_ready and not self.ready_action:
+            raise ValueError('dumping parameters on ready needs a ready action')
 
 
 def resolve_message_type(
@@ -91,6 +109,34 @@ def resolve_message_type(
     return None
 
 
+def action_status_topic(action: str) -> str:
+    """Name the status topic of an action.
+
+    Only action servers publish this topic, so a publisher on it means that a
+    server exists; clients such as rviz panels only subscribe.
+
+    Args:
+        action: Fully qualified action name.
+
+    Returns:
+        ``<action>/_action/status``.
+    """
+    return action.rstrip('/') + '/_action/status'
+
+
+def dump_params_command(run: run_dir.RunDirectory, python: str = sys.executable) -> List[str]:
+    """Build the command that dumps effective parameters into a run directory.
+
+    Args:
+        run: Run whose ``params/effective`` receives the dumps.
+        python: Interpreter that runs ``navrun``.
+
+    Returns:
+        Program and arguments of ``navrun dump-params``.
+    """
+    return [python, '-m', 'nav_bringup.navrun.cli', 'dump-params', '--run-dir', str(run.path)]
+
+
 def spin(
     run: Optional[run_dir.RunDirectory],
     options: MonitorOptions,
@@ -101,7 +147,7 @@ def spin(
     Args:
         run: Run directory to record into, or ``None`` to only print triggers.
         options: What to watch.
-        stdout: Terminal stream for trigger lines and warnings.
+        stdout: Terminal stream for trigger lines and notices.
 
     Returns:
         Exit status 0.
@@ -157,6 +203,16 @@ def spin(
         event_log = events.EventLog(run.events)
         writer = topic_stats.MetricsCsvWriter(run.metrics / topic_stats.TOPICS_CSV_NAME)
 
+    def say(message: str) -> None:
+        """Write a notice line to every sink.
+
+        Args:
+            message: Notice text.
+        """
+        for sink in sinks:
+            sink.write(f'navrun monitor: {message}\n')
+            sink.flush()
+
     if options.bt_topic:
         reporter = bt_log_watcher.TriggerReporter(
             bt_triggers.TriggerDetector(min_interval_sec=options.min_trigger_interval_sec),
@@ -169,16 +225,9 @@ def spin(
     pending = list(counter.topics)
     subscriptions: List[Any] = []
     qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
-
-    def warn(message: str) -> None:
-        """Write a warning line to every sink.
-
-        Args:
-            message: Warning text.
-        """
-        for sink in sinks:
-            sink.write(f'navrun monitor: {message}\n')
-            sink.flush()
+    ready_topic = action_status_topic(options.ready_action) if options.ready_action else None
+    ready_seen: List[bool] = []
+    dump_processes: List[subprocess.Popen] = []
 
     def subscribe_discovered() -> None:
         """Subscribe to counted topics whose type has been discovered."""
@@ -193,14 +242,37 @@ def spin(
             try:
                 message_type = get_message(type_name)
             except (AttributeError, ImportError, ValueError) as error:
-                warn(f'cannot count {topic} ({type_name}): {error}')
+                say(f'cannot count {topic} ({type_name}): {error}')
                 continue
             subscriptions.append(node.create_subscription(
                 message_type, topic,
                 lambda _message, name=topic: counter.record(name), qos, raw=True))
 
+    def check_ready() -> None:
+        """Record when the ready action gets a server, and dump parameters once."""
+        if ready_topic is None or ready_seen or node.count_publishers(ready_topic) == 0:
+            return
+        ready_seen.append(True)
+        if event_log is not None:
+            event_log.append(
+                EVENT_SOURCE, 'ready_action_available', data={'action': options.ready_action})
+        if not options.dump_params_on_ready or run is None:
+            return
+        say(f'{options.ready_action} is available; dumping effective parameters')
+        try:
+            with (run.logs / DUMP_LOG_NAME).open('ab') as log:
+                dump_processes.append(subprocess.Popen(
+                    dump_params_command(run), stdin=subprocess.DEVNULL, stdout=log,
+                    stderr=subprocess.STDOUT, start_new_session=True))
+        except OSError as error:
+            say(f'cannot start the parameter dump: {error}')
+            if event_log is not None:
+                event_log.append(
+                    EVENT_SOURCE, 'params_dump_start_failed', 'warn', {'error': str(error)})
+
     def sample() -> None:
-        """Append one sampling period to ``topics.csv``."""
+        """Check readiness and append one sampling period to ``topics.csv``."""
+        check_ready()
         subscribe_discovered()
         stamp = time.time()
         publishers = {topic: node.count_publishers(topic) for topic in counter.topics}
@@ -222,6 +294,8 @@ def spin(
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        for process in dump_processes:
+            sessions.stop_session(process, DUMP_STOP_TIMEOUT_SEC)
         del tf_listener
         node.destroy_node()
         rclpy.try_shutdown()

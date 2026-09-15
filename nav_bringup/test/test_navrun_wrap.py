@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 
+from nav_bringup.navrun import cli
 from nav_bringup.navrun import wrap
 from nav_bringup.recorder import events
 from nav_bringup.recorder import manifest
@@ -217,3 +218,118 @@ def test_sigterm_to_wrapper_is_forwarded_to_command(tmp_path):
     assert process.returncode == 128 + signal.SIGTERM
     record = manifest.read_manifest(Path(runs_root) / 'latest' / 'manifest.yaml')
     assert record['exit_reason'] == 'terminated'
+
+
+FAKE_MONITOR = (
+    'import os, pathlib, signal, sys, time\n'
+    'run = pathlib.Path(os.environ["NAVRUN_RUN_DIR"])\n'
+    'def stop(*args):\n'
+    '    (run / "monitor_stopped").touch()\n'
+    '    sys.exit(0)\n'
+    'signal.signal(signal.SIGINT, stop)\n'
+    'print("monitor up", flush=True)\n'
+    '(run / "monitor_ready").touch()\n'
+    'time.sleep(30)\n'
+)
+WAIT_FOR_MONITOR = (
+    'import os, pathlib, time\n'
+    'marker = pathlib.Path(os.environ["NAVRUN_RUN_DIR"]) / "monitor_ready"\n'
+    'deadline = time.monotonic() + 20\n'
+    'while not marker.exists() and time.monotonic() < deadline:\n'
+    '    time.sleep(0.05)\n'
+    'print("child saw monitor", marker.exists(), flush=True)\n'
+)
+
+
+def _monitor_stopped_event(run):
+    return next(
+        event for event in events.read_events(run.events)[0]
+        if event.event_type == 'monitor_stopped')
+
+
+def test_monitor_runs_next_to_command_and_is_stopped(tmp_path):
+    """The monitor sees the run, shares the output, and is interrupted after the command."""
+    terminal = io.BytesIO()
+
+    result = wrap.run_wrapped(
+        _options(tmp_path, _python(WAIT_FOR_MONITOR), monitor_command=_python(FAKE_MONITOR)),
+        now=_clock(), runner=_no_git, terminal=terminal)
+
+    output = terminal.getvalue()
+    assert (result.exit_code, result.exit_reason) == (0, 'completed')
+    assert b'monitor up' in output
+    assert b'child saw monitor True' in output
+    assert b'monitor up' in (result.run.logs / wrap.CONSOLE_LOG_NAME).read_bytes()
+    assert (result.run.path / 'monitor_stopped').exists()
+    assert _event_types(result.run) == [
+        'run_started', 'process_started', 'monitor_started', 'monitor_stopped',
+        'process_exited', 'run_stopped']
+    stopped = _monitor_stopped_event(result.run)
+    assert (stopped.severity, stopped.data['return_code'], stopped.data['exited_early']) == (
+        'info', 0, False)
+
+
+def test_crashing_monitor_does_not_change_the_result(tmp_path):
+    """A monitor that dies is a warning; the command result is unchanged."""
+    result = wrap.run_wrapped(
+        _options(tmp_path, _python('import time; time.sleep(1.0)'),
+                 monitor_command=_python('import sys; sys.exit(3)')),
+        now=_clock(), runner=_no_git, terminal=io.BytesIO())
+
+    stopped = _monitor_stopped_event(result.run)
+    assert (result.exit_code, result.exit_reason) == (0, 'completed')
+    assert (stopped.severity, stopped.data['return_code']) == ('warn', 3)
+
+
+def test_monitor_that_cannot_start_is_recorded(tmp_path):
+    """A missing monitor program is recorded and the command still runs."""
+    terminal = io.BytesIO()
+
+    result = wrap.run_wrapped(
+        _options(tmp_path, _python('print("child ran")'),
+                 monitor_command=['surely-not-a-monitor-program']),
+        now=_clock(), runner=_no_git, terminal=terminal)
+
+    assert result.exit_code == 0
+    assert b'child ran' in terminal.getvalue()
+    assert b'cannot start the monitor' in terminal.getvalue()
+    assert 'monitor_start_failed' in _event_types(result.run)
+
+
+def test_monitor_command():
+    """The monitor command carries frame, topics, period and readiness settings."""
+    assert wrap.monitor_command(
+        'robot_base', topics=['/cmd_vel'], period_sec=2.0, python='python3') == [
+        'python3', '-m', 'nav_bringup.navrun.cli', 'monitor', '--base-frame', 'robot_base',
+        '--period', '2', '--topic', '/cmd_vel', '--ready-action', '/navigate_to_pose',
+        '--dump-params-on-ready']
+    assert wrap.monitor_command('robot_base', ready_action=None, python='python3')[-2:] == [
+        '--period', '5']
+    assert '--dump-params-on-ready' not in wrap.monitor_command(
+        'robot_base', dump_params=False, python='python3')
+
+
+def test_cli_wrap_builds_monitor_command(tmp_path, monkeypatch):
+    """--monitor-base-frame enables the monitor with the given settings."""
+    captured = []
+
+    def fake_run_wrapped(options):
+        captured.append(options)
+        return wrap.WrapResult(
+            run_dir.RunDirectory(tmp_path, '20260915_031500_tour_nogit'), 0, 'completed')
+
+    monkeypatch.setattr(wrap, 'run_wrapped', fake_run_wrapped)
+
+    assert cli.main([
+        'wrap', '--mode', 'tour', '--runs-root', str(tmp_path), '--no-gc',
+        '--monitor-base-frame', 'robot_base', '--monitor-topic', '/cmd_vel',
+        '--no-dump-params', '--', 'true',
+    ]) == 0
+    assert cli.main(['wrap', '--mode', 'tour', '--runs-root', str(tmp_path), '--', 'true']) == 0
+
+    command = captured[0].monitor_command
+    assert command[3:6] == ['monitor', '--base-frame', 'robot_base']
+    assert command[command.index('--topic'):command.index('--topic') + 2] == [
+        '--topic', '/cmd_vel']
+    assert '--dump-params-on-ready' not in command
+    assert captured[1].monitor_command is None

@@ -57,6 +57,22 @@ def build_parser() -> argparse.ArgumentParser:
     wrap_parser.add_argument(
         '--no-gc', action='store_true', help='do not prune old runs before starting')
     wrap_parser.add_argument(
+        '--monitor-base-frame', default=None, metavar='FRAME',
+        help='run navrun monitor next to the command with this robot frame '
+        '(robot profile frames.nav_base)')
+    wrap_parser.add_argument(
+        '--monitor-topic', action='append', default=[], metavar='TOPIC',
+        help='topic whose rate the monitor records; repeatable')
+    wrap_parser.add_argument(
+        '--monitor-period', type=float, default=topic_stats.DEFAULT_PERIOD_SEC,
+        help='seconds between topics.csv samples')
+    wrap_parser.add_argument(
+        '--ready-action', default=wrap.DEFAULT_READY_ACTION, metavar='ACTION',
+        help='action whose server marks the stack as ready (default: %(default)s)')
+    wrap_parser.add_argument(
+        '--no-dump-params', action='store_true',
+        help='do not dump effective parameters when the ready action is up')
+    wrap_parser.add_argument(
         'command', nargs=argparse.REMAINDER, help='command to run, placed after --')
 
     doctor_parser = subparsers.add_parser(
@@ -87,6 +103,12 @@ def build_parser() -> argparse.ArgumentParser:
     monitor_parser.add_argument(
         '--min-interval', type=float, default=0.5,
         help='minimum seconds between reports of the same trigger')
+    monitor_parser.add_argument(
+        '--ready-action', default=None, metavar='ACTION',
+        help='action whose server marks the stack as ready, e.g. /navigate_to_pose')
+    monitor_parser.add_argument(
+        '--dump-params-on-ready', action='store_true',
+        help='dump effective parameters into the run directory once the ready action is up')
 
     dump_defaults = param_dump.DumpSettings()
     dump_parser = subparsers.add_parser(
@@ -177,6 +199,8 @@ def _monitor(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             topics=tuple(args.topic),
             period_sec=args.period,
             min_trigger_interval_sec=args.min_interval,
+            ready_action=args.ready_action,
+            dump_params_on_ready=args.dump_params_on_ready,
         )
     except ValueError as error:
         parser.error(str(error))
@@ -220,6 +244,15 @@ def _wrap(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     except ValueError as error:
         parser.error(str(error))
     repo_dir = args.repo or Path(os.environ.get('NAVRUN_REPO', DEFAULT_REPO_DIR))
+    monitor_command = None
+    if args.monitor_base_frame:
+        monitor_command = wrap.monitor_command(
+            base_frame=args.monitor_base_frame,
+            topics=args.monitor_topic,
+            period_sec=args.monitor_period,
+            ready_action=args.ready_action,
+            dump_params=not args.no_dump_params,
+        )
     options = wrap.WrapOptions(
         command=command,
         mode=args.mode,
@@ -231,6 +264,7 @@ def _wrap(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         files=files,
         sample_interval_sec=args.sample_interval,
         gc=not args.no_gc,
+        monitor_command=monitor_command,
     )
     try:
         result = wrap.run_wrapped(options)

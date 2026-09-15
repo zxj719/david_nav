@@ -17,7 +17,7 @@ This package is robot independent: robot-specific values live in a
 | Sandbox integration checks (`sandbox_tests/`): `navrun monitor` and `navrun dump-params` against live processes in DDS domain 99; not collected by `colcon test`, run with `sandbox_tests/run_sandbox_checks.sh` | available (P1.2b) | RUNBOOK §5 |
 | `navrun wrap -- <command>`: record a run around an existing launch command | available (P1.3) | plan §13.1, §16.2 Phase 1 |
 | Escape and recovery triggers (`recorder.bt_triggers`, `recorder.bt_log_watcher`) from `/behavior_tree_log` → `events.jsonl`, terminal line, `logs/navrun.log`, per-node counts in `summary.md`; subscribed by `navrun monitor` | available (P1.4a) | plan §10.3 |
-| `navrun wrap` starts `navrun monitor` automatically; sandbox integration test | planned (P1.4b) | plan §10.3 |
+| `navrun wrap --monitor-base-frame FRAME [--monitor-topic TOPIC]`: runs `navrun monitor` next to the command (own session; output in the terminal and `console.log`; stopped after the command; failures recorded as warnings) and dumps effective parameters once `--ready-action` (default `/navigate_to_pose`) has a server | available (P1.4b) | plan §10.3, §13.2 |
 | `navrun doctor`: read-only checks (ROS/DDS environment, orphan Fast DDS segments, map yaml mode, duplicate robot_state_publisher, stale copied scripts, chassis serial device) | available (P1.5a) | plan §13.3 |
 | `navrun doctor` live checks (ros2 daemon, duplicate publishers, map→odom TF) | planned (P1.5b) | plan §13.3 |
 | `navrun up` | planned (P4.2) | plan §13.1 |

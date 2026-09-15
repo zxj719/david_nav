@@ -7,12 +7,15 @@ keyboard input reach it exactly as before. Around it the wrapper
 1. creates the run directory and writes the manifest and ``code.diff``,
 2. prunes old runs with the retention policy (never the new run),
 3. tees the command's output to the terminal and ``logs/console.log``,
-4. samples CPU and memory of the command's process tree,
-5. records process and signal events, and
-6. finalizes the manifest and writes ``summary.md`` when the command exits.
+4. optionally runs ``navrun monitor`` next to the command in its own session,
+   tees its output the same way and stops it after the command exits,
+5. samples CPU and memory of the command and the monitor,
+6. records process and signal events, and
+7. finalizes the manifest and writes ``summary.md`` when the command exits.
 
 The wrapper exits with the command's exit status; a command killed by signal
-``N`` yields ``128 + N`` like a shell does.
+``N`` yields ``128 + N`` like a shell does. A failing monitor never changes
+that status; it is recorded as a warning event.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from typing import Any, Callable, Dict, IO, List, Mapping, Optional, Sequence, T
 from nav_bringup.recorder import manifest as manifest_lib
 from nav_bringup.recorder import retention
 from nav_bringup.recorder import run_dir as run_dir_lib
+from nav_bringup.recorder import sessions
 from nav_bringup.recorder import summary as summary_lib
 from nav_bringup.recorder import topic_stats
 from nav_bringup.recorder.events import EventLog
@@ -41,10 +45,13 @@ from nav_bringup.recorder.resources import summarize_resources
 CONSOLE_LOG_NAME = 'console.log'
 RESOURCES_CSV_NAME = 'resources.csv'
 EVENT_SOURCE = 'navrun'
+DEFAULT_READY_ACTION = '/navigate_to_pose'
+MONITOR_STOP_TIMEOUT_SEC = 10.0
 
 _RELAYED_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 _JOIN_TIMEOUT_SEC = 5.0
 _READ_CHUNK_BYTES = 65536
+_MONITOR_INTERRUPTED_CODES = (0, -int(signal.SIGINT), 128 + int(signal.SIGINT))
 
 
 @dataclass(frozen=True)
@@ -63,6 +70,8 @@ class WrapOptions:
         sample_interval_sec: Seconds between resource samples.
         gc: Whether to apply the retention policy before the command starts.
         retention_policy: Limits used when ``gc`` is enabled.
+        monitor_command: ``navrun monitor`` command to run next to the
+            command, or ``None``; see :func:`monitor_command`.
     """
 
     command: Sequence[str]
@@ -77,6 +86,7 @@ class WrapOptions:
     gc: bool = True
     retention_policy: retention.RetentionPolicy = field(
         default_factory=retention.RetentionPolicy)
+    monitor_command: Optional[Sequence[str]] = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +103,42 @@ class WrapResult:
     run: run_dir_lib.RunDirectory
     exit_code: int
     exit_reason: str
+
+
+def monitor_command(
+    base_frame: str,
+    topics: Sequence[str] = (),
+    period_sec: float = topic_stats.DEFAULT_PERIOD_SEC,
+    ready_action: Optional[str] = DEFAULT_READY_ACTION,
+    dump_params: bool = True,
+    python: str = sys.executable,
+) -> List[str]:
+    """Build the ``navrun monitor`` command for a wrapped run.
+
+    The monitor finds the run directory through ``NAVRUN_RUN_DIR``, which the
+    wrapper exports to it.
+
+    Args:
+        base_frame: Robot frame for pose and TF lag (robot profile ``frames.nav_base``).
+        topics: Topics whose rates are recorded.
+        period_sec: Seconds between ``topics.csv`` samples.
+        ready_action: Action whose server marks the stack as ready, or ``None``.
+        dump_params: Whether to dump effective parameters once ``ready_action``
+            has a server.
+        python: Interpreter that runs ``navrun``.
+
+    Returns:
+        Program and arguments.
+    """
+    command = [python, '-m', 'nav_bringup.navrun.cli', 'monitor',
+               '--base-frame', base_frame, '--period', f'{period_sec:g}']
+    for topic in topics:
+        command.extend(['--topic', topic])
+    if ready_action:
+        command.extend(['--ready-action', ready_action])
+        if dump_params:
+            command.append('--dump-params-on-ready')
+    return command
 
 
 def run_wrapped(
@@ -229,21 +275,68 @@ def _supervise(
 
         relay.child = child
         events.append(EVENT_SOURCE, 'process_started', data={'pid': child.pid})
+        tee_thread = threading.Thread(target=_tee, args=(child.stdout, outputs), daemon=True)
+        tee_thread.start()
+        monitor, monitor_tee = _start_monitor(options, child_env, outputs, events)
+        sampled = [child.pid] + ([monitor.pid] if monitor is not None else [])
         stop_sampling = threading.Event()
-        sampler = ResourceSampler(lambda: [child.pid], run.metrics / RESOURCES_CSV_NAME)
+        sampler = ResourceSampler(lambda: sampled, run.metrics / RESOURCES_CSV_NAME)
         sampler_thread = threading.Thread(
             target=sampler.run, args=(stop_sampling, options.sample_interval_sec), daemon=True)
-        tee_thread = threading.Thread(target=_tee, args=(child.stdout, outputs), daemon=True)
         sampler_thread.start()
-        tee_thread.start()
 
         return_code = child.wait()
         tee_thread.join(timeout=_JOIN_TIMEOUT_SEC)
+        _stop_monitor(monitor, monitor_tee, events)
         stop_sampling.set()
         sampler_thread.join(timeout=_JOIN_TIMEOUT_SEC)
 
     events.append(EVENT_SOURCE, 'process_exited', data={'return_code': return_code})
     return _exit_status(return_code, relay.received)
+
+
+def _start_monitor(
+    options: WrapOptions,
+    child_env: Mapping[str, str],
+    outputs: Sequence[Any],
+    events: EventLog,
+) -> Tuple[Optional[subprocess.Popen], Optional[threading.Thread]]:
+    if not options.monitor_command:
+        return None, None
+    command = list(options.monitor_command)
+    try:
+        process = subprocess.Popen(
+            command,
+            env=dict(child_env),
+            start_new_session=True,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+        )
+    except OSError as error:
+        _write_all(outputs, f'navrun: cannot start the monitor: {error}\n'.encode())
+        events.append(EVENT_SOURCE, 'monitor_start_failed', 'warn', {'error': str(error)})
+        return None, None
+    events.append(EVENT_SOURCE, 'monitor_started', data={'pid': process.pid, 'command': command})
+    thread = threading.Thread(target=_tee, args=(process.stdout, outputs), daemon=True)
+    thread.start()
+    return process, thread
+
+
+def _stop_monitor(
+    process: Optional[subprocess.Popen],
+    thread: Optional[threading.Thread],
+    events: EventLog,
+) -> None:
+    if process is None:
+        return
+    exited_early = process.poll() is not None
+    return_code = sessions.stop_session(process, MONITOR_STOP_TIMEOUT_SEC)
+    if thread is not None:
+        thread.join(timeout=_JOIN_TIMEOUT_SEC)
+    expected = not exited_early and return_code in _MONITOR_INTERRUPTED_CODES
+    events.append(EVENT_SOURCE, 'monitor_stopped', 'info' if expected else 'warn', {
+        'return_code': return_code, 'exited_early': exited_early})
 
 
 def _exit_status(return_code: int, received: Sequence[int]) -> Tuple[int, str]:
