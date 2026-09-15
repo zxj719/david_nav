@@ -25,6 +25,12 @@ class FakeNav2Servers(Node):
     """Fake navigate_to_pose and spin action servers plus a fixed robot pose."""
 
     def __init__(self, options):
+        """Initialize the fake servers from parsed command-line options.
+
+        Args:
+            options: Namespace containing the log path, response delay, and
+                fixed robot pose.
+        """
         super().__init__('fake_nav2_servers')
         self.fake_options = options
         self.fake_lock = threading.Lock()
@@ -40,10 +46,16 @@ class FakeNav2Servers(Node):
         self.create_timer(0.05, self.publish_pose)
 
     def record(self, line):
+        """Append one action-server event to the sandbox log.
+
+        Args:
+            line: Event text to append.
+        """
         with self.fake_lock, open(self.fake_options.log, 'a', encoding='utf-8') as handle:
             handle.write(line + '\n')
 
     def publish_pose(self):
+        """Broadcast the configured fixed robot pose."""
         transform = TransformStamped()
         transform.header.stamp = self.get_clock().now().to_msg()
         transform.header.frame_id = 'map'
@@ -55,6 +67,14 @@ class FakeNav2Servers(Node):
         self.pose_broadcaster.sendTransform(transform)
 
     def execute_navigation(self, goal_handle):
+        """Execute a fake navigation goal and record its outcome.
+
+        Args:
+            goal_handle: ROS action goal handle for the navigation request.
+
+        Returns:
+            An empty navigation result after success or cancellation.
+        """
         position = goal_handle.request.pose.pose.position
         self.record('goal %.3f %.3f' % (position.x, position.y))
         deadline = time.monotonic() + self.fake_options.delay
@@ -72,11 +92,20 @@ class FakeNav2Servers(Node):
         return NavigateToPose.Result()
 
     def execute_spin(self, goal_handle):
+        """Succeed a fake spin goal immediately.
+
+        Args:
+            goal_handle: ROS action goal handle for the spin request.
+
+        Returns:
+            An empty successful spin result.
+        """
         goal_handle.succeed()
         return Spin.Result()
 
 
 def main():
+    """Run the fake Nav2 servers until interrupted."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--log', required=True)
     parser.add_argument('--delay', type=float, default=0.5)
