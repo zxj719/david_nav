@@ -82,6 +82,19 @@ def build_parser() -> argparse.ArgumentParser:
     doc_parser.add_argument(
         '--schema', action='append', type=Path,
         help='explicit package schema; repeat as needed (overrides schema discovery)')
+    check_parser = commands.add_parser('check', help='verify a prepared run against live ROS')
+    check_parser.add_argument('--live', action='store_true',
+                              help='explicitly enable ROS observation')
+    check_parser.add_argument('--run-dir', required=True, type=Path, help='prepared run directory')
+    check_parser.add_argument('--strict', action='store_true', help='return 1 on check errors')
+    check_parser.add_argument('--wait-timeout', type=float, default=0.0,
+                              help='manual-localization wait bound; zero waits indefinitely')
+    check_parser.add_argument('--sample-sec', type=float, default=1.0,
+                              help='graph discovery window')
+    check_parser.add_argument('--parameter-timeout', type=float, default=5.0,
+                              help='global read-only parameter query deadline')
+    check_parser.add_argument('--events', type=Path,
+                              help='optional event log owned by the calling supervisor')
     return parser
 
 
@@ -257,4 +270,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _render_command(args)
     if args.command == 'validate':
         return _validate_command(args)
+    if args.command == 'check':
+        from nav_bringup.navcfg.live_cli import run
+
+        return run(args)
     return _doc_command(args)

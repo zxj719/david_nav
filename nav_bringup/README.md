@@ -165,6 +165,44 @@ launching it concurrently with the adapter would make startup ordering unsafe.
 Until the combined handoff is implemented, the launch runtime rejects teleop before
 resolving or spawning any child; no PID-name exemption or environment bypass exists.
 
+### Live configuration check and manual localization (P4.5)
+
+`navcfg check --live --run-dir /absolute/run/record --strict` observes an existing
+prepared navigation run. Source the selected workspace and its shared ROS/DDS
+environment first; the checker neither changes domains/interfaces nor starts a CLI
+daemon. It never launches localization, sends initial poses, submits goals, changes
+parameters or publishes commands. Chassis/teleop modes are rejected because they
+must not gain a localization prerequisite.
+
+Until the configured global-to-odometry transform appears, the default is an
+indefinite wait with an informational operator hint every five seconds. There is
+no IMU dependency. `--wait-timeout SECONDS` optionally bounds a standalone check;
+status 3 means still waiting, not successful verification or failed localization.
+INT/TERM closes only the observer and returns 128+signal. The caller may explicitly
+provide `--events /owned/run/events.jsonl` to append waiting/ready/check events;
+without that option no run record is written.
+
+After localization, `--sample-sec` (default 1) allows graph discovery, then a single
+global `--parameter-timeout` (default 5 seconds) bounds concurrent GetParameters
+requests. Checks cover publisher counts and message types, navigation TF age,
+duplicate node names and every flattened rendered parameter selected for that
+node's actual parameter file. Costmap child namespaces are preserved. Dormant
+selectors are warnings; an undeclared parameter on a selected node is an error,
+not a silent exemption. Boolean/integer and other ROS type mismatches are errors.
+Existing inert legacy parameters may therefore be reported; do not change their
+values or waive findings merely to get a green report.
+
+Errors always print. `--strict` returns 1 on errors; without it the command returns
+0 after completing the diagnostic. TF age warnings retain warn-only policy.
+Malformed inputs or operational failure return 2. This bounded observation is not
+a continuous health watchdog and does not prove message rates, odometry quality,
+hardware stop behavior or atomic graph ownership. Perception-contract sampling
+and Phase 6 health integration remain distinct work.
+
+The CLI and reusable wait/assessment primitives are available; automatic invocation
+and stop-on-strict-failure in the unfinished `navrun up` supervisor remain pending.
+Do not treat a standalone check as completion of the full startup workflow.
+
 ### Unit tests
 
 `navrun.dds_hygiene` separates read-only mapping observation and candidate planning
