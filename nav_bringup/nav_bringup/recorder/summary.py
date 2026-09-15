@@ -15,6 +15,7 @@ from typing import Any, List, Mapping, Optional, Sequence, Union
 
 from nav_bringup.recorder.events import Event
 from nav_bringup.recorder.resources import ResourceSummary
+from nav_bringup.recorder.topic_stats import TopicsSummary
 
 RECOVERY_EVENT_TYPES = ('escape_triggered', 'recovery_triggered')
 MAX_LISTED_EVENTS = 20
@@ -28,6 +29,7 @@ def render_summary(
     events: Sequence[Event],
     resources: ResourceSummary,
     skipped_event_lines: int = 0,
+    topics: Optional[TopicsSummary] = None,
 ) -> str:
     """Render the Markdown summary of a run.
 
@@ -36,6 +38,7 @@ def render_summary(
         events: Events of the run in file order.
         resources: Aggregated resource usage.
         skipped_event_lines: Lines of ``events.jsonl`` that could not be parsed.
+        topics: Aggregated topic rates and TF lag, if the run was monitored.
 
     Returns:
         Markdown text ending with a newline.
@@ -72,6 +75,7 @@ def render_summary(
     ]
     lines.extend(_listed_events('脱困与恢复触发', recoveries, by_node=True))
     lines.extend(_listed_events('告警与错误', problems))
+    lines.extend(_topics(topics))
     lines.extend(_resources(resources))
     return '\n'.join(lines).rstrip('\n') + '\n'
 
@@ -167,3 +171,40 @@ def _resources(resources: ResourceSummary) -> List[str]:
                 f'{stats.rss_peak_mb:.1f} |')
         lines.append('')
     return lines
+
+
+def _topics(topics: Optional[TopicsSummary]) -> List[str]:
+    lines = ['## 话题频率与 TF 延迟', '']
+    if topics is None or (not topics.topics and not topics.transforms):
+        lines.extend(['无话题采样。', ''])
+        return lines
+    if topics.topics:
+        lines.extend([
+            '| 话题 | 平均 Hz | 最低 Hz | 无消息周期 | 最多发布者 |',
+            '|---|---|---|---|---|',
+        ])
+        for stats in topics.topics:
+            publishers = '-' if stats.publishers_max is None else str(stats.publishers_max)
+            lines.append(
+                f'| {stats.name} | {stats.rate_avg_hz:.1f} | {stats.rate_min_hz:.1f} | '
+                f'{stats.silent_samples}/{stats.samples} | {publishers} |')
+        lines.append('')
+        orphans = [stats.name for stats in topics.topics if stats.publishers_max == 0]
+        if orphans:
+            lines.extend(['⚠ 整个运行期间没有发布者的话题：' + '，'.join(orphans), ''])
+    if topics.transforms:
+        lines.extend([
+            '| 变换 | P50 ms | P95 ms | 最大 ms | 不可用周期 |',
+            '|---|---|---|---|---|',
+        ])
+        for stats in topics.transforms:
+            lines.append(
+                f'| {stats.name} | {_milliseconds(stats.lag_p50_ms)} | '
+                f'{_milliseconds(stats.lag_p95_ms)} | {_milliseconds(stats.lag_max_ms)} | '
+                f'{stats.missing_samples}/{stats.samples} |')
+        lines.append('')
+    return lines
+
+
+def _milliseconds(value: Optional[float]) -> str:
+    return '-' if value is None else f'{value:.1f}'

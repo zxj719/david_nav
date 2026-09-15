@@ -3,7 +3,7 @@
 Example:
     navrun wrap --mode tour --alias 4 -- ~/ros2_ws/src/david_nav/start_navigation_headless.sh
     navrun doctor
-    navrun watch-bt --run-dir ~/nav_runs/latest --base-frame <frames.nav_base>
+    navrun monitor --run-dir ~/nav_runs/latest --base-frame <frames.nav_base> --topic /cmd_vel
     navrun dump-params --run-dir ~/nav_runs/latest
 """
 
@@ -18,10 +18,11 @@ from typing import Dict, Optional, Sequence
 
 from nav_bringup.doctor import checks
 from nav_bringup.navrun import wrap
-from nav_bringup.recorder import bt_log_watcher
 from nav_bringup.recorder import events
+from nav_bringup.recorder import monitor
 from nav_bringup.recorder import param_dump
 from nav_bringup.recorder import run_dir
+from nav_bringup.recorder import topic_stats
 
 DEFAULT_REPO_DIR = '~/ros2_ws/src'
 
@@ -63,17 +64,27 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument(
         '--json', action='store_true', help='print results as JSON instead of text')
 
-    watch_parser = subparsers.add_parser(
-        'watch-bt', help='report behavior tree escape and recovery triggers')
-    watch_parser.add_argument(
+    monitor_parser = subparsers.add_parser(
+        'monitor', help='record behavior tree triggers, topic rates and TF lag of a run')
+    monitor_parser.add_argument(
         '--run-dir', type=Path, default=None,
         help='run directory to record into (default: $NAVRUN_RUN_DIR; unset prints only)')
-    watch_parser.add_argument('--topic', default='/behavior_tree_log', help='tree log topic')
-    watch_parser.add_argument('--map-frame', default='map', help='frame of the reported pose')
-    watch_parser.add_argument(
+    monitor_parser.add_argument(
         '--base-frame', required=True,
-        help='robot frame whose pose is reported (robot profile frames.nav_base)')
-    watch_parser.add_argument(
+        help='robot frame for pose and TF lag (robot profile frames.nav_base)')
+    monitor_parser.add_argument(
+        '--map-frame', default='map', help='global frame for pose and TF lag')
+    monitor_parser.add_argument(
+        '--bt-topic', default=monitor.DEFAULT_BT_TOPIC, help='behavior tree log topic')
+    monitor_parser.add_argument(
+        '--no-bt', action='store_true', help='do not report behavior tree triggers')
+    monitor_parser.add_argument(
+        '--topic', action='append', default=[], metavar='TOPIC',
+        help='topic whose rate is recorded; repeatable (robot profile record.monitor_topics)')
+    monitor_parser.add_argument(
+        '--period', type=float, default=topic_stats.DEFAULT_PERIOD_SEC,
+        help='seconds between topics.csv samples')
+    monitor_parser.add_argument(
         '--min-interval', type=float, default=0.5,
         help='minimum seconds between reports of the same trigger')
 
@@ -131,8 +142,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     if args.subcommand == 'doctor':
         return _doctor(args)
-    if args.subcommand == 'watch-bt':
-        return _watch_bt(args)
+    if args.subcommand == 'monitor':
+        return _monitor(parser, args)
     if args.subcommand == 'dump-params':
         return _dump_params(parser, args)
     return _wrap(parser, args)
@@ -157,14 +168,19 @@ def _doctor(args: argparse.Namespace) -> int:
     return 1 if checks.worst_status(results) is checks.Status.FAIL else 0
 
 
-def _watch_bt(args: argparse.Namespace) -> int:
-    return bt_log_watcher.spin(
-        _run_directory(args.run_dir),
-        base_frame=args.base_frame,
-        topic=args.topic,
-        map_frame=args.map_frame,
-        min_interval_sec=args.min_interval,
-    )
+def _monitor(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    try:
+        options = monitor.MonitorOptions(
+            base_frame=args.base_frame,
+            map_frame=args.map_frame,
+            bt_topic=None if args.no_bt else args.bt_topic,
+            topics=tuple(args.topic),
+            period_sec=args.period,
+            min_trigger_interval_sec=args.min_interval,
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    return monitor.spin(_run_directory(args.run_dir), options)
 
 
 def _dump_params(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:

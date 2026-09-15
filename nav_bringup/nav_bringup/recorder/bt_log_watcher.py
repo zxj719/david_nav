@@ -1,26 +1,19 @@
-"""Report behavior tree escape and recovery triggers of a running navigation.
+"""Report behavior tree escape and recovery triggers (refactor plan §10.3).
 
-``navrun watch-bt`` subscribes to Nav2's ``/behavior_tree_log``, feeds the
-status changes to :class:`~nav_bringup.recorder.bt_triggers.TriggerDetector`
-and, for every trigger, appends an event to the run's ``events.jsonl``, prints
-a line to the terminal and appends the same line to ``logs/navrun.log``
-(refactor plan §10.3). The tree log carries no pose, so the pose is looked up
-in TF from the map frame to the robot base frame. The base frame has no
-default: it comes from the robot profile (``frames.nav_base``, plan §5.4).
-
-ROS packages are imported only inside :func:`spin`, so the rest of
-``nav_bringup`` and its unit tests do not need a ROS environment.
+:class:`TriggerReporter` turns ``/behavior_tree_log`` status changes into an
+event in the run's ``events.jsonl``, a line in the terminal and the same line
+in ``logs/navrun.log``. The subscription lives in
+:mod:`nav_bringup.recorder.monitor` (``navrun monitor``), which also supplies
+the robot pose from TF because the tree log carries none.
 """
 
 from __future__ import annotations
 
-import sys
 import time
 from typing import Any, Callable, List, Optional, Sequence, TextIO
 
 from nav_bringup.recorder import bt_triggers
 from nav_bringup.recorder import events
-from nav_bringup.recorder import run_dir
 
 EVENT_SOURCE = 'bt_watch'
 LOG_FILE_NAME = 'navrun.log'
@@ -98,77 +91,3 @@ class TriggerReporter:
                 sink.write(line + '\n')
                 sink.flush()
         return triggers
-
-
-def spin(
-    run: Optional[run_dir.RunDirectory] = None,
-    *,
-    base_frame: str,
-    topic: str = '/behavior_tree_log',
-    map_frame: str = 'map',
-    min_interval_sec: float = 0.5,
-    stdout: TextIO = sys.stdout,
-) -> int:
-    """Report triggers until interrupted or ROS shuts down.
-
-    Args:
-        run: Run directory to record into, or ``None`` to only print.
-        base_frame: Robot frame whose pose is reported, from the robot profile.
-        topic: Behavior tree log topic.
-        map_frame: Frame of the reported pose.
-        min_interval_sec: Minimum tree time between reports of one rule.
-        stdout: Terminal stream.
-
-    Returns:
-        Exit status 0.
-    """
-    from nav2_msgs.msg import BehaviorTreeLog
-    import rclpy
-    from rclpy.executors import ExternalShutdownException
-    from rclpy.time import Time
-    import tf2_ros
-
-    rclpy.init()
-    node = rclpy.create_node('navrun_bt_watch')
-    tf_buffer = tf2_ros.Buffer()
-    tf_listener = tf2_ros.TransformListener(tf_buffer, node)
-
-    def lookup_pose() -> Optional[bt_triggers.Pose2D]:
-        """Look up the latest robot pose in TF.
-
-        Returns:
-            The pose, or ``None`` while the transform is unavailable.
-        """
-        try:
-            transform = tf_buffer.lookup_transform(map_frame, base_frame, Time())
-        except tf2_ros.TransformException:
-            return None
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
-        yaw = bt_triggers.yaw_from_quaternion(rotation.x, rotation.y, rotation.z, rotation.w)
-        return bt_triggers.Pose2D(translation.x, translation.y, yaw, map_frame)
-
-    sinks: List[TextIO] = [stdout]
-    event_log = None
-    log_file = None
-    if run is not None:
-        run.logs.mkdir(parents=True, exist_ok=True)
-        log_file = (run.logs / LOG_FILE_NAME).open('a', encoding='utf-8')
-        sinks.append(log_file)
-        event_log = events.EventLog(run.events)
-    reporter = TriggerReporter(
-        bt_triggers.TriggerDetector(min_interval_sec=min_interval_sec), event_log, sinks,
-        pose_provider=lookup_pose)
-    node.create_subscription(
-        BehaviorTreeLog, topic, lambda msg: reporter.handle(status_changes_from_msg(msg)), 10)
-    try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, ExternalShutdownException):
-        pass
-    finally:
-        del tf_listener
-        node.destroy_node()
-        rclpy.try_shutdown()
-        if log_file is not None:
-            log_file.close()
-    return 0

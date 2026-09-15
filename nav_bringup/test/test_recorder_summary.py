@@ -5,6 +5,7 @@ import datetime
 from nav_bringup.recorder import events
 from nav_bringup.recorder import resources
 from nav_bringup.recorder import summary
+from nav_bringup.recorder import topic_stats
 
 
 def _stamp(hour, minute, second):
@@ -68,6 +69,7 @@ def test_render_summary_empty_run_uses_placeholders():
     assert '| 时长 | - |' in text
     assert '无事件。' in text
     assert '## 脱困与恢复触发（0 次）\n\n无。' in text
+    assert '## 话题频率与 TF 延迟\n\n无话题采样。' in text
     assert '无资源采样。' in text
 
 
@@ -82,6 +84,24 @@ def test_long_event_lists_are_truncated():
 
     assert f'## 脱困与恢复触发（{summary.MAX_LISTED_EVENTS + 3} 次）' in text
     assert '- ……另有 3 条，见 events.jsonl' in text
+
+
+def test_render_summary_topics_section():
+    """Topic rates, topics without publishers and TF lag percentiles are rendered."""
+    topics = topic_stats.TopicsSummary(
+        topics=(
+            topic_stats.TopicStats('/cmd_vel', 3, 10.0, 0.0, 1, 2),
+            topic_stats.TopicStats('/scan', 3, 0.0, 0.0, 3, 0),
+        ),
+        transforms=(topic_stats.TfStats('map->robot', 4, 1, 20.0, 29.0, 30.0),),
+    )
+
+    text = summary.render_summary({'run_id': 'x'}, [], resources.ResourceSummary(), topics=topics)
+
+    assert '| /cmd_vel | 10.0 | 0.0 | 1/3 | 2 |' in text
+    assert '⚠ 整个运行期间没有发布者的话题：/scan' in text
+    assert '| map->robot | 20.0 | 29.0 | 30.0 | 1/4 |' in text
+    assert text.index('## 话题频率与 TF 延迟') < text.index('## 资源占用')
 
 
 def test_write_summary(tmp_path):

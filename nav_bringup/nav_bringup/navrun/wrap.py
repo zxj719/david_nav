@@ -32,6 +32,7 @@ from nav_bringup.recorder import manifest as manifest_lib
 from nav_bringup.recorder import retention
 from nav_bringup.recorder import run_dir as run_dir_lib
 from nav_bringup.recorder import summary as summary_lib
+from nav_bringup.recorder import topic_stats
 from nav_bringup.recorder.events import EventLog
 from nav_bringup.recorder.events import read_events
 from nav_bringup.recorder.resources import ResourceSampler
@@ -166,8 +167,9 @@ def run_wrapped(
     manifest_lib.write_manifest(run.manifest, finalized)
     run_events, skipped = read_events(run.events)
     usage = summarize_resources(run.metrics / RESOURCES_CSV_NAME)
+    topics = topic_stats.summarize_topics(run.metrics / topic_stats.TOPICS_CSV_NAME)
     summary_lib.write_summary(
-        run.summary, summary_lib.render_summary(finalized, run_events, usage, skipped))
+        run.summary, summary_lib.render_summary(finalized, run_events, usage, skipped, topics))
     return WrapResult(run=run, exit_code=exit_code, exit_reason=exit_reason)
 
 
