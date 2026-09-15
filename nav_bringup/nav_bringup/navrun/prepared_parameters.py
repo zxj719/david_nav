@@ -68,6 +68,8 @@ def node_parameters(
     if options.mode == 'teleop':
         teleop = {target: render.profile_value(profile, 'teleop.' + source)
                   for target, source in _TELEOP_KEYS.items()}
+        teleop['guard_topics'] = [options.chassis_command_topic, options.nav_command_topic]
+        teleop['discovery_sec'] = render.profile_value(profile, 'teleop').get('discovery_sec', 1.0)
         output['teleop'] = _node('chassis_teleop', teleop)
         return output
     if options.mode not in NAVIGATION_MODES:

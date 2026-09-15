@@ -8,6 +8,14 @@ from nav_bringup.launching.graph import GraphOptions
 from nav_bringup.launching import runtime
 
 
+def test_combined_teleop_refuses_before_starting_hardware(monkeypatch) -> None:
+    """Standalone guard cannot be bypassed by starting all teleop children concurrently."""
+    monkeypatch.setattr(runtime, '_resolve',
+                        lambda *_: pytest.fail('must reject before resolution'))
+    with pytest.raises(ValueError, match='supervisor-owned'):
+        runtime.launch_actions(build_graph(GraphOptions('teleop', '/run/test')))
+
+
 def test_missing_package_fails_before_any_node_constructor(monkeypatch) -> None:
     """A late missing dependency cannot leave the early hardware driver started."""
     def resolve(package, executable):

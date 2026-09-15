@@ -117,6 +117,10 @@ def test_teleop_binds_layout_terminal_and_explicit_robot_deadzone(tmp_path: Path
     assert values['tty_device'] == '/dev/tty'
     assert values['linear_deadzone'] == values['angular_deadzone'] == 0.0
     assert values['linear_speed'] == 0.1
+    assert values['guard_topics'] == [
+        prepared.options.chassis_command_topic, prepared.options.nav_command_topic]
+    assert values['guard_topics'][0] == '/demo/command'
+    assert values['discovery_sec'] == 1.0
 
 
 @pytest.mark.parametrize('mode', ['chassis', 'teleop'])

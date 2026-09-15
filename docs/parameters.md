@@ -26,6 +26,7 @@ This file lists every robot-profile key declared by package schemas.
 | `teleop.angular_deadzone` | `float` | rad/s | default: `0.35` | range: `0.0 .. inf` | 键盘非零角速度地板，实际不超过键盘 max_angular_z | — |
 | `teleop.angular_speed` | `float` | rad/s | default: `0.35` | range: `0.0 .. inf` | 当前转向档位；经过死区抬升和上限钳位 | — |
 | `teleop.cmd_topic` | `string` | — | default: `"cmd_vel_safe"` | — | 键盘输出话题，应接模式的 adapter 输入，不直连驱动；节点 cmd_vel_topic | — |
+| `teleop.discovery_sec` | `float` | s | default: `1.0` | range: `0.0 .. inf` | 启动前观察指令话题发布者的窗口，运行时必须大于零；guard_topics 由 navrun 从底盘/导航话题派生 | — |
 | `teleop.key_timeout_sec` | `float` | s | default: `0.4` | — | 单调时间下按键静默超过阈值后零速；非正值关闭，节点 key_timeout | — |
 | `teleop.layout` | `string` | — | default: `"wasd"` | choices: `"wasd"`, `"uiojkl"` | 键位布局；两种均支持方向键、空格/k 停车和 q 退出，没有全向或加速键 | — |
 | `teleop.linear_deadzone` | `float` | m/s | default: `0.2` | range: `0.0 .. inf` | 键盘非零线速度地板，实际不超过键盘 max_linear_x | — |

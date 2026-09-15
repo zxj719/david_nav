@@ -164,6 +164,8 @@ def plan_up(
         raise ValueError('requested robot/site identity does not match the rendered bundle')
     graph = build_graph(bundle.options)
     errors = []
+    if request.mode == 'teleop':
+        errors.append('combined teleop launch awaits supervisor-owned startup interlock')
     executables = []
     requirements = [(spec.name, spec.package, spec.executable) for spec in graph.processes]
     if executor:

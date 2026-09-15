@@ -159,6 +159,12 @@ returns 2 before discovery, because recording/manifest, readiness/localization a
 exit-zero orchestration remain unfinished. The report says `runtime_enabled:
 false`. Do not replace production aliases with this intermediate entry point.
 
+Teleop previews additionally report the pending supervisor-owned startup interlock.
+The standalone keyboard executable has its own lease and publisher guard, but
+launching it concurrently with the adapter would make startup ordering unsafe.
+Until the combined handoff is implemented, the launch runtime rejects teleop before
+resolving or spawning any child; no PID-name exemption or environment bypass exists.
+
 ### Unit tests
 
 `navrun.dds_hygiene` separates read-only mapping observation and candidate planning

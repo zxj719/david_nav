@@ -1,6 +1,12 @@
 schema_version: 1
 package: chassis_teleop
 parameters:
+  teleop.discovery_sec:
+    type: float
+    default: 1.0
+    unit: s
+    range: [0.0, null]
+    description: 启动前观察指令话题发布者的窗口，运行时必须大于零；guard_topics 由 navrun 从底盘/导航话题派生
   teleop.cmd_topic:
     type: string
     default: cmd_vel_safe
