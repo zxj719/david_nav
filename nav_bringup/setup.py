@@ -23,6 +23,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'navcfg = nav_bringup.navcfg.cli:main',
             'navrun = nav_bringup.navrun.cli:main',
         ],
     },

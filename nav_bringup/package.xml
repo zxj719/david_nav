@@ -11,6 +11,7 @@
   <maintainer email="xingjian.zhang@amicro.com.cn">zhangxingjian</maintainer>
   <license>Apache-2.0</license>
 
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>python3-psutil</exec_depend>
   <exec_depend>python3-yaml</exec_depend>

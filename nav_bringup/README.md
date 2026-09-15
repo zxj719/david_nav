@@ -22,7 +22,8 @@ This package is robot independent: robot-specific values live in a
 | `navrun doctor`: read-only checks (ROS/DDS environment, orphan Fast DDS segments, map yaml mode, duplicate robot_state_publisher, stale copied scripts, chassis serial device, ROS log directory size) | available (P1.5a, P1.5b) | plan §13.3 |
 | `navrun doctor --live [--cmd-topic T] [--watch-topic T]`: stale ros2 CLI daemon (compared with `--no-daemon`; never started or stopped), several publishers on a command topic, publishers from more than one host (Fast DDS GID host bytes), map→odom transform missing (hint) | available (P1.5b) | plan §13.3 |
 | `navrun up` | planned (P4.2) | plan §13.1 |
-| `navcfg render` / `validate` / `doc` | planned (P2.3 – P2.6) | plan §12 |
+| `navcfg render --profile FILE [--mode FILE] --output FILE` (`nav_bringup.navcfg.render`): a base parameter tree whose robot-specific values are `<bind:KEY>` markers, a binding table listing every parameter each profile key is written to (markers and table must agree), the robot profile and a mode overlay (profile values plus `nav2_overrides`, which may not touch bound parameters); PyYAML and the standard library only | available (P2.3) | plan §12.3 |
+| `navcfg validate` / `doc` | planned (P2.5, P2.6) | plan §12.4, §12.1 |
 | `nav.launch.py` | planned (P4.1) | plan §7.1 |
 
 ## Layout
