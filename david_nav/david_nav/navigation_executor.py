@@ -36,6 +36,9 @@ DEFAULT_RECONNECT_DELAY = 3.0
 # 超过重试预算才上报 on_error。见 nav2_action_bridge.py。
 DEFAULT_NAV_RETRY_COUNT = 1
 DEFAULT_NAV_RETRY_DELAY_SEC = 1.0
+# 2026-09-15: alias 0 精准入位。--dock-poi-id 列出的 POI 不发 /navigate_to_pose,
+# 改发 dock_navigator 的 dock_to_pose(同为 NavigateToPose 类型,内部两段式入位)。
+DEFAULT_DOCK_ACTION_NAME = "/dock_to_pose"
 
 
 def _log(message: str):
@@ -94,6 +97,9 @@ def _build_help_text() -> str:
             "  --nav-retry-count N     Silent re-publish attempts after a nav failure before",
             "                          reporting on_error to the server (default: 1)",
             "  --nav-retry-delay SEC   Wait between a nav failure and the re-publish (default: 1.0)",
+            "  --dock-poi-id ID        Navigate this POI with two-stage precise docking through",
+            "                          the docking action (repeatable; never snapped or retried)",
+            "  --dock-action-name NAME Docking action server (default: /dock_to_pose)",
             "  -h, --help              Show this help message and exit",
         ]
     )
@@ -121,6 +127,8 @@ def _parse_cli_args(raw_args):
         "reconnect_delay": DEFAULT_RECONNECT_DELAY,
         "nav_retry_count": DEFAULT_NAV_RETRY_COUNT,
         "nav_retry_delay_sec": DEFAULT_NAV_RETRY_DELAY_SEC,
+        "dock_action_name": DEFAULT_DOCK_ACTION_NAME,
+        "dock_poi_ids": [],
     }
     ros_args = []
     i = 0
@@ -152,6 +160,16 @@ def _parse_cli_args(raw_args):
             continue
         if arg == "--action-name" and i + 1 < len(raw_args):
             config["action_name"] = raw_args[i + 1]
+            i += 2
+            continue
+        if arg == "--dock-action-name" and i + 1 < len(raw_args):
+            config["dock_action_name"] = raw_args[i + 1]
+            i += 2
+            continue
+        if arg == "--dock-poi-id" and i + 1 < len(raw_args):
+            poi_id = raw_args[i + 1].strip()
+            if poi_id and poi_id not in config["dock_poi_ids"]:
+                config["dock_poi_ids"].append(poi_id)
             i += 2
             continue
         ros_args.append(arg)
@@ -406,6 +424,25 @@ async def main_async(raw_args):
         f"retry_delay={config['nav_retry_delay_sec']:.1f}s "
         "(单次失败静默重发,连败才上报 on_error)"
     )
+    if config["dock_poi_ids"]:
+        # 只在配置了精准入位 POI 时才导入(alias 4 不传该参数,完全不受影响)。
+        from david_nav.dock_routing import DockRoutingBridge
+
+        dock_bridge = Nav2ActionBridge(
+            node=node,
+            action_name=config["dock_action_name"],
+            server_timeout=config["server_timeout"],
+            event_callback=on_bridge_event,
+            # dock_navigator 约定入位失败后不再下发任何位移目标;这里静默重发
+            # 就等于再走一遍两段式位移,所以精准入位不重试,失败直接上报。
+            goal_retry_count=0,
+            goal_retry_delay_sec=config["nav_retry_delay_sec"],
+        )
+        bridge = DockRoutingBridge(bridge, dock_bridge, config["dock_poi_ids"])
+        _log(
+            f"dock POIs: {', '.join(config['dock_poi_ids'])} -> "
+            f"{config['dock_action_name']} (两段式精准入位;不扩圈、失败不重发)"
+        )
     pose_provider = TfPoseProvider(
         node=node,
         tf_buffer=tf_buffer,
@@ -424,6 +461,10 @@ async def main_async(raw_args):
         max_snap_radius=config["nav_goal_max_snap_radius"],
         snap_step=config["nav_goal_snap_step"],
     )
+    if config["dock_poi_ids"]:
+        from david_nav.dock_routing import DockAwareGoalResolver
+
+        goal_resolver = DockAwareGoalResolver(goal_resolver, config["dock_poi_ids"])
     core = NavigationExecutorCore(
         bridge=bridge,
         pose_provider=pose_provider,

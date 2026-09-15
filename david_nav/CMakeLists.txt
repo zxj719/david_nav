@@ -385,6 +385,22 @@ if(BUILD_TESTING)
     test/test_executor_golden.py
   )
 
+  # alias 0: server module in precise_nav_bringup + precise docking of dock POIs (2026-09-15).
+  ament_add_pytest_test(
+    dock_routing_test
+    test/test_dock_routing.py
+  )
+
+  ament_add_pytest_test(
+    dock_navigator_action_test
+    test/test_dock_navigator_action.py
+  )
+
+  ament_add_pytest_test(
+    precise_nav_bringup_launch_test
+    test/test_precise_nav_bringup_launch.py
+  )
+
   ament_add_gtest(
     scan_priority_geometry_test
     test/scan_priority_geometry_test.cpp

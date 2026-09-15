@@ -4,6 +4,8 @@
 = 现有 2d_david_nav2_bringup.launch.py（传高精度参数快照）
 + dock_navigator（两段式对齐入位编排节点）
 + wheeltec 底盘（原 alias 5，2026-09-08 并入；已经在跑就自动跳过）
++ navigation_executor（alias 4 的 server 模块，2026-09-15 并入；状态上报与 POI 接收
+  与 alias 4 相同；dock_poi_ids 里的 POI 导航时走两段式精准入位）
 
 生产导览 alias 4 完全不受影响：本文件不修改任何生产文件，只是换一份
 params_file 并额外起节点。
@@ -22,6 +24,17 @@ params_file 并额外起节点。
     start_navigation_headless.sh 的 CHASSIS_STARTUP_DELAY_SEC=3）；跳过或
     start_chassis:=false 时不延后。
   - Ctrl-C 只收掉本 launch 自己起的底盘；跳过的那份（你手动的 alias 5）不动。
+
+2026-09-15 变更：server 模块并入（原来只有 alias 4 有）。
+  - nav2 就绪（/navigate_to_pose 可用，scripts/wait_nav_ready.py 探测）后才起
+    navigation_executor，与 start_navigation_headless.sh 的顺序一致。
+  - server 地址默认读 config/navigation_headless.yaml 的 executor.server_uri，点位文件
+    默认 ~/semantic_map/named_poses.json，都与 alias 4 相同。
+  - dock_poi_ids（默认 POI_017）里的 POI：agent 下发 navigate_to 时交给 dock_navigator
+    的 dock_to_pose 动作做两段式精准入位，不做目标扩圈、失败不静默重发；其它 POI 照旧
+    直发 bt_navigator（本 launch 的高精度参数）。
+  - 已有 navigation_executor 在跑（例如 alias 4 没收干净）时只告警，不起第二个。
+  - start_executor:=false 恢复旧行为（纯本地导航，不连 server）。
 """
 
 import os
@@ -57,6 +70,9 @@ NAV2_PROC_PATTERNS = (
     'nav2_bt_navigator/bt_navigator',
 )
 
+# 判定"server 模块已经在跑"。两个 executor 会同时连 agent server、抢同一批指令。
+EXECUTOR_PROC_PATTERNS = ('navigation_executor.py',)
+
 DEFAULT_WHEELTEC_WS = '~/wheelhumanoidrobot/workspace_wheeltec/wheeltec_robot_ros2'
 DEFAULT_ROS_SETUP = '/opt/ros/humble/setup.bash'
 
@@ -83,6 +99,80 @@ def _pids_for(patterns):
 
 def _as_bool(value):
     return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _source_package_dir():
+    """本 launch 所在的源码包目录（install 里的 launch 目录是指向源码的软链）。"""
+    return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+
+
+def build_executor_script(executor, probe, executor_args, nav_ready_timeout_sec):
+    """等 nav2 就绪后再 exec navigation_executor 的 bash 脚本（与 headless 的启动顺序一致）。"""
+    timeout = int(float(nav_ready_timeout_sec))
+    return (
+        'deadline=$((SECONDS + {timeout})); '
+        'until python3 {probe} --timeout 5 --quiet; do '
+        'if (( SECONDS >= deadline )); then '
+        'echo "[precise_nav] nav2 在 {timeout}s 内未就绪，不启动 navigation_executor" >&2; '
+        'exit 1; fi; sleep 1; done; '
+        'echo "[precise_nav] nav2 已就绪，启动 navigation_executor"; '
+        'exec python3 {executor} {args}'
+    ).format(
+        timeout=timeout,
+        probe=shlex.quote(probe),
+        executor=shlex.quote(executor),
+        args=' '.join(shlex.quote(str(arg)) for arg in executor_args),
+    )
+
+
+def _executor_actions(context):
+    if not _as_bool(LaunchConfiguration('start_executor').perform(context)):
+        return [LogInfo(msg='[precise_nav] start_executor:=false —— 不起 server 模块'
+                            '（不连 agent server）')]
+    running = _pids_for(EXECUTOR_PROC_PATTERNS)
+    if running:
+        return [LogInfo(msg=(
+            '[precise_nav] ⚠ 已有 navigation_executor 在跑 (pid=%s)，不再起第二个 —— '
+            '两个执行器会同时连 agent server、抢同一批指令。先收掉旧的再重启本 launch。'
+            % ','.join(str(p) for p in running)))]
+
+    source_dir = _source_package_dir()
+    executor = os.path.join(source_dir, 'david_nav', 'navigation_executor.py')
+    probe = os.path.join(source_dir, 'scripts', 'wait_nav_ready.py')
+    for path in (executor, probe):
+        if not os.path.isfile(path):
+            return [LogInfo(msg='[precise_nav] ⚠ 找不到 %s，不起 server 模块' % path)]
+
+    server_uri = LaunchConfiguration('server_uri').perform(context).strip()
+    reconnect_delay = 3.0
+    try:
+        from david_nav.headless_config import build_executor_settings, load_headless_config
+        settings = build_executor_settings(load_headless_config(
+            os.path.join(source_dir, 'config', 'navigation_headless.yaml')))
+        server_uri = server_uri or settings['server_uri']
+        reconnect_delay = settings['reconnect_delay']
+    except Exception as exc:  # noqa: BLE001  配置读不到时允许用 server_uri 参数兜底
+        if not server_uri:
+            return [LogInfo(msg='[precise_nav] ⚠ 读不到 navigation_headless.yaml（%s）'
+                                '且未传 server_uri，不起 server 模块' % exc)]
+    if not server_uri:
+        return [LogInfo(msg='[precise_nav] ⚠ navigation_headless.yaml 没有 '
+                            'executor.server_uri，不起 server 模块')]
+
+    pose_file = os.path.expanduser(LaunchConfiguration('pose_file').perform(context))
+    dock_ids = [poi.strip() for poi in
+                LaunchConfiguration('dock_poi_ids').perform(context).split(',') if poi.strip()]
+    args = ['--server-uri', server_uri, '--reconnect-delay', '%g' % reconnect_delay,
+            '--pose-file', pose_file]
+    for poi_id in dock_ids:
+        args += ['--dock-poi-id', poi_id]
+    timeout = LaunchConfiguration('nav_ready_timeout').perform(context)
+    return [
+        LogInfo(msg='[precise_nav] server 模块：%s，点位文件 %s，精准入位 POI：%s'
+                    '（nav2 就绪后启动）' % (server_uri, pose_file, ','.join(dock_ids) or '无')),
+        ExecuteProcess(cmd=['bash', '-c', build_executor_script(executor, probe, args, timeout)],
+                       name='navigation_executor', output='screen'),
+    ]
 
 
 def _setup(context, *args, **kwargs):
@@ -156,6 +246,7 @@ def _setup(context, *args, **kwargs):
             'max_yaw_retries': LaunchConfiguration('max_yaw_retries'),
             'robot_base_frame': 'base_footprint',
             'global_frame': 'map',
+            'action_name': 'dock_to_pose',
         }],
     )
 
@@ -163,6 +254,10 @@ def _setup(context, *args, **kwargs):
         actions.append(TimerAction(period=delay, actions=[bringup, dock_navigator]))
     else:
         actions.extend([bringup, dock_navigator])
+
+    # ---------- server 模块（alias 4 的 navigation_executor，2026-09-15 并入） ----------
+    # 它自己等 nav2 就绪才 exec executor，不需要跟着底盘延时。
+    actions.extend(_executor_actions(context))
     return actions
 
 
@@ -215,6 +310,30 @@ def generate_launch_description():
             'chassis_startup_delay', default_value='3.0',
             description='自起底盘后等多少秒再拉 nav2（对齐 headless 的 '
                         'CHASSIS_STARTUP_DELAY_SEC）。跳过自起时不生效。',
+        ),
+        DeclareLaunchArgument(
+            'start_executor', default_value='true',
+            description='是否起 navigation_executor（alias 4 的 server 模块：连 agent server、'
+                        '状态上报、POI 接收）。false = 旧行为，纯本地导航。',
+        ),
+        DeclareLaunchArgument(
+            'server_uri', default_value='',
+            description='agent server 地址；留空 = 读 config/navigation_headless.yaml 的 '
+                        'executor.server_uri（与 alias 4 相同）。',
+        ),
+        DeclareLaunchArgument(
+            'pose_file', default_value='~/semantic_map/named_poses.json',
+            description='executor 启动时导入 POI 库的点位文件（与 alias 4 相同）。',
+        ),
+        DeclareLaunchArgument(
+            'dock_poi_ids', default_value='POI_017',
+            description='逗号分隔。这些 POI 的 navigate_to 走 dock_navigator 两段式精准入位'
+                        '（dock_to_pose 动作），不做目标扩圈、失败不静默重发；空 = 全部直发 nav2。',
+        ),
+        DeclareLaunchArgument(
+            'nav_ready_timeout', default_value='120',
+            description='等 nav2 就绪（/navigate_to_pose 可用）的最长秒数，超时不起 executor'
+                        '（对齐 headless 的 nav2_wait_timeout_sec）。',
         ),
         OpaqueFunction(function=_setup),
     ])

@@ -22,16 +22,23 @@
       /goal_pose -> bt_navigator    单段直达, 留作 CLI 对照测试
   之所以用分话题而不是 remap: IncludeLaunchDescription 无法给被包含 launch 里的
   节点追加 remapping, 而改 remap 就得动生产 launch 文件。
+
+2026-09-15: 另开 **dock_to_pose 动作接口**(NavigateToPose 类型, 参数 action_name),
+  供 navigation_executor 把 agent 下发的精准入位 POI 交给本节点。编排与话题入口完全
+  相同; 动作接口额外提供: 结果(SUCCEEDED=入位达标, ABORTED=失败)、取消(当前阶段的
+  nav2 目标随之取消, 不再下发后续阶段)、feedback(转发阶段目标的 feedback, 阶段1 的
+  剩余距离加上 approach_dist)。执行期间再来的目标(话题或动作)一律拒绝。
 """
 import math
 import threading
+import time
 import traceback
 
 import rclpy
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose, Spin
-from rclpy.action import ActionClient
+from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -50,6 +57,40 @@ def wrap(a):
     return (a + math.pi) % (2.0 * math.pi) - math.pi
 
 
+# dock_finish 的失败判词; 其余 outcome 都是入位达标(见 execute_docking 末尾的 report)。
+DOCK_FAILURE_REASONS = ('no_pose', 'not_settled', 'xy_out_of_tol', 'yaw_not_converged')
+
+
+def wait_done(fut, timeout_sec, should_cancel=None, poll_sec=0.1):
+    """等 future 完成(自己不 spin)。True=完成; False=超时或 should_cancel() 为真。"""
+    ev = threading.Event()
+    fut.add_done_callback(lambda _f: ev.set())
+    if fut.done():  # add_done_callback 之前就完成的竞态
+        return True
+    if should_cancel is None:
+        return ev.wait(timeout_sec)
+    deadline = time.monotonic() + timeout_sec
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            return False
+        if ev.wait(min(poll_sec, remaining)):
+            return True
+        if should_cancel():
+            return False
+
+
+def stage_feedback(inner, extra_distance):
+    """阶段目标(nav2)的 feedback -> 入位动作的 feedback: 剩余距离加上后续阶段的距离。"""
+    feedback = NavigateToPose.Feedback()
+    feedback.current_pose = inner.current_pose
+    feedback.navigation_time = inner.navigation_time
+    feedback.estimated_time_remaining = inner.estimated_time_remaining
+    feedback.number_of_recoveries = inner.number_of_recoveries
+    feedback.distance_remaining = float(inner.distance_remaining) + float(extra_distance)
+    return feedback
+
+
 class DockNavigator(Node):
     def __init__(self):
         super().__init__('dock_navigator')
@@ -58,6 +99,7 @@ class DockNavigator(Node):
         self.declare_parameter('yaw_ok', 0.087)
         self.declare_parameter('max_yaw_retries', 2)
         self.declare_parameter('goal_topic', '/goal_pose')
+        self.declare_parameter('action_name', 'dock_to_pose')
         self.declare_parameter('robot_base_frame', 'base_footprint')
         self.declare_parameter('global_frame', 'map')
         self.declare_parameter('nav_timeout_sec', 120.0)
@@ -95,6 +137,15 @@ class DockNavigator(Node):
         self.create_subscription(PoseStamped, g('goal_topic').value,
                                  self.on_goal, 1, callback_group=self.cbg)
         self._busy = threading.Lock()
+        # 动作接口执行期间的取消判据; 话题入口为 None(不可取消, 行为与原来一致)。
+        self._cancel_check = None
+        self._last_run_canceled = False
+        self.dock_server = ActionServer(
+            self, NavigateToPose, g('action_name').value,
+            execute_callback=self._execute_dock_action,
+            goal_callback=self._on_dock_goal_request,
+            cancel_callback=self._on_dock_cancel_request,
+            callback_group=self.cbg)
 
         self.get_logger().info(
             '[dock] 就绪: approach_dist=%.2fm xy_ok=%.3fm yaw_ok=%.3frad(%.1f°) '
@@ -102,6 +153,9 @@ class DockNavigator(Node):
             % (self.approach_dist, self.xy_ok, self.yaw_ok,
                math.degrees(self.yaw_ok), self.max_yaw_retries,
                g('goal_topic').value))
+        self.get_logger().info(
+            '[dock] 动作接口: %s（NavigateToPose 类型，供 navigation_executor 调用）'
+            % g('action_name').value)
 
     # ---------- 工具 ----------
     def pose_now(self, timeout_sec=2.0):
@@ -125,7 +179,7 @@ class DockNavigator(Node):
         p.pose.orientation.w = math.cos(yaw / 2.0)
         return p
 
-    def wait_future(self, fut, timeout_sec):
+    def wait_future(self, fut, timeout_sec, should_cancel=None):
         """等 future 完成，但**自己绝不 spin** —— 由 main() 里的执行器负责转。
 
         ⚠ 这里以前用的是 rclpy.spin_until_future_complete(self, fut)。那个函数会把
@@ -145,17 +199,19 @@ class DockNavigator(Node):
         换成事件等待：future 完成回调由本节点自己的执行器触发，这里只阻塞在
         threading.Event 上，不再碰任何 wait set。返回 True=完成，False=超时。
         """
-        ev = threading.Event()
-        fut.add_done_callback(lambda _f: ev.set())
-        if fut.done():  # add_done_callback 之前就完成的竞态
-            return True
-        return ev.wait(timeout_sec)
+        return wait_done(fut, timeout_sec, should_cancel)
 
-    def run_action(self, client, goal_msg, label, timeout):
+    def run_action(self, client, goal_msg, label, timeout, feedback_callback=None):
+        self._last_run_canceled = False
+        should_cancel = self._cancel_check
+        if should_cancel is not None and should_cancel():
+            self.get_logger().warn('[dock] %s: 已收到取消请求，不再下发' % label)
+            self._last_run_canceled = True
+            return False
         if not client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('[dock] %s: action server 不可用' % label)
             return False
-        send = client.send_goal_async(goal_msg)
+        send = client.send_goal_async(goal_msg, feedback_callback=feedback_callback)
         if not self.wait_future(send, 10.0):
             self.get_logger().error('[dock] %s: 发目标后 10s 没有应答' % label)
             return False
@@ -164,7 +220,13 @@ class DockNavigator(Node):
             self.get_logger().error('[dock] %s: 目标被拒绝' % label)
             return False
         res_fut = handle.get_result_async()
-        if not self.wait_future(res_fut, timeout):
+        if not self.wait_future(res_fut, timeout, should_cancel):
+            if should_cancel is not None and should_cancel():
+                self.get_logger().warn('[dock] %s: 收到取消请求，取消当前目标' % label)
+                self._last_run_canceled = True
+                cancel = handle.cancel_goal_async()
+                self.wait_future(cancel, 5.0)
+                return False
             self.get_logger().error('[dock] %s: 超时 %.0fs，取消' % (label, timeout))
             cancel = handle.cancel_goal_async()
             self.wait_future(cancel, 5.0)
@@ -205,10 +267,47 @@ class DockNavigator(Node):
         finally:
             self._busy.release()
 
+    # ---------- 动作接口 dock_to_pose（2026-09-15）----------
+    def _on_dock_goal_request(self, goal_request):
+        if self._busy.locked():
+            self.get_logger().warn('[dock] 上一个目标还在执行，拒绝动作目标')
+            return GoalResponse.REJECT
+        return GoalResponse.ACCEPT
+
+    def _on_dock_cancel_request(self, goal_handle):
+        self.get_logger().warn('[dock] 收到动作取消请求')
+        return CancelResponse.ACCEPT
+
+    def _execute_dock_action(self, goal_handle):
+        result = NavigateToPose.Result()
+        if not self._busy.acquire(blocking=False):
+            self.get_logger().warn('[dock] 上一个目标还在执行，动作目标放弃')
+            goal_handle.abort()
+            return result
+        outcome = 'failed'
+        self._cancel_check = lambda: goal_handle.is_cancel_requested
+        try:
+            outcome = self.execute_docking(goal_handle.request.pose,
+                                           publish_feedback=goal_handle.publish_feedback)
+        except Exception:  # noqa: BLE001
+            self.get_logger().error('[dock] 动作目标执行异常，本次目标放弃：\n%s'
+                                    % traceback.format_exc())
+        finally:
+            self._cancel_check = None
+            self._busy.release()
+        if outcome == 'succeeded':
+            goal_handle.succeed()
+        elif outcome == 'canceled' and goal_handle.is_cancel_requested:
+            goal_handle.canceled()
+        else:
+            goal_handle.abort()
+        return result
+
     # ⚠ 方法名不能叫 handle: rclpy.node.Node.handle 是 property(底层 rcl_node_t),
     #   子类用普通方法覆盖它会让 Node.__init__ 里的 `with self.handle:` 拿到绑定方法,
     #   报 AttributeError: __enter__ —— 节点根本建不出来。
-    def execute_docking(self, msg):
+    def execute_docking(self, msg, publish_feedback=None):
+        """两段式入位。返回 'succeeded' / 'failed' / 'canceled'(取消只可能来自动作接口)。"""
         gx = msg.pose.position.x
         gy = msg.pose.position.y
         gyaw = yaw_of(msg.pose.orientation)
@@ -224,15 +323,23 @@ class DockNavigator(Node):
 
         g1 = NavigateToPose.Goal()
         g1.pose = self.make_pose(px, py, gyaw)
-        if not self.run_action(self.nav_cli, g1, '阶段1(预备点)', self.nav_timeout):
+        if not self.run_action(self.nav_cli, g1, '阶段1(预备点)', self.nav_timeout,
+                               self._feedback_forwarder(publish_feedback, self.approach_dist)):
+            if self._last_run_canceled:
+                self.get_logger().warn('[dock] ===== 已取消: 阶段1 被取消，不做入位')
+                return 'canceled'
             self.report(False, '阶段1 未到预备点，放弃（不做入位）')
-            return
+            return 'failed'
 
         self.get_logger().info('[dock] 阶段2 入位 -> (%.3f, %.3f) yaw=%.1f°'
                                % (gx, gy, math.degrees(gyaw)))
         g2 = NavigateToPose.Goal()
         g2.pose = self.make_pose(gx, gy, gyaw)
-        stage2_ok = self.run_action(self.nav_cli, g2, '阶段2(入位)', self.nav_timeout)
+        stage2_ok = self.run_action(self.nav_cli, g2, '阶段2(入位)', self.nav_timeout,
+                                    self._feedback_forwarder(publish_feedback, 0.0))
+        if self._last_run_canceled:
+            self.get_logger().warn('[dock] ===== 已取消: 阶段2 被取消，不做判定')
+            return 'canceled'
 
         if not stage2_ok:
             self.get_logger().warn('[dock] 阶段2 未 SUCCEEDED，仍按停稳后的实测位姿判定')
@@ -263,6 +370,21 @@ class DockNavigator(Node):
             self.report(True, '一次入位达标', outcome.pose, goal)
         else:
             self.report(True, '第%d次旋转后达标' % outcome.n_spin, outcome.pose, goal)
+        if outcome.reason in DOCK_FAILURE_REASONS:
+            return 'canceled' if self._last_run_canceled else 'failed'
+        return 'succeeded'
+
+    def _feedback_forwarder(self, publish_feedback, extra_distance):
+        """动作接口: 把阶段目标的 feedback 转发给入位动作的调用方; 话题入口不转发。"""
+        if publish_feedback is None:
+            return None
+
+        def forward(feedback_msg):
+            try:
+                publish_feedback(stage_feedback(feedback_msg.feedback, extra_distance))
+            except Exception:  # noqa: BLE001  转发失败不能影响入位本身
+                pass
+        return forward
 
     # ---------- 供 dock_finish 注入的两个副作用 ----------
     def _spin_by(self, target_yaw):

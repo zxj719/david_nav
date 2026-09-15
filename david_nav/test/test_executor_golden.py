@@ -372,6 +372,10 @@ _EXPECTED_HELP = '\n'.join([
     '  --nav-retry-count N     Silent re-publish attempts after a nav failure before',
     '                          reporting on_error to the server (default: 1)',
     '  --nav-retry-delay SEC   Wait between a nav failure and the re-publish (default: 1.0)',
+    # 2026-09-15 alias 0 精准入位（用户要求的行为变更，golden 同步更新）
+    '  --dock-poi-id ID        Navigate this POI with two-stage precise docking through',
+    '                          the docking action (repeatable; never snapped or retried)',
+    '  --dock-action-name NAME Docking action server (default: /dock_to_pose)',
     '  -h, --help              Show this help message and exit',
 ])
 
@@ -405,6 +409,8 @@ def test_g16_default_cli_config_is_frozen():
         'reconnect_delay': 3.0,
         'nav_retry_count': 1,
         'nav_retry_delay_sec': 1.0,
+        'dock_action_name': '/dock_to_pose',
+        'dock_poi_ids': [],
     }
 
 
