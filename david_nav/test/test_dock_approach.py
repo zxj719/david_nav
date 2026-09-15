@@ -1,9 +1,11 @@
 """Regression tests for dock approach-map checks and recovery-tree control flow."""
 
+from dataclasses import replace
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from geometry_msgs.msg import PoseStamped
+import pytest
 
 from david_nav import dock_navigator
 from david_nav.dock_approach import FootprintCheck
@@ -49,6 +51,57 @@ def test_unknown_cells_are_allowed_but_outside_map_is_rejected():
         _grid(unknown=[(4, 4)]), FOOTPRINT, (4.5, 4.5, 0.0)).clear
     assert check_footprint(
         _grid(), FOOTPRINT, (0.1, 0.1, 0.0)).reason == 'footprint_outside_static_map'
+
+
+@pytest.mark.parametrize('cell', [(3, 4), (5, 4), (4, 3), (4, 5)])
+def test_touching_an_occupied_cell_boundary_is_rejected_on_every_side(cell):
+    """Closed footprint/cell intersection is symmetric at lower and upper grid lines."""
+    square = ((-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5))
+    result = check_footprint(_grid(occupied=[cell]), square, (4.5, 4.5, 0.0))
+    assert result.reason == 'occupied_static_cell'
+
+
+@pytest.mark.parametrize('field', ['resolution', 'origin_x', 'origin_y', 'origin_yaw'])
+@pytest.mark.parametrize('value', [float('nan'), float('inf')])
+def test_nonfinite_map_metadata_fails_closed(field, value):
+    """Malformed map geometry returns a rejection instead of raising or approving."""
+    result = check_footprint(replace(_grid(), **{field: value}), FOOTPRINT, (4.5, 4.5, 0.0))
+    assert result == FootprintCheck(False, 'invalid_static_map')
+
+
+@pytest.mark.parametrize('index', [0, 1, 2])
+@pytest.mark.parametrize('value', [float('nan'), float('inf')])
+def test_nonfinite_pose_fails_closed(index, value):
+    """A nonfinite approach pose must never produce a navigation target."""
+    pose = [4.5, 4.5, 0.0]
+    pose[index] = value
+    assert check_footprint(_grid(), FOOTPRINT, pose) == FootprintCheck(False, 'invalid_pose')
+
+
+@pytest.mark.parametrize('polygon', [
+    ((0.0, 0.0), (float('inf'), 0.0), (1.0, 1.0)),
+    ((0.0, 0.0), (float('nan'), 0.0), (1.0, 1.0)),
+    ((0.0, 0.0), (1.0, 0.0), (2.0, 0.0)),
+    ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)),
+    ((0.0, 0.0), (2.0, 2.0), (0.0, 2.0), (1.0, 0.0)),
+])
+def test_nonfinite_or_degenerate_footprint_fails_closed(polygon):
+    """Invalid body geometry cannot be interpreted as a clear footprint."""
+    assert check_footprint(_grid(), polygon, (4.5, 4.5, 0.0)).reason == 'invalid_footprint'
+
+
+def test_parser_rejects_nonfinite_coordinates():
+    """A numeric literal overflowing to infinity is an invalid footprint parameter."""
+    with pytest.raises(ValueError):
+        parse_footprint('[[0, 0], [1e309, 0], [0, 1]]')
+
+
+def test_thin_rotated_footprint_crossing_a_small_cell_is_detected():
+    """Small segment orientation products must not suppress a genuine crossing."""
+    narrow = ((-0.002, -0.00001), (0.002, -0.00001),
+              (0.002, 0.00001), (-0.002, 0.00001))
+    grid = replace(_grid(occupied=[(4, 4)]), resolution=0.001)
+    assert not check_footprint(grid, narrow, (0.0045, 0.0045, 0.7853981633974483)).clear
 
 
 def test_default_settle_rate_allows_observed_static_yaw_jitter():

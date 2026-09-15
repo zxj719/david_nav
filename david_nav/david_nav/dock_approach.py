@@ -108,10 +108,11 @@ def parse_footprint(text: str) -> Tuple[Tuple[float, float], ...]:
             and len(point) == 2
             and all(
                 isinstance(coordinate, (int, float)) and not isinstance(coordinate, bool)
+                and math.isfinite(coordinate)
                 for coordinate in point)
             for point in value)
     )
-    if not valid:
+    if not valid or not _valid_polygon(value):
         raise ValueError('footprint must contain at least three numeric [x, y] points')
     return tuple((float(point[0]), float(point[1])) for point in value)
 
@@ -138,12 +139,16 @@ def check_footprint(
         grid.width <= 0
         or grid.height <= 0
         or grid.resolution <= 0.0
-        or len(grid.data) < grid.width * grid.height
+        or not all(math.isfinite(value) for value in (
+            grid.resolution, grid.origin_x, grid.origin_y, grid.origin_yaw))
+        or len(grid.data) != grid.width * grid.height
     ):
         return FootprintCheck(False, 'invalid_static_map')
     if not 0 <= occupied_threshold <= 100:
         return FootprintCheck(False, 'invalid_occupied_threshold')
-    if len(footprint) < 3:
+    if len(pose) != 3 or not all(math.isfinite(value) for value in pose):
+        return FootprintCheck(False, 'invalid_pose')
+    if not _valid_polygon(footprint):
         return FootprintCheck(False, 'invalid_footprint')
 
     polygon = [_world_to_grid_local(grid, point) for point in _pose_polygon(footprint, pose)]
@@ -155,15 +160,16 @@ def check_footprint(
     ):
         return FootprintCheck(False, 'footprint_outside_static_map')
 
-    min_x = max(0, int(math.floor(min(point[0] for point in polygon) / grid.resolution)))
-    min_y = max(0, int(math.floor(min(point[1] for point in polygon) / grid.resolution)))
+    # Closed cells on both sides of an exact grid line touch the footprint.
+    min_x = max(0, int(math.floor((min(point[0] for point in polygon) - _EPS) / grid.resolution)))
+    min_y = max(0, int(math.floor((min(point[1] for point in polygon) - _EPS) / grid.resolution)))
     max_x = min(
         grid.width - 1,
-        int(math.floor(max(point[0] for point in polygon) / grid.resolution)),
+        int(math.floor((max(point[0] for point in polygon) + _EPS) / grid.resolution)),
     )
     max_y = min(
         grid.height - 1,
-        int(math.floor(max(point[1] for point in polygon) / grid.resolution)),
+        int(math.floor((max(point[1] for point in polygon) + _EPS) / grid.resolution)),
     )
     for cell_y in range(min_y, max_y + 1):
         for cell_x in range(min_x, max_x + 1):
@@ -175,6 +181,29 @@ def check_footprint(
                 return FootprintCheck(
                     False, 'occupied_static_cell', (cell_x, cell_y, value))
     return FootprintCheck(True, 'clear')
+
+
+def _valid_polygon(points: Sequence[Tuple[float, float]]) -> bool:
+    """Reject nonfinite, repeated, zero-area or self-intersecting body geometry."""
+    if len(points) < 3 or any(
+        len(point) != 2 or not all(math.isfinite(value) for value in point)
+        for point in points
+    ):
+        return False
+    vertices = tuple(tuple(point) for point in points)
+    if len(set(vertices)) != len(vertices):
+        return False
+    edges = tuple(zip(vertices, vertices[1:] + vertices[:1]))
+    area = sum(a[0] * b[1] - b[0] * a[1] for a, b in edges)
+    if abs(area) <= _EPS:
+        return False
+    for index, (start, end) in enumerate(edges):
+        for other_index in range(index + 2, len(edges)):
+            if index == 0 and other_index == len(edges) - 1:
+                continue
+            if _segments_intersect(start, end, *edges[other_index]):
+                return False
+    return True
 
 
 def _pose_polygon(
@@ -282,7 +311,7 @@ def _segments_intersect(
         orientation(second_start, second_end, first_start),
         orientation(second_start, second_end, first_end),
     )
-    if values[0] * values[1] < -_EPS and values[2] * values[3] < -_EPS:
+    if values[0] * values[1] < 0.0 and values[2] * values[3] < 0.0:
         return True
     return (
         abs(values[0]) <= _EPS and _point_on_segment(second_start, first_start, first_end)
