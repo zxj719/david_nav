@@ -178,6 +178,8 @@ def plan_up(
                       'stop and inspect them before starting keyboard control')
     executables = []
     requirements = [(spec.name, spec.package, spec.executable) for spec in graph.processes]
+    if navigation:
+        requirements.append(('interface_probe', 'nav_perception_iface', 'nav_interface_check'))
     if executor:
         requirements.append(('ready_gate', 'nav_bringup', 'nav_ready_exec'))
     for name, package, executable in requirements:

@@ -87,6 +87,8 @@ def build_parser() -> argparse.ArgumentParser:
                               help='explicitly enable ROS observation')
     check_parser.add_argument('--run-dir', required=True, type=Path, help='prepared run directory')
     check_parser.add_argument('--strict', action='store_true', help='return 1 on check errors')
+    check_parser.add_argument('--wait-localization-only', action='store_true',
+                              help='pre-launch TF wait only; not a full live-check success')
     check_parser.add_argument('--wait-timeout', type=float, default=0.0,
                               help='manual-localization wait bound; zero waits indefinitely')
     check_parser.add_argument('--sample-sec', type=float, default=1.0,

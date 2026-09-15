@@ -51,6 +51,7 @@ class StartupCommands:
             monitor so its children cannot escape the supervisor's cleanup group.
         keyboard: Optional directly supervised keyboard, never a launch child.
         tty_device: Profile-selected terminal, captured by the outer recorded owner.
+        prelaunch_gates: Checks completed before any launch or executor timers begin.
     """
 
     launch: Tuple[str, ...]
@@ -61,6 +62,7 @@ class StartupCommands:
     parameter_dump: Tuple[str, ...] = ()
     keyboard: Tuple[str, ...] = ()
     tty_device: str = ''
+    prelaunch_gates: Tuple[StartupGate, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -180,6 +182,8 @@ class _Supervisor:
 
     def execute(self):
         self.check()
+        for gate in self.commands.prelaunch_gates:
+            self.gate(gate)
         if self.keyboard is not None:
             argv, descriptors = self.keyboard.command(self.commands.keyboard)
             child = OwnedProcess(argv, self.environ, self.run_dir / 'logs/keyboard.log',
@@ -267,7 +271,7 @@ class _Supervisor:
             # Attempt stopping before waiting on any diagnostic helper to exit.
             self.zero('zero_before')
         self.close('keyboard')
-        for gate in self.commands.gates:
+        for gate in self.commands.prelaunch_gates + self.commands.gates:
             self.close(gate.name)
         if self.launched:
             self.close('launch')
@@ -355,7 +359,7 @@ def validate_commands(
     reserved = {'launch', 'record', 'monitor', 'parameter_dump', 'keyboard',
                 'zero_before', 'zero_after', 'ros'}
     argv_list = [commands.launch, commands.zero]
-    for gate in commands.gates:
+    for gate in commands.prelaunch_gates + commands.gates:
         if not re.fullmatch('[a-z][a-z0-9_]*', gate.name) or gate.name in reserved:
             raise ValueError('gate names must be unique safe nonreserved labels')
         reserved.add(gate.name)

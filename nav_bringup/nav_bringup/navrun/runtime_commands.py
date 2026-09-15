@@ -82,6 +82,7 @@ def bind_commands(
     launch = (ros2, 'launch', 'nav_bringup', 'nav.launch.py', 'run_dir:=' + run_dir,
               'robot:=' + plan.bundle.robot, 'site:=' + plan.bundle.site, 'mode:=' + options.mode)
     gates = []
+    prelaunch = []
     navigation = options.mode in NAVIGATION_MODES
     if navigation:
         ready = resolve('nav_bringup', 'nav_ready_exec')
@@ -93,6 +94,7 @@ def bind_commands(
             '--', python, '-c', 'raise SystemExit(0)'), options.ready_timeout_sec + 5.0))
         check = (navcfg, 'check', '--live', '--run-dir', run_dir,
                  '--events', str(Path(run_dir) / 'events.jsonl'))
+        prelaunch.append(StartupGate('localization', check + ('--wait-localization-only',)))
         gates.append(StartupGate('live_check', check + (('--strict',) if strict else ())))
     monitor = (navrun, 'monitor', '--run-dir', run_dir,
                '--base-frame', render.profile_value(profile, 'frames.nav_base'),
@@ -116,4 +118,5 @@ def bind_commands(
                     str(Path(run_dir) / 'params/rendered/teleop.yaml'))
         terminal = render.profile_value(profile, 'teleop.tty_device')
     return StartupCommands(launch, tuple(gates), record, monitor, zero,
-                           (navrun, 'dump-params', '--run-dir', run_dir), keyboard, terminal)
+                           (navrun, 'dump-params', '--run-dir', run_dir), keyboard, terminal,
+                           tuple(prelaunch))

@@ -12,6 +12,7 @@ from typing import Any
 
 from nav_bringup.navcfg.live_check import assess, Finding, wait_localization
 from nav_bringup.navcfg.live_inputs import load_live_spec
+from nav_bringup.navcfg.interface_check import check_interface
 from nav_bringup.recorder.events import EventLog
 
 
@@ -26,6 +27,7 @@ def run(args: argparse.Namespace) -> int:
         Zero after checks (warnings/errors printed), one for strict check errors,
         two for invalid inputs/operational failure, three while localization remains
         pending after an explicit diagnostic bound, or 128+signal on interruption.
+        Wait-only mode returns zero for TF readiness without claiming full checks.
 
     Raises:
         ImportError: Required ROS runtime dependencies are unavailable.
@@ -67,6 +69,8 @@ def run(args: argparse.Namespace) -> int:
                                       stopped.is_set, emit, args.wait_timeout)
             if not ready:
                 return 128 + received[0] if received else 3
+            if args.wait_localization_only:
+                return 0
             deadline = time.monotonic() + args.sample_sec
             while not stopped.is_set() and time.monotonic() < deadline:
                 probe.spin(max(0.0, min(0.1, deadline - time.monotonic())))
@@ -75,18 +79,34 @@ def run(args: argparse.Namespace) -> int:
             snapshot = probe.snapshot(stopped.is_set, args.parameter_timeout)
             if stopped.is_set():
                 return 128 + received[0]
-            findings = initial + assess(spec, snapshot)
+        findings = initial + assess(spec, snapshot)
+        if not snapshot.localized:
             for finding in findings:
                 emit(finding)
-            if not snapshot.localized:
-                return 3
-            errors = sum(item.severity == 'error' for item in findings)
-            warnings = sum(item.severity == 'warn' for item in findings)
-            print(f'navcfg check: {errors} error(s), {warnings} warning(s)', flush=True)
-            return 1 if args.strict and errors else 0
+            return 3
+        interface = check_interface(args.run_dir, args.sample_sec, stopped.is_set)
+        if stopped.is_set() or interface is None:
+            return 128 + received[0] if received else 130
+        findings += interface.findings
+        if events is not None:
+            events.append('navcfg', 'interface_snapshot', 'info',
+                          {'status': interface.status, 'evidence': interface.evidence})
+        for finding in findings:
+            emit(finding)
+        if interface.status == 3:
+            if not any(item.code == 'localization_waiting' for item in findings):
+                emit(Finding('info', 'localization_waiting', '等待在 RViz 手动给初始位姿'))
+            return 3
+        if interface.status == 0:
+            emit(Finding('info', 'interface_contracts_ready',
+                         'localization/chassis/perception contracts satisfied in sample window'))
+        errors = sum(item.severity == 'error' for item in findings)
+        warnings = sum(item.severity == 'warn' for item in findings)
+        print(f'navcfg check: {errors} error(s), {warnings} warning(s)', flush=True)
+        return 1 if args.strict and errors else 0
     except KeyboardInterrupt:
         return 130
-    except (ValueError, OSError, RuntimeError) as error:
+    except (ValueError, LookupError, OSError, RuntimeError) as error:
         print(f'navcfg check: {error}', file=sys.stderr)
         return 128 + received[0] if received else 2
     finally:

@@ -4,7 +4,8 @@ import argparse
 from pathlib import Path
 import signal
 
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, Twist
+from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.parameter import Parameter
@@ -13,6 +14,7 @@ from rosidl_runtime_py.utilities import get_message
 from tf2_ros import StaticTransformBroadcaster
 
 from nav_bringup.navcfg.live_inputs import load_live_spec
+from nav_perception_iface.configuration import load_contract_profile
 
 
 def main() -> None:
@@ -21,8 +23,11 @@ def main() -> None:
     parser.add_argument('--run-dir', required=True, type=Path)
     parser.add_argument('--bad-parameter', action='store_true')
     parser.add_argument('--no-localization', action='store_true')
+    parser.add_argument('--silent-odom', action='store_true')
     args = parser.parse_args()
     spec, _ = load_live_spec(args.run_dir)
+    profile = load_contract_profile(args.run_dir / 'params/inputs/robot.yaml',
+                                    args.run_dir / 'params/inputs/mode.yaml')
     stopped = [False]
 
     def stop(*_):
@@ -48,14 +53,31 @@ def main() -> None:
         observer = rclpy.create_node('live_fixture_graph')
         nodes.append(observer)
         executor.add_node(observer)
-        # Endpoints are discoverable, but no topic data or Twist is ever published.
+        # Only synthetic odometry is published; the command input remains passive.
+        odometry = []
         for rule in spec.topics:
-            observer.create_publisher(get_message(rule.message_type), rule.topic, 10)
+            publisher = observer.create_publisher(get_message(rule.message_type), rule.topic, 10)
+            if rule.message_type == 'nav_msgs/msg/Odometry' and not (
+                    args.silent_odom and rule.topic == profile['localization']['odom_topic']):
+                odometry.append(publisher)
+        observer.create_subscription(Twist, profile['chassis']['cmd_topic'], lambda _: None, 10)
+
+        def publish_odometry():
+            message = Odometry()
+            message.header.stamp = observer.get_clock().now().to_msg()
+            message.header.frame_id = spec.odom_frame
+            for publisher in odometry:
+                publisher.publish(message)
+
+        observer.create_timer(0.05, publish_odometry)
         if not args.no_localization:
             broadcaster = StaticTransformBroadcaster(observer)
             transforms = []
             for parent, child in ((spec.map_frame, spec.odom_frame),
-                                  (spec.odom_frame, spec.nav_frame)):
+                                  (spec.odom_frame, profile['frames']['body']),
+                                  (profile['frames']['body'], spec.nav_frame)):
+                if parent == child:
+                    continue
                 transform = TransformStamped()
                 transform.header.frame_id = parent
                 transform.header.stamp = observer.get_clock().now().to_msg()

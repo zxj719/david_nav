@@ -176,6 +176,8 @@ def load_contract_profile(profile_path: Path, mode_path: Optional[Path] = None) 
     if mode_path is None:
         return profile
     mode = read(mode_path)
-    if not isinstance(mode.get('mode'), str) or not isinstance(mode.get('profile'), dict):
+    overlay = {} if mode.get('profile') is None else mode['profile']
+    if (not isinstance(mode.get('mode'), str) or not mode['mode']
+            or not isinstance(overlay, dict)):
         raise ValueError('contract mode requires a mode name and profile mapping')
-    return merge(profile, mode['profile'])
+    return merge(profile, overlay)

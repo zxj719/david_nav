@@ -261,11 +261,23 @@ Errors always print. `--strict` returns 1 on errors; without it the command retu
 Malformed inputs or operational failure return 2. This bounded observation is not
 a continuous health watchdog and does not prove message rates, odometry quality,
 hardware stop behavior or atomic graph ownership. Perception-contract sampling
-and Phase 6 health integration remain distinct work.
+is performed by the independent `nav_perception_iface/nav_interface_check` executable;
+Phase 6 continuous health integration remains distinct work.
 
-The CLI and reusable wait/assessment primitives are automatically invoked by
-navigation-mode `navrun up`, including stop-on-strict-failure. Full message/TF
-contract sampling and combined navigation acceptance remain pending.
+After parameter observation closes, the independent checker samples actual localization
+and chassis odometry, compatible command subscribers, the odom→body→nav_base TF chain,
+and optional cloud/at-stamp TF. Its single versioned report is validated against its exit
+status; malformed reports, missing executables and time/output overruns are operational
+errors, never silently skipped. Events include the bounded `interface_snapshot` evidence.
+The child remains in the caller's process group and is joined before return, including
+interruption; neither observer owns or signals localization providers.
+
+Navigation-mode `navrun up` first invokes `--wait-localization-only` **before launch**.
+This mode returns 0 only for TF readiness, not a successful full configuration check.
+Manual localization waiting therefore consumes no Nav2/executor readiness budget.
+After launch and readiness, the complete live check runs, with stop-on-strict-failure.
+Chassis/teleop retain no localization prerequisite. Full combined Nav2 startup and
+effective-parameter acceptance remain pending; synthetic tests do not prove them.
 
 ### Unit tests
 

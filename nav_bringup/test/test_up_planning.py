@@ -70,7 +70,8 @@ def test_missing_executables_are_aggregated_before_startup(tmp_path):
         raise LookupError('not installed')
 
     plan = _plan(_request(tmp_path), resolve=resolve)
-    assert len(checked) == len(plan.graph.processes)
+    assert len(checked) == len(plan.graph.processes) + 1
+    assert ('nav_perception_iface', 'nav_interface_check') in checked
     assert len(plan.errors) == len(checked)
     assert any('chassis_adapter' in error for error in plan.errors)
     assert not (tmp_path / 'not-created').exists()

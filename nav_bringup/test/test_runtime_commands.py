@@ -59,6 +59,11 @@ def test_navigation_uses_installed_check_cli_and_independent_dump(tmp_path, mode
     monkeypatch.setitem(sys.modules, 'rclpy', None)
     selected = _bind(plan, strict=True)
     assert selected.launch[:4] == ('/fixture/ros2', 'launch', 'nav_bringup', 'nav.launch.py')
+    assert len(selected.prelaunch_gates) == 1
+    localization = selected.prelaunch_gates[0]
+    assert localization.name == 'localization' and localization.timeout_sec is None
+    assert localization.argv[:3] == ('/fixture/navcfg', 'check', '--live')
+    assert '--wait-localization-only' in localization.argv
     assert [gate.name for gate in selected.gates] == ['ready', 'live_check']
     assert selected.gates[0].argv[0] == '/fixture/nav_ready_exec'
     assert selected.gates[1].argv[:3] == ('/fixture/navcfg', 'check', '--live')
@@ -75,6 +80,7 @@ def test_chassis_skips_nav2_and_localization_gates(tmp_path):
     """Chassis recording needs neither Nav2 readiness nor localization availability."""
     selected = _bind(_plan(tmp_path, mode='chassis'))
     assert not selected.gates
+    assert not selected.prelaunch_gates
     assert '--no-bt' in selected.monitor
     assert selected.parameter_dump
 
@@ -106,4 +112,5 @@ def test_teleop_binds_a_direct_managed_keyboard_and_no_navigation_gates(tmp_path
     assert selected.keyboard[-1].endswith('/params/rendered/teleop.yaml')
     assert selected.tty_device == '/dev/tty'
     assert selected.gates == ()
+    assert selected.prelaunch_gates == ()
     assert plan.graph.supervisor_keyboard

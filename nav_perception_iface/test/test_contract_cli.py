@@ -36,6 +36,27 @@ def test_invalid_contract_documents_fail_without_ros(tmp_path, document):
         load_contract_profile(path)
 
 
+@pytest.mark.parametrize('overlay', [{}, {'profile': None}, {'profile': {}}])
+def test_optional_mode_profile_matches_frozen_bundle_semantics(tmp_path, overlay):
+    """Description-only modes and explicit null overlays leave the robot unchanged."""
+    robot, mode = tmp_path / 'robot.yaml', tmp_path / 'mode.yaml'
+    data = dict(_profile(), schema_version=1)
+    robot.write_text(yaml.safe_dump(data))
+    mode.write_text(yaml.safe_dump(dict(schema_version=1, mode='tour', **overlay)))
+    assert load_contract_profile(robot, mode) == data
+
+
+@pytest.mark.parametrize('change', [
+    {'mode': ''}, {'mode': None}, {'mode': 3}, {'profile': []}, {'profile': 0}])
+def test_invalid_mode_name_or_nonmapping_overlay_is_rejected(tmp_path, change):
+    """Allowing an omitted overlay cannot turn malformed values into implicit defaults."""
+    robot, mode = tmp_path / 'robot.yaml', tmp_path / 'mode.yaml'
+    robot.write_text(yaml.safe_dump(dict(_profile(), schema_version=1)))
+    mode.write_text(yaml.safe_dump(dict({'schema_version': 1, 'mode': 'tour'}, **change)))
+    with pytest.raises(ValueError):
+        load_contract_profile(robot, mode)
+
+
 @pytest.fixture
 def observation(monkeypatch):
     """Install fake observation, signal ownership and time without initializing ROS."""

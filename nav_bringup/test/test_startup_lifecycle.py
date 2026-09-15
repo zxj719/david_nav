@@ -82,6 +82,31 @@ def test_order_and_two_zero_attempts_with_lock_retained(rig, tmp_path):
     assert any(event.event_type == 'startup_ready' for event in events)
 
 
+@pytest.mark.parametrize('outcome', ['ready', 'failed', 'interrupted'])
+def test_prelaunch_localization_precedes_all_navigation_and_zero(rig, tmp_path, outcome):
+    """Neither Nav2 nor executor readiness timers run before manual localization."""
+    commands, trace, controls, events, lease = rig
+    commands = replace(commands, prelaunch_gates=(
+        lifecycle.StartupGate('localization', ('localization',)),))
+    if outcome != 'ready':
+        controls['localization'] = 1 if outcome == 'failed' else None
+
+    def stopped():
+        if outcome == 'interrupted' and ('start', 'localization') in trace:
+            return signal.SIGINT
+        return signal.SIGINT if ('start', 'record') in trace else None
+
+    result = lifecycle.supervise(commands, tmp_path, events, os.environ, lease, stopped)
+    assert ('close', 'localization') in trace
+    if outcome == 'ready':
+        assert trace.index(('close', 'localization')) < trace.index(('start', 'launch'))
+        assert result.exit_code == 130
+    else:
+        assert ('start', 'launch') not in trace and ('start', 'zero') not in trace
+        assert result.exit_code == (1 if outcome == 'failed' else 130)
+    lease.fileno()
+
+
 @pytest.mark.parametrize('outcome', ['quit', 'reject', 'signal', 'revoke_error'])
 def test_keyboard_readiness_precedes_launch_and_quit_is_normal(rig, tmp_path, outcome):
     """Only an accepted keyboard can bring up the adapter; q completes the owned run."""
