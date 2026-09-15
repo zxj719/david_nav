@@ -68,6 +68,18 @@ def test_default_skip_patterns():
     assert not param_dump.should_skip('/controller_server', patterns)
 
 
+def test_composition_container_is_reported_but_components_are_still_dumped(tmp_path):
+    """Humble's container disables parameter services; its loaded nodes do not."""
+    runner, calls = _fake_runner('/nav2_container\n/controller_server\n', {
+        '/controller_server': [(0, 'controller_server:\n  ros__parameters: {}\n')]})
+    report = param_dump.dump_graph(tmp_path, runner=runner, sleep=lambda _: None)
+    assert report.ok
+    assert report.nodes == ('/controller_server', '/nav2_container')
+    assert report.skipped == ('/nav2_container',)
+    assert report.dumped == ('/controller_server',)
+    assert len(calls) == 2
+
+
 def test_dump_graph_retries_and_reports(tmp_path):
     """Dumps are retried, empty output fails, helpers are skipped, a report is written."""
     runner, calls = _fake_runner(NODE_LIST, {

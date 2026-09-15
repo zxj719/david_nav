@@ -28,7 +28,10 @@ import yaml
 
 from nav_bringup.recorder import manifest
 
-DEFAULT_SKIP_PATTERNS = ('*_rclcpp_node', '*/transform_listener_impl_*', '*/_ros2cli_*')
+# Humble ComponentManager explicitly disables its own parameter services. Only
+# our exact helper name is excluded; every loaded component remains in the dump.
+DEFAULT_SKIP_PATTERNS = (
+    '*_rclcpp_node', '*/transform_listener_impl_*', '*/_ros2cli_*', '/nav2_container')
 NODES_FILE_NAME = 'nodes.txt'
 REPORT_FILE_NAME = 'dump_report.yaml'
 

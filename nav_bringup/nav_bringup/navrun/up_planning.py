@@ -16,6 +16,8 @@ import yaml
 
 from nav_bringup.launching.graph import build_graph, GraphOptions, LaunchGraph, MODES
 from nav_bringup.launching.graph import NAVIGATION_MODES
+from nav_bringup.launching.composition import component_specs, physical_graph
+from nav_bringup.launching.executables import resolve_component
 from nav_bringup.navcfg import render, schema
 from nav_bringup.navrun.platform import plan_platform, PlatformStep
 from nav_bringup.navrun.preflight import plan_preflight, PreflightPlan, ProcessInfo
@@ -38,6 +40,7 @@ class UpRequest:
         no_executor: Explicitly omit the legacy WS executor.
         teleop_options: Explicit layout/gears, frozen separately from source files.
         mode_file: Optional complete mode overlay path; never changes the mode identity.
+        composition: Explicitly opt in to one isolated Nav2 container.
     """
 
     mode: str
@@ -49,6 +52,7 @@ class UpRequest:
     no_executor: bool = False
     teleop_options: TeleopOptions = TeleopOptions()
     mode_file: Optional[Path] = None
+    composition: bool = False
 
 
 @dataclass(frozen=True)
@@ -58,10 +62,10 @@ class UpPlan:
     Attributes:
         request: Original selectors.
         bundle: Immutable rendered configuration.
-        graph: Processes selected from the rendered options.
+        graph: Logical nodes/programs selected from the rendered options.
         preflight: Chassis ownership, cleanup identities and protected processes.
         platform: Proposed noninteractive platform commands, not executed.
-        executables: Process name and resolved installed executable path.
+        executables: Physical process name and resolved installed executable path.
         errors: Missing dependencies or unfinished binding requirements.
         recording: Explicit run-local rosbag selection, not started by planning.
     """
@@ -90,6 +94,9 @@ def _validate(request: UpRequest) -> None:
         raise ValueError('record must be light, full or off')
     if type(request.no_executor) is not bool:
         raise ValueError('no_executor must be boolean')
+    if type(request.composition) is not bool or (
+            request.composition and request.mode not in NAVIGATION_MODES):
+        raise ValueError('composition must be boolean and is only valid for navigation')
     if request.mode_file is not None and not isinstance(request.mode_file, Path):
         raise ValueError('mode_file must be a path')
     if (not isinstance(request.run_dir, Path) or not request.run_dir.is_absolute()
@@ -133,6 +140,7 @@ def plan_up(
     request: UpRequest, inputs: BundleInputs, catalog: schema.ParameterCatalog,
     processes: Sequence[ProcessInfo], own_pid: int,
     resolve: Callable[[str, str], str],
+    resolve_plugin: Callable[[str, str], str] = resolve_component,
 ) -> UpPlan:
     """Prepare configuration and check every entry point before host mutations.
 
@@ -143,6 +151,7 @@ def plan_up(
         processes: Complete read-only process snapshot.
         own_pid: Supervisor identity present in the snapshot.
         resolve: Read-only package/executable resolver, injected by tests.
+        resolve_plugin: Read-only component resource/library resolver.
 
     Returns:
         Plan containing all missing executable errors, rather than stopping at
@@ -170,7 +179,7 @@ def plan_up(
     options = GraphOptions(
         request.mode, str(request.run_dir), start_chassis=preflight.start_chassis,
         start_executor=executor, scan_bridge=scan if navigation else False,
-        supervisor_keyboard=request.mode == 'teleop')
+        supervisor_keyboard=request.mode == 'teleop', composition=request.composition)
     bundle = prepare_bundle(options, inputs, catalog, request.teleop_options)
     artifacts = dict(bundle.artifacts)
     if (artifacts['params/inputs/robot.yaml'] != initial_profile
@@ -180,11 +189,24 @@ def plan_up(
         raise ValueError('requested robot/site identity does not match the rendered bundle')
     graph = build_graph(bundle.options)
     errors = []
+    for process in processes:
+        if (process.argv and Path(process.argv[0]).name in (
+                'component_container', 'component_container_mt', 'component_container_isolated')
+                and any(argument in ('__node:=nav2_container', '__name:=nav2_container')
+                        for argument in process.argv[1:])):
+            errors.append(f'existing nav2_container pid {process.pid} requires inspection; '
+                          'automatic cleanup of shared containers is disabled')
     if request.mode == 'teleop' and preflight.targets:
         errors.append('teleop refuses existing navigation/residual processes; '
                       'stop and inspect them before starting keyboard control')
     executables = []
-    requirements = [(spec.name, spec.package, spec.executable) for spec in graph.processes]
+    requirements = [(spec.name, spec.package, spec.executable)
+                    for spec in physical_graph(graph).processes]
+    for spec, plugin in component_specs(graph):
+        try:
+            resolve_plugin(spec.package, plugin)
+        except (ValueError, LookupError, OSError) as error:
+            errors.append(f'{spec.package}/{plugin}: {error}')
     if navigation:
         requirements.append(('interface_probe', 'nav_perception_iface', 'nav_interface_check'))
     if executor:
@@ -223,7 +245,10 @@ def report_plan(plan: UpPlan) -> Dict[str, Any]:
                    'run_dir:=' + options.run_dir, 'robot:=' + plan.bundle.robot,
                    'site:=' + plan.bundle.site, 'mode:=' + options.mode],
         'start_chassis': options.start_chassis,
-        'processes': [asdict(process) for process in plan.graph.processes],
+        'composition': options.composition,
+        'processes': [asdict(process) for process in physical_graph(plan.graph).processes],
+        'components': [dict(asdict(spec), plugin=plugin)
+                       for spec, plugin in component_specs(plan.graph)],
         'executables': dict(plan.executables),
         'platform': [asdict(step) for step in plan.platform],
         'preflight': {

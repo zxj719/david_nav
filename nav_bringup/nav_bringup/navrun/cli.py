@@ -52,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     up_parser.add_argument('--linear-speed', type=float, help='teleop-only gear in m/s')
     up_parser.add_argument('--angular-speed', type=float, help='teleop-only gear in rad/s')
     up_parser.add_argument('--no-executor', action='store_true')
+    up_parser.add_argument('--composition', action='store_true',
+                           help='opt in to the isolated Nav2 component container')
     up_parser.add_argument('--dry-run', action='store_true')
     up_parser.add_argument('--strict', action='store_true', help='fail on live check errors')
     up_parser.add_argument('--repo', type=Path, help='repository whose code state is recorded')

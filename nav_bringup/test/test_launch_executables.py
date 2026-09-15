@@ -30,3 +30,32 @@ def test_missing_package_is_not_hidden():
     """Dependency failures remain distinguishable from configuration errors."""
     with pytest.raises(packages.PackageNotFoundError):
         resolve_executable('navrun_test_nonexistent_package', 'entry')
+
+
+@pytest.mark.parametrize('registration', [
+    '', 'other::Node;lib/node.so', 'demo::Node',
+    'demo::Node;lib/node.so\ndemo::Node;lib/other.so',
+    'demo::Node;/absolute.so', 'demo::Node;../escape.so', 'demo::Node;lib/absent.so',
+])
+def test_bad_component_registration_fails_read_only(tmp_path, monkeypatch, registration):
+    """Missing, duplicate and unsafe plugin resource entries cannot reach runtime loading."""
+    from ament_index_python import resources
+    from nav_bringup.launching.executables import resolve_component
+
+    monkeypatch.setattr(resources, 'get_resource', lambda *_: (registration, str(tmp_path)))
+    with pytest.raises(ValueError):
+        resolve_component('demo', 'demo::Node')
+    assert not list(tmp_path.iterdir())
+
+
+def test_component_resolution_checks_library_without_loading_it(tmp_path, monkeypatch):
+    """The read-only planner never executes a constructor or dlopen."""
+    from ament_index_python import resources
+    from nav_bringup.launching.executables import resolve_component
+
+    library = tmp_path / 'lib/node.so'
+    library.parent.mkdir()
+    library.write_text('not an executable shared library')
+    monkeypatch.setattr(resources, 'get_resource',
+                        lambda *_: ('demo::Node;lib/node.so', str(tmp_path)))
+    assert resolve_component('demo', 'demo::Node') == str(library)

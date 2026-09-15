@@ -3,7 +3,7 @@
 set -eo pipefail
 
 readonly REFACTOR_WS="${REFACTOR_WS:-$HOME/ros2_ws_refactor}"
-readonly LIVE_PATTERN='run_loc_online|controller_server|bt_navigator|wheeltec_robot_node|wheeltec_driver_node|navigation_executor|dock_navigator|nav_task_manager|rviz2'
+readonly LIVE_PATTERN='run_loc_online|controller_server|bt_navigator|wheeltec_robot_node|wheeltec_driver_node|navigation_executor|dock_navigator|nav_task_manager|component_container|rviz2'
 ancestors=" $$ "
 pid=$$
 while [[ -n "$pid" && "$pid" -gt 1 ]]; do

@@ -43,7 +43,7 @@ def test_bundle_reads_all_five_modes_without_modifying_files(tmp_path: Path, mod
 
 @pytest.mark.parametrize('selectors', [
     {'robot': 'wrong'}, {'site': 'wrong'}, {'mode': 'precise'}, {'chassis': 'maybe'},
-    {'executor': 'yes'}, {'composition': 'true'},
+    {'executor': 'yes'}, {'composition': 'yes'},
 ])
 def test_bad_selectors_fail_before_launch(tmp_path: Path, selectors) -> None:
     """An explicit selector cannot silently choose a different prepared robot or mode."""

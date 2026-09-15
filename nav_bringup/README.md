@@ -451,3 +451,42 @@ colcon build --symlink-install --metas src/colcon.meta --packages-select nav_bri
 ROS_DOMAIN_ID=99 colcon test --packages-select nav_bringup --event-handlers console_direct+
 colcon test-result --verbose
 ```
+
+### Opt-in Nav2 composition
+
+`navrun up --composition` freezes the selection in `launch.json`; omission keeps
+the independent-process default. Direct `nav.launch.py` supports
+`composition:=true|false`; an omitted selector preserves the frozen choice, and
+older bundles without the field still select false. Chassis/teleop modes reject
+composition rather than silently ignoring it. No default robot/mode file changes.
+
+The seven Nav2 processes (map, controller, planner, behavior, BT navigator,
+velocity smoother and lifecycle manager) share one critical
+`component_container_isolated`. Optional map/smoother omissions still apply.
+An explicitly selected C++ adapter joins that container; the default Python
+adapter stays independent. Driver, robot-state publisher, scan bridge, dock,
+RViz and deferred WS executor keep their existing ownership. Component failures
+therefore have a larger process-level failure domain; the container is never
+automatically respawned. Hardware A/B and the decision to enable it remain manual.
+An already-running process explicitly named `nav2_container` causes `navrun up`
+to refuse before host changes, even when the new request uses standalone mode.
+Shared containers are not added to automatic kill patterns; other named component
+containers, including localization providers, are not reclassified as navigation.
+
+Logical node names, activation order, rendered parameters and topic remappings
+are unchanged. Frozen parameter files are also passed to the container so nested
+costmap nodes retain their YAML sections. Intra-process communication is not
+implicitly enabled. Dry-run reports distinguish physical `processes` from
+`components`; live checks/dumps still check every logical node. Only the exact
+`/nav2_container` helper is marked skipped: Humble's ComponentManager disables its
+own parameter services. All loaded components remain subject to full comparison.
+Preflight verifies
+all component resource registrations and readable library paths before any host
+mutation; it does not load libraries or require unused standalone executables.
+
+Unlike Humble's log-only loader failure behavior, `CheckedComponentLoader`
+propagates rejected loads, service exceptions and a 90-second total load deadline
+through the launch completion future. Launch then cleans up its owned stack.
+Loading starts only after the owned container process starts; cancellation never
+continues loading another component. Existing container-exit supervision and the
+navrun stop/record/lease lifecycle remain active. Localization is never restarted.

@@ -18,7 +18,7 @@ def load_options(run_dir: str, selectors: Mapping[str, str]) -> GraphOptions:
     Args:
         run_dir: Absolute directory already prepared by navrun.
         selectors: Optional robot/site/mode identity checks, chassis on/off,
-            executor true/false, and composition false switches from launch.
+            executor true/false, and composition true/false switches from launch.
 
     Returns:
         Options whose referenced files exist and lifecycle order matches the graph.
@@ -48,11 +48,10 @@ def load_options(run_dir: str, selectors: Mapping[str, str]) -> GraphOptions:
             raise ValueError(f'{identity} selector does not match the prepared bundle')
     if selectors.get('mode') and selectors['mode'] != values.get('mode'):
         raise ValueError('mode selector does not match the prepared bundle')
-    if selectors.get('composition', 'false') not in ('', 'false'):
-        raise ValueError('composition is reserved for P5.4; use composition:=false')
     for switch, key, choices in (
             ('chassis', 'start_chassis', {'on': True, 'off': False}),
-            ('executor', 'start_executor', {'true': True, 'false': False})):
+            ('executor', 'start_executor', {'true': True, 'false': False}),
+            ('composition', 'composition', {'true': True, 'false': False})):
         value = selectors.get(switch, '')
         if value:
             if value not in choices:

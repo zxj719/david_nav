@@ -30,9 +30,13 @@ def _flatten(values, parts=()):
     return result
 
 
-@pytest.mark.parametrize('mode,experiment', [
-    ('tour', None), ('precise', None), ('tour', 'l2_l3'), ('precise', 'l2_l3')])
-def test_recorded_navigation_wait_launch_check_dump_and_shutdown(tmp_path, mode, experiment):
+@pytest.mark.parametrize('mode,experiment,composition', [
+    ('tour', None, False), ('precise', None, False),
+    ('tour', 'l2_l3', False), ('precise', 'l2_l3', False),
+    pytest.param('tour', None, True, id='composition-tour'),
+    pytest.param('precise', 'cpp', True, id='composition-precise-cpp')])
+def test_recorded_navigation_wait_launch_check_dump_and_shutdown(
+        tmp_path, mode, experiment, composition):
     """The real stack consumes frozen example inputs and exits without touching providers."""
     require_sandbox()
     root = tmp_path / 'private_run'
@@ -45,7 +49,8 @@ def test_recorded_navigation_wait_launch_check_dump_and_shutdown(tmp_path, mode,
         owner = OwnedProcess([
             sys.executable, str(Path(__file__).with_name('recorded_navigation_fixture.py')),
             '--root', str(root), '--mode', mode,
-            *(['--mode-file', str(overlay)] if experiment else [])], os.environ, log)
+            *(['--mode-file', str(overlay)] if experiment else []),
+            *(['--composition'] if composition else [])], os.environ, log)
         deadline = time.monotonic() + 25
         run = None
         while owner.poll() is None and time.monotonic() < deadline:
@@ -83,7 +88,14 @@ def test_recorded_navigation_wait_launch_check_dump_and_shutdown(tmp_path, mode,
         assert not report['duplicates'], report
         spec, _ = load_live_spec(run)
         assert set(spec.parameters).issubset(report['dumped']), report
-        if experiment:
+        bundle = json.loads((run / 'launch.json').read_text())
+        assert bundle['options']['composition'] == composition
+        if composition:
+            assert '/nav2_container' in report['nodes']
+            assert '/nav2_container' in report['skipped']
+        if experiment == 'cpp':
+            assert bundle['options']['adapter_implementation'] == 'cpp'
+        if experiment == 'l2_l3':
             assert '/velocity_smoother' not in report['dumped']
             assert '/cmd_vel_nav' not in {rule.topic for rule in spec.topics}
             assert (run / 'params/inputs/mode.yaml').read_bytes() == overlay.read_bytes()
@@ -119,7 +131,8 @@ def test_recorded_navigation_wait_launch_check_dump_and_shutdown(tmp_path, mode,
                                             if event.event_type == 'parameter_mismatch')
         assert not mismatched, 'declared rendered values must match the actual Nav2 dump'
         print('parameter comparison:', json.dumps({
-            'mode': mode, 'experiment': experiment, 'nodes': len(spec.parameters),
+            'mode': mode, 'experiment': experiment, 'composition': composition,
+            'nodes': len(spec.parameters),
             'declared_matches': sum(map(len, spec.parameters.values())) - len(missing),
             'undeclared_reported': len(missing)}))
         os.kill(owner.pid, signal.SIGINT)
@@ -146,7 +159,8 @@ def test_recorded_navigation_wait_launch_check_dump_and_shutdown(tmp_path, mode,
     assert reports[0]['nonzero'] == 0
 
 
-def test_real_nav2_strict_check_reports_legacy_parameters_and_stops(tmp_path):
+@pytest.mark.parametrize('composition', [False, pytest.param(True, id='composition-strict')])
+def test_real_nav2_strict_check_reports_legacy_parameters_and_stops(tmp_path, composition):
     """Existing inert Nav2 settings remain errors, not startup-success exemptions."""
     require_sandbox()
     root, log = tmp_path / 'private_run', tmp_path / 'wrapper.log'
@@ -154,7 +168,8 @@ def test_real_nav2_strict_check_reports_legacy_parameters_and_stops(tmp_path):
     try:
         owner = OwnedProcess([
             sys.executable, str(Path(__file__).with_name('recorded_navigation_fixture.py')),
-            '--root', str(root), '--strict'], os.environ, log)
+            '--root', str(root), '--strict',
+            *(['--composition'] if composition else [])], os.environ, log)
         deadline = time.monotonic() + 25
         run = None
         while owner.poll() is None and time.monotonic() < deadline:

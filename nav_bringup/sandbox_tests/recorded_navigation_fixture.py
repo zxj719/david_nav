@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--mode', choices=('tour', 'precise'), default='tour')
     parser.add_argument('--strict', action='store_true')
+    parser.add_argument('--composition', action='store_true')
     parser.add_argument('--mode-file', type=Path)
     args = parser.parse_args()
     configure(args.root)
@@ -26,7 +27,8 @@ def main() -> int:
         'up', '--mode', args.mode, '--robot', 'example_diffdrive', '--site', 'offline',
         '--record', 'off', '--no-executor', '--source-root', str(source), '--repo', str(source),
         '--runs-root', str(args.root / 'runs'), *(['--strict'] if args.strict else []),
-        *(['--mode-file', str(args.mode_file)] if args.mode_file else [])])
+        *(['--mode-file', str(args.mode_file)] if args.mode_file else []),
+        *(['--composition'] if args.composition else [])])
 
 
 if __name__ == '__main__':

@@ -7,8 +7,14 @@ from typing import List
 
 from launch.action import Action
 from launch.actions import ExecuteProcess
+from launch.actions import RegisterEventHandler
+from launch.event_handlers import OnProcessStart
 from launch_ros.actions import Node
+from launch_ros.descriptions import ComposableNode
 
+from nav_bringup.launching.component_loader import CheckedComponentLoader
+from nav_bringup.launching.composition import component_specs, CONTAINER_NAME, physical_graph
+from nav_bringup.launching.executables import resolve_component
 from nav_bringup.launching.executables import resolve_executable as _resolve
 from nav_bringup.launching.graph import LaunchGraph
 from nav_bringup.launching.graph import ProcessSpec
@@ -41,12 +47,33 @@ def launch_actions(graph: LaunchGraph, phase: str = 'all') -> List[Action]:
             raise ValueError('teleop requires navrun supervisor-owned keyboard startup')
         graph = replace(graph, processes=tuple(
             spec for spec in graph.processes if spec.name != 'chassis_teleop'))
+    members = component_specs(graph)
+    for spec, plugin in members:
+        resolve_component(spec.package, plugin)
+    graph = physical_graph(graph)
     executables = {spec.name: _resolve(spec.package, spec.executable) for spec in graph.processes}
     gate = _resolve('nav_bringup', 'nav_ready_exec') if any(
         spec.wait_for_navigation for spec in graph.processes) else ''
 
+    loaders = []
+
     def factory(spec: ProcessSpec) -> ExecuteProcess:
         executable = executables[spec.name]
+        if spec.name == CONTAINER_NAME and members:
+            # Child costmaps read global YAML sections in the container's argv;
+            # component-local overrides alone would lose those nested node sections.
+            parameters = list(dict.fromkeys(item.parameter_file for item, _ in members
+                                            if item.parameter_file))
+            container = Node(executable=executable, name=spec.name, output='screen',
+                             parameters=parameters)
+            descriptions = [ComposableNode(
+                package=item.package, plugin=plugin, name=item.name,
+                parameters=[item.parameter_file] if item.parameter_file else [],
+                remappings=list(item.remappings)) for item, plugin in members]
+            loaders.append(RegisterEventHandler(OnProcessStart(
+                target_action=container, on_start=[CheckedComponentLoader(
+                    '/' + CONTAINER_NAME, descriptions)], handle_once=True)))
+            return container
         if spec.wait_for_navigation:
             return ExecuteProcess(
                 cmd=[gate, '--timeout', str(spec.ready_timeout_sec), '--action', spec.ready_action,
@@ -59,4 +86,5 @@ def launch_actions(graph: LaunchGraph, phase: str = 'all') -> List[Action]:
             parameters=[spec.parameter_file] if spec.parameter_file else [],
             remappings=list(spec.remappings), arguments=list(spec.arguments))
 
-    return managed_actions(graph, factory)
+    actions = managed_actions(graph, factory)
+    return loaders + actions

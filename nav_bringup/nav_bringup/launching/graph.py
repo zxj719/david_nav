@@ -54,6 +54,7 @@ class GraphOptions:
         supervisor_keyboard: Teleop keyboard is owned directly by navrun, not launch.
         velocity_smoother: Keep the legacy smoothing hop unless explicitly disabled.
         adapter_implementation: Explicit python/cpp backend; Python remains the default.
+        composition: Explicitly group eligible nodes in one isolated container.
     """
 
     mode: str
@@ -81,11 +82,12 @@ class GraphOptions:
     supervisor_keyboard: bool = False
     velocity_smoother: bool = True
     adapter_implementation: str = 'python'
+    composition: bool = False
 
 
 @dataclass(frozen=True)
 class ProcessSpec:
-    """One owned process and its operational contract.
+    """One logical program/node and its standalone operational contract.
 
     Attributes:
         name: Stable process/node identity within the graph.
@@ -120,19 +122,21 @@ class ProcessSpec:
 
 @dataclass(frozen=True)
 class LaunchGraph:
-    """Complete owned graph for one mode.
+    """Owned logical graph, converted to physical processes at the launch boundary.
 
     Attributes:
         mode: Selected mode.
-        processes: Owned processes, in declaration order.
+        processes: Owned programs/nodes, in declaration order.
         lifecycle_nodes: Nav2 activation order, with an owned map server first.
         supervisor_keyboard: Exclude the explicitly supervised keyboard from launch actions.
+        composition: Convert this logical graph to physical processes at the launch boundary.
     """
 
     mode: str
     processes: Tuple[ProcessSpec, ...]
     lifecycle_nodes: Tuple[str, ...]
     supervisor_keyboard: bool = False
+    composition: bool = False
 
 
 def _validate(options: GraphOptions) -> None:
@@ -143,7 +147,7 @@ def _validate(options: GraphOptions) -> None:
     if not PurePath(options.run_dir).is_absolute() or '..' in PurePath(options.run_dir).parts:
         raise ValueError('run_dir must be an absolute normalized run directory')
     for name in ('start_chassis', 'start_executor', 'map_server', 'scan_bridge',
-                 'robot_state', 'rviz', 'supervisor_keyboard', 'velocity_smoother'):
+                 'robot_state', 'rviz', 'supervisor_keyboard', 'velocity_smoother', 'composition'):
         if not isinstance(getattr(options, name), bool):
             raise ValueError(f'{name} must be a resolved boolean')
     for delay in (options.chassis_delay_sec, options.rviz_delay_sec):
@@ -163,6 +167,8 @@ def _validate(options: GraphOptions) -> None:
         raise ValueError('supervisor keyboard ownership is only valid in teleop mode')
     if options.scan_bridge and options.mode not in NAVIGATION_MODES:
         raise ValueError('preprocessing is only valid in a navigation mode')
+    if options.composition and options.mode not in NAVIGATION_MODES:
+        raise ValueError('composition is only valid in a navigation mode')
     for name in ('driver_package', 'driver_executable', 'nav_command_topic',
                  'smooth_command_topic', 'chassis_command_topic', 'chassis_odom_topic',
                  'cloud_topic', 'scan_topic', 'ready_action'):
@@ -171,7 +177,7 @@ def _validate(options: GraphOptions) -> None:
 
 
 def build_graph(options: GraphOptions) -> LaunchGraph:
-    """Resolve the owned process graph without importing runtime implementations.
+    """Resolve the logical node graph without importing runtime implementations.
 
     Args:
         options: Resolved mode switches and profile-owned topic names.
@@ -256,7 +262,8 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
             'rviz2', 'rviz2', 'rviz2', params('rviz'),
             arguments=('-d', str(root / 'inputs' / 'navigation.rviz')),
             delay_sec=delay + options.rviz_delay_sec, critical=False))
-    return LaunchGraph(options.mode, tuple(processes), tuple(lifecycle))
+    return LaunchGraph(options.mode, tuple(processes), tuple(lifecycle),
+                       composition=options.composition)
 
 
 def exit_decision(process: ProcessSpec, prior_restarts: int, shutting_down: bool) -> str:

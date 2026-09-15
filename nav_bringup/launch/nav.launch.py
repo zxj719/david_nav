@@ -42,6 +42,7 @@ def generate_launch_description() -> LaunchDescription:
             'chassis', default_value='', description='Override ownership: on/off'),
         DeclareLaunchArgument('executor', default_value='', description='Override WS: true/false'),
         DeclareLaunchArgument(
-            'composition', default_value='false', description='P5.4 opt-in, pending'),
+            'composition', default_value='',
+            description='Override frozen composition: true/false (bundle default false)'),
         OpaqueFunction(function=_setup),
     ])

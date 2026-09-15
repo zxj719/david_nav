@@ -16,6 +16,7 @@ import pytest
 
 LIVE_PATTERN = (
     'run_loc_online|controller_server|bt_navigator|wheeltec_robot_node|wheeltec_driver_node|'
+    'component_container|'
     'navigation_executor|dock_navigator|rviz2')
 
 
