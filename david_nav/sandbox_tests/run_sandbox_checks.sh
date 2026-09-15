@@ -18,7 +18,20 @@ set -o pipefail
 readonly WS="${REFACTOR_WS:-$HOME/ros2_ws_refactor}"
 readonly LIVE_PATTERN='run_loc_online|controller_server|bt_navigator|wheeltec_robot_node|navigation_executor|dock_navigator|rviz2'
 
-if pgrep -af "${LIVE_PATTERN}"; then
+# pgrep -f matches whole command lines, so the shells that started this script
+# (for example `ssh host "... <process name> ..."`) would match; ignore them.
+ancestors=" $$ "
+pid=$$
+while [[ -n "$pid" && "$pid" -gt 1 ]]; do
+  pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+  ancestors+="${pid} "
+done
+live=""
+for pid in $(pgrep -f "${LIVE_PATTERN}"); do
+  [[ "$ancestors" == *" ${pid} "* ]] || live+="${pid},"
+done
+if [[ -n "$live" ]]; then
+  ps -o pid=,args= -p "${live%,}"
   echo "refusing to run: a navigation/localization/chassis stack is running" >&2
   exit 3
 fi

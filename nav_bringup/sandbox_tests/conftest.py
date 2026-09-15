@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
-from typing import IO, List, Optional, Sequence, Tuple
+from typing import IO, List, Optional, Sequence, Set, Tuple
 
 import pytest
 
@@ -79,15 +79,36 @@ class ProcessSessions:
             pass
 
 
+def _ancestor_pids() -> Set[int]:
+    pids: Set[int] = set()
+    pid = os.getpid()
+    while pid > 1 and pid not in pids:
+        pids.add(pid)
+        try:
+            with open(f'/proc/{pid}/stat', encoding='utf-8') as handle:
+                stat = handle.read()
+        except OSError:
+            break
+        pid = int(stat[stat.rindex(')') + 2:].split()[1])
+    return pids
+
+
 def require_sandbox() -> None:
-    """Fail unless the sandbox domain is set and no navigation stack runs."""
+    """Fail unless the sandbox domain is set and no navigation stack runs.
+
+    ``pgrep -f`` matches whole command lines, so the processes that started
+    these checks are ignored: their command lines may name watched processes.
+    """
     expected = os.environ.get('SANDBOX_ROS_DOMAIN_ID', '99')
     if os.environ.get('ROS_DOMAIN_ID') != expected:
         pytest.fail(f'sandbox checks need ROS_DOMAIN_ID={expected}')
     live = subprocess.run(
         ['pgrep', '-f', LIVE_PATTERN], capture_output=True, text=True, check=False)
-    if live.stdout.strip():
-        pytest.fail('a navigation, localization or chassis stack is running')
+    ancestors = _ancestor_pids()
+    running = [pid for pid in live.stdout.split() if int(pid) not in ancestors]
+    if running:
+        pids = ', '.join(running)
+        pytest.fail(f'a navigation, localization or chassis stack is running (pid {pids})')
 
 
 @pytest.fixture
