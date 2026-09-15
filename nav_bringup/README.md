@@ -12,7 +12,8 @@ This package is robot independent: robot-specific values live in a
 | `nav_bringup.lint.literals`: no robot frame names or robot topic prefixes in package code | available | plan §5.4 |
 | `nav_bringup.navcfg.schema`: per-package `config/schema.yaml` format, catalog aggregation, value and profile checks, schema discovery | available (P2.1) | plan §12.1 |
 | `nav_bringup.recorder`: run directory, manifest, `code.diff`, events, resource samples, summary, retention | available (PROGRESS P1.2a) | plan §13.2 |
-| Recorder ROS side: effective parameter dump, topic rates and TF lag | planned (P1.2b) | plan §13.2 |
+| `navrun dump-params`: effective parameters of every running node into `params/effective/` (golden capture rules: helper nodes skipped, per-call timeout, retries, non-empty output; duplicate node names reported) | available (P1.2b) | plan §13.2 |
+| Topic rates and TF lag (`metrics/topics.csv`) | planned (P1.2b) | plan §13.2 |
 | `navrun wrap -- <command>`: record a run around an existing launch command | available (P1.3) | plan §13.1, §16.2 Phase 1 |
 | `navrun watch-bt`: escape and recovery triggers from `/behavior_tree_log` → `events.jsonl`, terminal line, `logs/navrun.log`, per-node counts in `summary.md` | available (P1.4a) | plan §10.3 |
 | `navrun wrap` starts `watch-bt` automatically; sandbox integration test | planned (P1.4b) | plan §10.3 |

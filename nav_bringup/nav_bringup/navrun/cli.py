@@ -4,6 +4,7 @@ Example:
     navrun wrap --mode tour --alias 4 -- ~/ros2_ws/src/david_nav/start_navigation_headless.sh
     navrun doctor
     navrun watch-bt --run-dir ~/nav_runs/latest --base-frame <frames.nav_base>
+    navrun dump-params --run-dir ~/nav_runs/latest
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from typing import Dict, Optional, Sequence
 from nav_bringup.doctor import checks
 from nav_bringup.navrun import wrap
 from nav_bringup.recorder import bt_log_watcher
+from nav_bringup.recorder import events
+from nav_bringup.recorder import param_dump
 from nav_bringup.recorder import run_dir
 
 DEFAULT_REPO_DIR = '~/ros2_ws/src'
@@ -73,6 +76,24 @@ def build_parser() -> argparse.ArgumentParser:
     watch_parser.add_argument(
         '--min-interval', type=float, default=0.5,
         help='minimum seconds between reports of the same trigger')
+
+    dump_defaults = param_dump.DumpSettings()
+    dump_parser = subparsers.add_parser(
+        'dump-params', help='dump the effective parameters of every running node')
+    dump_parser.add_argument(
+        '--run-dir', type=Path, default=None,
+        help='run directory; dumps go to its params/effective (default: $NAVRUN_RUN_DIR)')
+    dump_parser.add_argument(
+        '--output-dir', type=Path, default=None,
+        help='write the dumps here instead of into a run directory')
+    dump_parser.add_argument(
+        '--spin-time', type=float, default=dump_defaults.spin_time_sec,
+        help='discovery seconds for each ros2 call')
+    dump_parser.add_argument(
+        '--timeout', type=float, default=dump_defaults.timeout_sec,
+        help='seconds before one ros2 call is abandoned')
+    dump_parser.add_argument(
+        '--attempts', type=int, default=dump_defaults.attempts, help='dump attempts per node')
     return parser
 
 
@@ -112,24 +133,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _doctor(args)
     if args.subcommand == 'watch-bt':
         return _watch_bt(args)
+    if args.subcommand == 'dump-params':
+        return _dump_params(parser, args)
     return _wrap(parser, args)
 
 
-def _watch_bt(args: argparse.Namespace) -> int:
-    directory = args.run_dir
+def _run_directory(explicit: Optional[Path]) -> Optional[run_dir.RunDirectory]:
+    directory = explicit
     if directory is None and os.environ.get('NAVRUN_RUN_DIR'):
         directory = Path(os.environ['NAVRUN_RUN_DIR'])
-    run = None
-    if directory is not None:
-        directory = directory.expanduser()
-        run = run_dir.RunDirectory(directory.parent, directory.name)
-    return bt_log_watcher.spin(
-        run,
-        base_frame=args.base_frame,
-        topic=args.topic,
-        map_frame=args.map_frame,
-        min_interval_sec=args.min_interval,
-    )
+    if directory is None:
+        return None
+    directory = directory.expanduser()
+    return run_dir.RunDirectory(directory.parent, directory.name)
 
 
 def _doctor(args: argparse.Namespace) -> int:
@@ -139,6 +155,42 @@ def _doctor(args: argparse.Namespace) -> int:
     else:
         print(checks.format_report(results), end='')
     return 1 if checks.worst_status(results) is checks.Status.FAIL else 0
+
+
+def _watch_bt(args: argparse.Namespace) -> int:
+    return bt_log_watcher.spin(
+        _run_directory(args.run_dir),
+        base_frame=args.base_frame,
+        topic=args.topic,
+        map_frame=args.map_frame,
+        min_interval_sec=args.min_interval,
+    )
+
+
+def _dump_params(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    if args.attempts < 1:
+        parser.error('--attempts must be at least 1')
+    run = None if args.output_dir is not None else _run_directory(args.run_dir)
+    if args.output_dir is not None:
+        output_dir = args.output_dir.expanduser()
+    elif run is not None:
+        output_dir = run.params_effective
+    else:
+        parser.error('dump-params needs --output-dir, --run-dir or $NAVRUN_RUN_DIR')
+    settings = param_dump.DumpSettings(
+        spin_time_sec=args.spin_time, timeout_sec=args.timeout, attempts=args.attempts)
+    report = param_dump.dump_graph(output_dir, settings=settings)
+    if run is not None:
+        events.EventLog(run.events).append(
+            wrap.EVENT_SOURCE, 'params_dumped', 'info' if report.ok else 'warn',
+            report.to_dict())
+    problems = ', node list failed' if report.list_failed else ''
+    print(
+        f'navrun: dumped {len(report.dumped)} of {len(report.nodes)} nodes into {output_dir} '
+        f'(skipped {len(report.skipped)}, failed {len(report.failed)}{problems})',
+        file=sys.stderr,
+    )
+    return 0 if report.ok else 1
 
 
 def _wrap(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
