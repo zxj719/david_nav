@@ -6,6 +6,7 @@
   <maintainer email="xingjian.zhang@amicro.com.cn">zhangxingjian</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>serial</depend>
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_cmake_cpplint</test_depend>
   <test_depend>ament_cmake_uncrustify</test_depend>
