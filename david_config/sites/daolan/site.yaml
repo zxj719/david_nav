@@ -1,0 +1,24 @@
+# Daolan site profile (refactor plan §14).
+#
+# Map and point files of the site as production uses them today;
+# test/test_site_profiles.py keeps them equal to the navigation bringup launch,
+# the executor defaults and the headless configuration.
+schema_version: 1
+
+site:
+  name: daolan
+  description: 导览场地
+
+map:
+  # trinary copy of the lightning map metadata; its image stays in the lightning map directory
+  nav_yaml: maps/daolan_map_nav.yaml
+  lightning_map_dir: /home/agx/lightning_ws_new/src/embodied_intelligence/data/daolan_map
+
+pois:
+  # maintained by hand; runs only record its sha256 (plan §14)
+  named_poses_file: ~/semantic_map/named_poses.json
+  # written by the executor at run time
+  store_file: ~/.ros/david_nav/poi_store.yaml
+
+agent_server:
+  uri: ws://192.168.123.186:8101

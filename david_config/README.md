@@ -10,7 +10,11 @@ to `<robot>_config` and changing values, not code.
 | Component | State | Plan reference |
 |---|---|---|
 | `robot/david.yaml`: robot profile (frames, footprint, limits, chassis adapter and driver, teleop, localization, sensors, platform, preflight, recording) with the values production runs today | available (PROGRESS P2.2a) | plan §12.2 |
-| `modes/{tour,precise,bench_slamgt,teleop}.yaml` overlays, `sites/daolan/`, URDF | planned (P2.2b) | plan §12.2, §14 |
+| `sites/daolan/site.yaml` + `maps/daolan_map_nav.yaml`: navigation map (trinary; image stays in the lightning map directory), point files, agent server | available (P2.2b) | plan §14 |
+| `modes/{tour,precise,bench_slamgt,teleop}.yaml` overlays, URDF | planned (P2.2c, with the P2.3 binding table) | plan §12.2, §12.3 |
+
+The site map yaml is a byte-identical copy of `david_nav/config/maps/daolan_map_nav.yaml`
+until the launch reads site profiles (Phase 4); a test fails if the two drift apart.
 
 ## Frames
 
