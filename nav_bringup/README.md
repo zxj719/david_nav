@@ -289,6 +289,37 @@ Already successful power settings are not rolled back or reported as undone.
 executed by imports or the existing wrap command. Permission setup remains an
 operator-owned sudoers task; the code never supplies a password or edits policy.
 
+`navrun.startup_lifecycle.supervise` now executes an explicitly supplied startup
+pipeline under an already acquired `RunLock`: owned launch → ordered readiness
+and live-check gates → optional diagnostic monitor → optional recorder → foreground
+supervision → stop attempts and cleanup. Manual localization can wait indefinitely,
+but launcher exits and requested signals remain observable throughout that wait.
+Unexpected launcher/recorder exits fail the run, including early exit code zero;
+optional monitor failures only warn. Two bounded zero-command attempts bracket
+launch shutdown, and recorder shutdown follows the second attempt. A failed stop
+does not skip other cleanup. This is a lifecycle engine, **not an enabled live `up`
+entry point**: the public CLI remains preview-only until manifest/platform/DDS
+orchestration, signal handling, foreground log forwarding, metrics, actual
+zero-publisher binding and combined teleop ownership are integrated and verified.
+
+Each child gets an exclusive `logs/<name>.log`, run-local `ROS_LOG_DIR`, closed
+stdin, and a private session. `navrun.owned_process.OwnedProcess` uses Linux
+`waitid(WNOWAIT)` to retain the leader PID even after it exits, then interrupts its
+group, permits flushing, kills remaining members and only reaps once the group
+has drained. Repeated close never signals a reused numeric PID. Commands must not
+detach descendants: Humble launch children retain their group; independently
+detached helpers must be separately owned. The legacy wrap/session implementation
+has not been changed by this addition. If cleanup cannot drain a group, the result
+retains its live ownership handle: the future outer entry point must keep the lock
+and retry, not finalize the run and release ownership. Cleanup errors and failed
+zero attempts are recorded explicitly, not reported as successful stopping.
+
+The lifecycle tests execute only fakes and private, non-ROS Python processes.
+Their zero command is a text-printing placeholder, not a ROS publisher. Tests
+cover early leader exit with an uncooperative grandchild, graceful log flushing,
+unrelated-session survival, wait ownership loss, bounded escalation, gate failure,
+manual-wait interruption, recording failure, event-file errors and cleanup retry.
+
 ```bash
 source /opt/ros/humble/setup.bash
 cd ~/ros2_ws_refactor
