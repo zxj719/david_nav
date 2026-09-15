@@ -1,7 +1,7 @@
 """Read-only startup planning, using the same bundle and graph as ROS launch.
 
 The returned plan is a preview, not authority to mutate the host. Runtime wiring
-and legacy executor arguments remain explicit integration work. In particular,
+remains explicit integration work. In particular,
 successful dry-run validation never claims that hardware was exercised.
 """
 
@@ -20,6 +20,7 @@ from nav_bringup.navcfg import render, schema
 from nav_bringup.navrun.platform import plan_platform, PlatformStep
 from nav_bringup.navrun.preflight import plan_preflight, PreflightPlan, ProcessInfo
 from nav_bringup.navrun.preparation import BundleInputs, PreparedBundle, prepare_bundle
+from nav_bringup.navrun.recording import plan_recording, RecordingPlan
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,7 @@ class UpPlan:
         platform: Proposed noninteractive platform commands, not executed.
         executables: Process name and resolved installed executable path.
         errors: Missing dependencies or unfinished binding requirements.
+        recording: Explicit run-local rosbag selection, not started by planning.
     """
 
     request: UpRequest
@@ -66,6 +68,7 @@ class UpPlan:
     platform: Tuple[PlatformStep, ...]
     executables: Tuple[Tuple[str, str], ...]
     errors: Tuple[str, ...]
+    recording: RecordingPlan
 
 
 def _validate(request: UpRequest) -> None:
@@ -170,8 +173,6 @@ def plan_up(
     requirements = [(spec.name, spec.package, spec.executable) for spec in graph.processes]
     if executor:
         requirements.append(('ready_gate', 'nav_bringup', 'nav_ready_exec'))
-        errors.append('legacy executor argument binding is not yet migrated; '
-                      '--no-executor can preview the navigation graph alone')
     for name, package, executable in requirements:
         try:
             path = resolve(package, executable)
@@ -181,7 +182,8 @@ def plan_up(
         except (ValueError, LookupError, OSError) as error:
             errors.append(f'{package}/{executable}: {error}')
     return UpPlan(request, bundle, graph, preflight, plan_platform(effective),
-                  tuple(executables), tuple(errors))
+                  tuple(executables), tuple(errors),
+                  plan_recording(effective, request.record, request.run_dir))
 
 
 def report_plan(plan: UpPlan) -> Dict[str, Any]:
@@ -198,6 +200,7 @@ def report_plan(plan: UpPlan) -> Dict[str, Any]:
         'dry_run': True, 'runtime_enabled': False,
         'robot': plan.bundle.robot, 'site': plan.bundle.site, 'mode': options.mode,
         'run_dir': options.run_dir, 'record': plan.request.record,
+        'recording': asdict(plan.recording),
         'launch': ['ros2', 'launch', 'nav_bringup', 'nav.launch.py',
                    'run_dir:=' + options.run_dir, 'robot:=' + plan.bundle.robot,
                    'site:=' + plan.bundle.site, 'mode:=' + options.mode],
@@ -213,6 +216,6 @@ def report_plan(plan: UpPlan) -> Dict[str, Any]:
         'artifacts': [name for name, _ in plan.bundle.artifacts],
         'warnings': [asdict(issue) for issue in plan.bundle.issues],
         'errors': list(plan.errors),
-        'pending_runtime': ['executor bindings', 'recording and manifest orchestration',
+        'pending_runtime': ['recording and manifest orchestration',
                             'readiness and manual localization checks', 'exit zero and cleanup'],
     }

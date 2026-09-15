@@ -109,6 +109,11 @@ localization_health:
   divergence_window_sec: 2.0
   action: warn
 
+startup:
+  nav_ready_timeout_sec: 120.0
+executor:
+  reconnect_delay_sec: 3.0
+
 sensors:
   scan_from_cloud:
     enabled: false
@@ -166,7 +171,57 @@ preflight:
   kill_stale_robot_state_publishers: true
 
 record:
-  light_topics: []
+  # Exact legacy light list; do not add full global costmaps or localization clouds here.
+  light_topics:
+    - /tf
+    - /tf_static
+    - /rosout
+    - /cmd_vel
+    - /cmd_vel_nav
+    - /cmd_vel_safe
+    - /cmd_control_command
+    - /scan
+    - /map
+    - /lightning/odometry
+    - /local_costmap/costmap
+    - /local_costmap/costmap_raw
+    - /local_costmap/published_footprint
+    - /global_costmap/costmap_updates
+    - /global_costmap/published_footprint
+    - /navigate_to_pose/_action/status
+    - /navigate_to_pose/_action/feedback
+    - /navigate_to_pose/_action/result
+    - /plan
+  full_topics:
+    - /tf
+    - /tf_static
+    - /parameter_events
+    - /rosout
+    - /cmd_vel
+    - /cmd_vel_nav
+    - /cmd_vel_safe
+    - /cmd_control_command
+    - /scan
+    - /map
+    - /lightning/odometry
+    - /lightning/grid_map
+    - /odommodestate
+    - /sportmodestate
+    - /lf/odommodestate
+    - /lf/sportmodestate
+    - /planner_map
+    - /gridmap
+    - /collision_clouds
+    - /pre_collision_clouds
+    - /safe_clouds
+    - /warning_clouds
+    - /utlidar/cloud_livox_mid360
+    - /utlidar/imu_livox_mid360
+  full_regex: '^/((local_costmap|global_costmap|frontier|explore|collision_monitor|navigate_to_pose|navigate_through_poses|plan|goal_pose|clicked_point|behavior_tree_log|map_live_ready)(/.*)?)$'
+  full_include_hidden: true
+  full_include_unpublished: true
+  full_compression: zstd
+  max_cache_size_bytes: 104857600
   monitor_topics: [/cmd_vel, /cmd_vel_smoothed, /odom, /lightning/loc/odometry]
   monitor_period_sec: 5.0
   storage: sqlite3

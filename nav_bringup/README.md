@@ -153,8 +153,9 @@ directory, execute subprocesses, inspect/delete shared memory, or start ROS node
 `dry_run_preview` is a prospective path only, not a real run record.
 
 Exit 0 means the preview is valid, not that live startup is available. Missing
-executables/configuration return 2; unbound legacy executor arguments are an
-explicit error unless `--no-executor` is selected. Actual `up` without `--dry-run`
+executables/configuration return 2. Legacy executor arguments now come from the
+frozen robot/site inputs; `--no-executor` still explicitly omits that process.
+Actual `up` without `--dry-run`
 returns 2 before discovery, because recording/manifest, readiness/localization and
 exit-zero orchestration remain unfinished. The report says `runtime_enabled:
 false`. Do not replace production aliases with this intermediate entry point.
@@ -164,6 +165,32 @@ The standalone keyboard executable has its own lease and publisher guard, but
 launching it concurrently with the adapter would make startup ordering unsafe.
 Until the combined handoff is implemented, the launch runtime rejects teleop before
 resolving or spawning any child; no PID-name exemption or environment bypass exists.
+
+### Executor and recording preparation (P4.2)
+
+The legacy WS executor receives `agent_server.uri`, resolved
+`pois.named_poses_file` and `pois.store_file`, `executor.reconnect_delay_sec`, and
+the selected navigation action. Relative POI paths are relative to the source site
+directory; home paths expand but neither point file is opened or modified by this
+binding step. Existing input fingerprinting still reads the named-poses file.
+`pois.dock_poi_ids` in site.yaml is an optional list used **only in precise mode**;
+David's site retains POI_017, while tour keeps ordinary navigation. The ready gate
+uses `startup.nav_ready_timeout_sec` (120 seconds for both old David entries).
+Golden tests pass both argv forms through the old parser and compare every setting.
+Remaining legacy frame/topic constants are Phase 6 migration work, not changed here.
+
+The preview's `recording` entry includes enabled/reason, exact argv, run-local
+`bag/data` destination and explicit selectors. Light uses `record.light_topics`;
+an empty list explicitly disables recording. Full combines `record.full_topics`
+and `record.full_regex` and requires at least one selection, never an implicit
+`--all`. Full-only hidden/unpublished and compression options are profile-owned.
+David preserves both old topic lists, regex, 100 MiB cache and zstd full recording;
+large global maps remain excluded from light. Storage is SQLite, not MCAP.
+
+Preparation does not start a recorder. Actual recorder launch after readiness,
+monitoring its exit, orderly finalization and run summaries still belong to the
+pending supervisor orchestration. Isolated CLI tests record only an owned text
+topic and verify SQLite metadata and full-mode compression without velocity traffic.
 
 ### Live configuration check and manual localization (P4.5)
 

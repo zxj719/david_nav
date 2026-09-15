@@ -67,11 +67,18 @@ def test_missing_executables_are_aggregated_before_startup(tmp_path):
     assert not (tmp_path / 'not-created').exists()
 
 
-def test_executor_binding_is_explicitly_unfinished(tmp_path):
-    """An incomplete legacy binding cannot be presented as a ready-to-launch plan."""
+def test_executor_binding_uses_site_and_resolves_readiness_gate(tmp_path):
+    """A complete argv is frozen in the same bundle consumed by the launch adapter."""
     plan = _plan(_request(tmp_path, no_executor=False))
-    assert any('executor' in error for error in plan.errors)
+    assert plan.errors == ()
     assert plan.bundle.options.start_executor
+    assert '--pose-file' in plan.bundle.options.executor_arguments
+    assert 'ws://127.0.0.1:18101' in plan.bundle.options.executor_arguments
+    assert plan.bundle.options.ready_timeout_sec == 120.0
+    assert 'ready_gate' in dict(plan.executables)
+    document = json.loads(dict(plan.bundle.artifacts)['launch.json'])
+    assert document['options']['executor_arguments'] == list(
+        plan.bundle.options.executor_arguments)
 
 
 def test_report_does_not_disclose_other_process_arguments(tmp_path):

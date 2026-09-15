@@ -39,9 +39,22 @@ navcfg render --profile $share/robot/david.yaml --mode $share/modes/precise.yaml
 Values that several Nav2 parameters share (frames, footprint, speed limits,
 goal tolerances, odom, scan and map topics) are written once in the profile. A
 mode changes them under `profile:` and changes other Nav2 parameters under
-`nav2_overrides:` (for example the controller critics of `precise`). Nothing
-loads rendered files yet: the launch files keep loading the files in
-`david_nav/config` until Phase 4.
+`nav2_overrides:` (for example the controller critics of `precise`). The refactor
+launch consumes prepared run-local files. Production launch files still load
+`david_nav/config`; switching production aliases remains an operator step.
+
+## Startup and recording data
+
+The refactor startup planner now binds the WS server and POI paths from site.yaml.
+`pois.dock_poi_ids: [POI_017]` applies only to precise mode; it does not change tour
+routing. Both modes retain a 120-second Nav2 readiness deadline and a 3-second WS
+reconnect interval. The legacy executor implementation is not otherwise changed.
+
+The robot profile now holds the exact old light/full bag topic lists, full regex,
+100 MiB cache and full-only hidden/unpublished/zstd options. Large global maps stay
+out of light recording. The golden test reads these list definitions without ever
+executing the old shell script. These changes prepare the refactor workflow; they
+do not deploy new aliases or start recordings in the production environment.
 
 ## How the values are guarded
 

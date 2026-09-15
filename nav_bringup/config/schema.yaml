@@ -6,6 +6,18 @@
 schema_version: 1
 package: nav_bringup
 parameters:
+  startup.nav_ready_timeout_sec:
+    type: float
+    default: 120.0
+    unit: s
+    range: [0.0, null]
+    description: 统一入口等待 Nav2 action server 的最长时间，运行时严格大于零；不限制人工定位等待
+  executor.reconnect_delay_sec:
+    type: float
+    default: 3.0
+    unit: s
+    range: [0.0, null]
+    description: 旧 WS 执行器重连等待，映射 --reconnect-delay；其余协议默认保持原值
   frames.map:
     type: string
     required: true
@@ -137,6 +149,34 @@ parameters:
     items: string
     default: []
     description: navrun monitor 统计频率与发布者数的话题；只选轻量话题（大点云等仍有传输开销）
+  record.full_topics:
+    type: list
+    items: string
+    default: []
+    description: full 模式的显式话题清单；与 full_regex 合并，不能都为空，不自动改成全部话题
+  record.full_regex:
+    type: string
+    default: ''
+    description: full 模式额外的话题正则，light 模式不使用
+  record.full_include_hidden:
+    type: bool
+    default: false
+    description: full 模式是否包含匹配选择器的隐藏话题；David 保留旧 full-bag 行为
+  record.full_include_unpublished:
+    type: bool
+    default: false
+    description: full 模式是否包含未发布的话题；David 保留旧 full-bag 行为
+  record.full_compression:
+    type: string
+    choices: [none, zstd]
+    default: none
+    description: full 模式是否使用 zstd 文件压缩；始终使用 sqlite3，不安装 MCAP
+  record.max_cache_size_bytes:
+    type: int
+    unit: bytes
+    range: [0, null]
+    default: 104857600
+    description: rosbag2 最大消息缓存；默认保留旧入口的 100 MiB
   record.monitor_period_sec:
     type: float
     unit: s

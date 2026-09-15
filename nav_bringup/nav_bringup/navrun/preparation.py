@@ -21,6 +21,7 @@ import yaml
 from nav_bringup.launching.graph import build_graph, GraphOptions, NAVIGATION_MODES
 from nav_bringup.navcfg import behavior_trees, render, schema, validation
 from nav_bringup.navrun import prepared_parameters
+from nav_bringup.navrun.executor_binding import bind_executor
 
 
 @dataclass(frozen=True)
@@ -231,6 +232,7 @@ def prepare_bundle(
             if inputs.site is not None else {})
     if inputs.site is not None:
         _version(site, 'site')
+        options = bind_executor(options, effective, site, inputs.site.resolve().parent)
     robot_name = _identity(effective, 'robot.name')
     site_name = _identity(site, 'site.name') if site else 'none'
     graph = build_graph(options)

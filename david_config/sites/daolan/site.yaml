@@ -19,6 +19,8 @@ pois:
   named_poses_file: ~/semantic_map/named_poses.json
   # written by the executor at run time
   store_file: ~/.ros/david_nav/poi_store.yaml
+  # Only precise mode uses these IDs; tour keeps ordinary NavigateToPose routing.
+  dock_poi_ids: [POI_017]
 
 agent_server:
   uri: ws://192.168.123.186:8101

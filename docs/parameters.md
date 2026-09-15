@@ -42,6 +42,7 @@ This file lists every robot-profile key declared by package schemas.
 |---|---|---|---|---|---|---|
 | `chassis.driver.executable` | `string` | — | default: `null` | — | 驱动包内的可执行文件名；navrun 准备运行参数时必须显式提供，不从机器人名字猜测 | — |
 | `chassis.odom_topic` | `string` | — | **required** | — | 底盘轮式里程计话题（速度平滑器闭环反馈） | — |
+| `executor.reconnect_delay_sec` | `float` | s | default: `3.0` | range: `0.0 .. inf` | 旧 WS 执行器重连等待，映射 --reconnect-delay；其余协议默认保持原值 | — |
 | `footprint` | `list` | m | **required** | — | 机器人轮廓多边形 [[x, y], ...]，在 frames.nav_base 下表达，至少三个点 | — |
 | `frames.map` | `string` | — | **required** | — | 全局地图帧（Nav2 BT、全局代价图） | — |
 | `frames.nav_base` | `string` | — | **required** | — | 导航基准帧（旋转中心；Nav2、代价图、入位使用）；与机身帧分开书写，不得混用 | — |
@@ -66,10 +67,17 @@ This file lists every robot-profile key declared by package schemas.
 | `preflight.kill_patterns` | `list[string]` | — | default: `[]` | — | 启动前结束的本导航栈残留进程的命令行匹配式 | — |
 | `preflight.kill_stale_robot_state_publishers` | `bool` | — | default: `false` | — | 启动前结束残留的 robot_state_publisher，避免 TF 分裂成两棵树 | — |
 | `preflight.protected_patterns` | `list[string]` | — | default: `[]` | — | 永不清理的外部程序匹配式；额外保护其启动分支和祖先，定位 process_name 总是自动保护 | — |
+| `record.full_compression` | `string` | — | default: `"none"` | choices: `"none"`, `"zstd"` | full 模式是否使用 zstd 文件压缩；始终使用 sqlite3，不安装 MCAP | — |
+| `record.full_include_hidden` | `bool` | — | default: `false` | — | full 模式是否包含匹配选择器的隐藏话题；David 保留旧 full-bag 行为 | — |
+| `record.full_include_unpublished` | `bool` | — | default: `false` | — | full 模式是否包含未发布的话题；David 保留旧 full-bag 行为 | — |
+| `record.full_regex` | `string` | — | default: `""` | — | full 模式额外的话题正则，light 模式不使用 | — |
+| `record.full_topics` | `list[string]` | — | default: `[]` | — | full 模式的显式话题清单；与 full_regex 合并，不能都为空，不自动改成全部话题 | — |
 | `record.light_topics` | `list[string]` | — | default: `[]` | — | 每次运行默认录制的轻量话题；为空则不录包 | — |
+| `record.max_cache_size_bytes` | `int` | bytes | default: `104857600` | range: `0 .. inf` | rosbag2 最大消息缓存；默认保留旧入口的 100 MiB | — |
 | `record.monitor_period_sec` | `float` | s | default: `5.0` | range: `1.0 .. 60.0` | navrun monitor 写一行 metrics/topics.csv 的间隔（默认 5 s，即 0.2 Hz） | — |
 | `record.monitor_topics` | `list[string]` | — | default: `[]` | — | navrun monitor 统计频率与发布者数的话题；只选轻量话题（大点云等仍有传输开销） | — |
 | `record.storage` | `string` | — | default: `"sqlite3"` | choices: `"sqlite3"` | rosbag2 存储插件；mcap 插件未安装（TODO） | — |
+| `startup.nav_ready_timeout_sec` | `float` | s | default: `120.0` | range: `0.0 .. inf` | 统一入口等待 Nav2 action server 的最长时间，运行时严格大于零；不限制人工定位等待 | — |
 
 ## `nav_perception_iface`
 
