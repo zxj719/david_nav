@@ -25,6 +25,8 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/' + PACKAGE_NAME]),
         ('share/' + PACKAGE_NAME, ['package.xml', 'README.md']),
         ('share/' + PACKAGE_NAME + '/robot', glob('robot/*.yaml')),
+        ('share/' + PACKAGE_NAME + '/modes', glob('modes/*.yaml')),
+        ('share/' + PACKAGE_NAME + '/urdf', glob('urdf/*.urdf')),
     ] + _tree('sites'),
     install_requires=['setuptools'],
     zip_safe=True,

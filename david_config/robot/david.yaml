@@ -3,8 +3,10 @@
 # Every value equals what production runs today. test/test_robot_profile.py
 # compares them with the effective parameters dumped from the pre-refactor
 # bringup (david_nav/test/golden/params), the david_move and keyboard defaults,
-# the bringup launch and the wheeltec driver launch. Mode differences belong in
-# modes/*.yaml and site data in sites/<site>/ (PROGRESS P2.2b).
+# the bringup launch and the wheeltec driver launch; test/test_modes.py renders
+# the Nav2 parameter file of every mode from this profile and compares it with
+# the file production loads. Mode differences belong in modes/*.yaml and site
+# data in sites/<site>/ (PROGRESS P2.2b).
 schema_version: 1
 
 robot:
@@ -31,6 +33,10 @@ limits:
   max_vel_theta: 0.50
   max_reverse_vel: 0.20             # TODO-E1 新脱困策略使用
 
+goal:                               # 到点判定；精确入位等模式在 modes/ 中收紧
+  xy_tolerance: 0.30                # 目标检查器与 DWB 两处取同一值
+  yaw_tolerance: 6.2832             # 2π：不约束朝向
+
 chassis:
   cmd_topic: /cmd_vel
   odom_topic: /odom
@@ -39,6 +45,7 @@ chassis:
     hard_max_linear_x: 0.20
     hard_max_angular_z: 0.60
     min_linear_x: 0.0
+    min_angular_z: 0.0
     min_stationary_angular_z: 0.55
     stationary_angular_threshold: 0.025
     cmd_timeout_sec: 2.0            # L2 后 1.0
@@ -87,6 +94,8 @@ localization:
 
 nav2:
   odom_topic: /lightning/odometry   # Nav2 现接线（alias 3 不发布该话题）；等值渲染保留，是否切换见 TODO-O1
+  scan_topic: /scan                 # 代价图障碍物层订阅；默认无发布者（sensors.scan_from_cloud.enabled 为 false）
+  map_topic: /lightning/grid_map    # 代价图静态层订阅；这是参数文件取值，2d_david_nav2_bringup 用 launch 参数 map_topic（默认 /map）改写，文件值已停用；P2.4 改为生效值
 
 localization_health:
   max_tf_age_sec: 0.5

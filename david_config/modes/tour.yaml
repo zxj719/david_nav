@@ -1,0 +1,9 @@
+# Tour mode overlay (refactor plan §12.2): ordinary point-to-point navigation.
+#
+# The robot profile already holds the tour values, so this overlay changes
+# nothing. test/test_modes.py renders it and compares the result with
+# david_nav/config/nav2_params_2d.yaml, the file 2d_david_nav2_bringup.launch.py
+# loads by default.
+schema_version: 1
+mode: tour
+description: 导览/普通导航：到点即停，不约束朝向

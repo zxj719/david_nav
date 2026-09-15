@@ -12,7 +12,11 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + PACKAGE_NAME]),
         ('share/' + PACKAGE_NAME, ['package.xml', 'README.md']),
-        ('share/' + PACKAGE_NAME + '/config', ['config/schema.yaml']),
+        ('share/' + PACKAGE_NAME + '/config', [
+            'config/nav2_base.yaml',
+            'config/nav2_bindings.yaml',
+            'config/schema.yaml',
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

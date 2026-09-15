@@ -23,6 +23,7 @@ This package is robot independent: robot-specific values live in a
 | `navrun doctor --live [--cmd-topic T] [--watch-topic T]`: stale ros2 CLI daemon (compared with `--no-daemon`; never started or stopped), several publishers on a command topic, publishers from more than one host (Fast DDS GID host bytes), map→odom transform missing (hint) | available (P1.5b) | plan §13.3 |
 | `navrun up` | planned (P4.2) | plan §13.1 |
 | `navcfg render --profile FILE [--mode FILE] --output FILE` (`nav_bringup.navcfg.render`): a base parameter tree whose robot-specific values are `<bind:KEY>` markers, a binding table listing every parameter each profile key is written to (markers and table must agree), the robot profile and a mode overlay (profile values plus `nav2_overrides`, which may not touch bound parameters); PyYAML and the standard library only | available (P2.3) | plan §12.3 |
+| `config/nav2_base.yaml` + `config/nav2_bindings.yaml`: Nav2 base parameters (the David tour values and their tuning notes) with frames, footprint, speed limits, goal tolerances and odom/scan/map topics bound to profile keys, which `config/schema.yaml` declares as required | available (P2.3) | plan §12.3 |
 | `navcfg validate` / `doc` | planned (P2.5, P2.6) | plan §12.4, §12.1 |
 | `nav.launch.py` | planned (P4.1) | plan §7.1 |
 

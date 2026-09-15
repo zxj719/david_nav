@@ -3,8 +3,8 @@
 Values are compared with the effective parameters dumped from the
 pre-refactor bringup (``david_nav/test/golden/params``, PROGRESS P0.7) and
 with the configuration files and launch files production uses, so a profile
-edit that would change behavior fails here until Nav2 parameters are rendered
-from the profile (P2.3, P2.4).
+edit that would change behavior fails here. ``test_modes.py`` additionally
+renders the Nav2 parameter files from the profile (P2.3).
 """
 
 from pathlib import Path
@@ -87,6 +87,24 @@ def test_nav2_odom_topic_keeps_the_current_wiring(profile):
     assert profile['localization']['odom_topic'] != profile['nav2']['odom_topic']
 
 
+def test_tour_goal_tolerances_and_scan_topic_match_the_effective_parameters(profile):
+    """Goal tolerances and the costmap scan topic equal the effective tour parameters.
+
+    The static layer map topic is rewritten by the bringup launch (effective
+    value ``/map``), so ``nav2.map_topic`` is only compared with the parameter
+    files, in ``test_modes.py``; comparing rendered and effective parameters
+    is PROGRESS P2.4.
+    """
+    checker = _params('tour', 'controller_server.yaml')['general_goal_checker']
+    local_costmap = _params('tour', 'local_costmap__local_costmap.yaml')
+    global_costmap = _params('tour', 'global_costmap__global_costmap.yaml')
+
+    assert checker['xy_goal_tolerance'] == profile['goal']['xy_tolerance']
+    assert checker['yaw_goal_tolerance'] == profile['goal']['yaw_tolerance']
+    assert local_costmap['scan_priority_layer']['scan_topic'] == profile['nav2']['scan_topic']
+    assert global_costmap['obstacle_layer']['scan']['topic'] == profile['nav2']['scan_topic']
+
+
 def test_chassis_adapter_matches_david_move(profile):
     """The adapter section equals the david_move node started with navigation."""
     adapter = profile['chassis']['adapter']
@@ -97,6 +115,7 @@ def test_chassis_adapter_matches_david_move(profile):
         assert params['max_linear_x'] == adapter['hard_max_linear_x']
         assert params['max_angular_z'] == adapter['hard_max_angular_z']
         assert params['min_linear_x'] == adapter['min_linear_x']
+        assert params['min_angular_z'] == adapter['min_angular_z']
         assert params['min_stationary_angular_z'] == adapter['min_stationary_angular_z']
         assert params['stationary_angular_threshold'] == adapter['stationary_angular_threshold']
         assert params['cmd_vel_timeout'] == adapter['cmd_timeout_sec']
@@ -156,6 +175,14 @@ def test_driver_parameters_match_the_wheeltec_launch(profile):
     assert int(defaults['serial_baud_rate']) == parameters['serial_baud_rate']
     for key in ('odom_x_scale', 'odom_y_scale', 'odom_z_scale_positive', 'odom_z_scale_negative'):
         assert float(defaults[key]) == parameters[key]
+
+
+def test_urdf_equals_the_production_copy():
+    """The URDF is byte-identical to the one the bringup launch publishes today."""
+    urdf = PACKAGE_DIR / 'urdf' / 'david.urdf'
+    production = SOURCE_DIR / 'david_nav' / 'urdf' / 'david.urdf'
+
+    assert urdf.read_bytes() == production.read_bytes()
 
 
 def test_profile_passes_the_package_schemas(profile):

@@ -1,0 +1,663 @@
+################################################################################
+# Nav2 基础参数树（refactor plan §12.3，PROGRESS P2.3）
+#
+# 不直接加载本文件。`navcfg render` 把它与绑定表 nav2_bindings.yaml、机器人档案
+# （如 david_config/robot/david.yaml）和模式叠加（<robot>_config/modes/<mode>.yaml）
+# 合成 Nav2 参数文件：
+# - 值为 <bind:档案键> 的参数取自机器人档案，全部写入位置列在绑定表里；帧名、
+#   footprint、限速、到点容差、话题接线只写在档案中，不要在这里写死。
+# - 其余值等于 David 导览模式参数文件 david_nav/config/nav2_params_2d.yaml，
+#   由 david_config/test/test_modes.py 逐项核对；下方注释保留原文件的调参记录。
+# - 模式之间的差异写进模式叠加文件，不要复制本文件。
+# - recoveries_server 段在 Humble 中没有对应节点（已由 behavior_server 取代），
+#   不生效，为与原文件等值暂时保留。
+# - BT 文件名与 david_nav 插件名仍是 David 专用：BT 模板见 PROGRESS P3.2，
+#   插件迁入 nav_plugins 见 P3.1。
+#
+# 原文件头：
+#
+# 这份 YAML 会被 `nav2_bringup/launch/navigation_launch.py` 加载，启动 Nav2 的一组
+# lifecycle 节点（BT/Planner/Controller/Costmap/Recovery/Smoother/...）。
+#
+# 端到端数据流（工程视角）：
+# - 输入：/tf(map/odom/base)、/lightning/odometry、/lightning/grid_map、/scan（障碍物观测）
+# - 目标：NavigateToPose action（/navigate_to_pose）
+# - 输出：/cmd_vel（通常会经过 velocity_smoother 再发出）
+#
+# Frame 约定（必须全链路一致）：
+# - global_costmap 建议使用 map（全局一致）
+# - local_costmap 建议使用 odom（rolling window，抗 map->odom 跳变）
+#
+# 插件/参数“是否生效”的常见坑：
+# - 本文件 `planner_server/GridBased` 当前 plugin 是 `nav2_navfn_planner/NavfnPlanner`
+#   下方若出现 Smac / Hybrid-A* 相关参数（motion_model_for_search 等），NavfnPlanner
+#   会忽略它们。保留这些参数不会报错，但会误导调参判断。
+################################################################################
+
+# -----------------------------------------------------------------------------
+# bt_navigator：行为树总控（接收 NavigateToPose action，调度 planner/controller/recovery）
+# -----------------------------------------------------------------------------
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false
+    global_frame: <bind:frames.map>
+    robot_base_frame: <bind:frames.nav_base>
+    # Lightning now publishes odometry directly.
+    odom_topic: <bind:nav2.odom_topic>
+    # The default 10 ms tree loop (100 Hz) was regularly overrunning while the
+    # live SLAM map was expanding, which caused repeated tick-rate warnings and
+    # visible stop-go motion.
+    bt_loop_duration: 50
+    enable_groot_monitoring: True
+    groot_zmq_publisher_port: 1666
+    groot_zmq_server_port: 1667
+    default_server_timeout: 5000
+    # Rewritten by launch to absolute paths inside this package.
+    default_bt_xml_filename: "navigate_to_pose_w_david_embedded_recovery.xml"
+    default_nav_to_pose_bt_xml: "navigate_to_pose_w_david_embedded_recovery.xml"
+    default_nav_through_poses_bt_xml: "navigate_through_poses_w_david_embedded_recovery.xml"
+    # 2026-08-28 开销压缩：42 -> 19。每项都是 bt_navigator 启动时 dlopen 的一个
+    # .so。下表是 behavior_trees/ 下三棵 BT
+    #   navigate_to_pose_w_david_embedded_recovery.xml
+    #   navigate_through_poses_w_david_embedded_recovery.xml
+    #   navigate_to_pose_w_david_explore_fail_fast.xml
+    # 用到的节点类型的并集（Sequence/ReactiveSequence/ReactiveFallback/Inverter
+    # 是 BT.CPP 内建，不需要插件）。
+    # ⚠ 改 BT、或通过 nav_to_pose_bt_xml 传入外部 BT 时，必须同步补回缺的项，
+    #   否则 bt_navigator 在 on_configure 阶段加载 BT XML 就会失败。
+    #   排查报错先整体恢复原 42 项（见 git history）再逐项二分。
+    plugin_lib_names:
+    # --- 动作 ---
+    - nav2_compute_path_to_pose_action_bt_node          # ComputePathToPose
+    - nav2_compute_path_through_poses_action_bt_node    # ComputePathThroughPoses
+    - nav2_follow_path_action_bt_node                   # FollowPath
+    - nav2_spin_action_bt_node                          # Spin
+    - nav2_wait_action_bt_node                          # Wait
+    - nav2_back_up_action_bt_node                       # BackUp
+    - nav2_clear_costmap_service_bt_node                # ClearEntireCostmap
+    - nav2_remove_passed_goals_action_bt_node           # RemovePassedGoals
+    - nav2_controller_cancel_bt_node                    # CancelControl
+    # --- 条件 ---
+    - nav2_is_stuck_condition_bt_node                   # IsStuck
+    - nav2_goal_updated_condition_bt_node               # GoalUpdated
+    # --- 控制/装饰 ---
+    - nav2_rate_controller_bt_node                      # RateController
+    - nav2_recovery_node_bt_node                        # RecoveryNode
+    - nav2_pipeline_sequence_bt_node                    # PipelineSequence
+    - nav2_round_robin_node_bt_node                     # RoundRobin
+    # --- david 自有 ---
+    - david_robot_embedded_in_obstacle_condition_bt_node  # RobotEmbeddedInObstacle
+    - david_escape_obstacle_action_bt_node                # EscapeObstacle
+    # --- 保险：当前三棵 BT 未用，但嵌套调用导航时需要，成本仅 2 个 so ---
+    - nav2_navigate_to_pose_action_bt_node
+    - nav2_navigate_through_poses_action_bt_node
+
+
+bt_navigator_navigate_through_poses_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+bt_navigator_navigate_to_pose_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+# -----------------------------------------------------------------------------
+# controller_server：局部控制（跟踪全局路径，在 local_costmap 上选速度/轨迹）
+# - 本工程 FollowPath 使用 DWB（速度采样 + 前向模拟 + critics 打分）
+# - “贴障停住”通常与 local_costmap 膨胀/footprint/critic 权重组合有关
+# -----------------------------------------------------------------------------
+controller_server:                                  # 局部规划器服务器
+  ros__parameters:
+    use_sim_time: false
+    global_frame: <bind:frames.odom>
+    odom_topic: <bind:nav2.odom_topic>
+    # NOTE：若遇到 SLAM 回环后局部控制抖动/TF 超时，可考虑让局部控制工作在 odom，
+    # 并确保它与 local_costmap.global_frame（本文件为 odom）一致。
+    # 2026-07-16 feature/dwb-control-opt: 10→20，来自 dwb_bench 调优（降 cross-track/抖动）。
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.0
+    min_theta_velocity_threshold: 0.02
+    failure_tolerance: 1.0                         # TF变换容忍时间        
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["general_goal_checker"] # "precise_goal_checker"
+    controller_plugins: ["FollowPath"]
+
+    # Progress checker parameters
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      # David often spends its first several seconds rotating onto the path before
+      # it can build meaningful forward displacement, so keep Nav2 from
+      # aborting too early and let frontier_explorer's higher-level stuck logic
+      # decide when we are truly not making progress.
+      required_movement_radius: 0.15
+      movement_time_allowance: 20.0
+    # Goal checker parameters
+    precise_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 3.14
+      stateful: True
+    general_goal_checker:
+      stateful: True
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: <bind:goal.xy_tolerance>
+      # 2026-07-16 feature/dwb-control-opt: 终点不约束朝向。3.14(=180°,已是任意)→6.2832(360°)，
+      # 明确表达"到点即停、不关心朝向"。配合下方 critics 去掉 RotateToGoal（不做末端入位旋转）。
+      yaw_goal_tolerance: <bind:goal.yaw_tolerance>
+    # 2026-07-27(晚): RotationShim 以 overlay 补丁版回归（用户要求必须最短
+    # 方向旋转，不接受绕远）。
+    # 史：07-24 启用原版 → 07-27 午发现其每控制周期做 map→base_footprint
+    #   变换、Humble 上游写死 0.1s tolerance，lightning TF 滞后 ~0.3s 下
+    #   每秒失败+阻塞（443 外推错误↔455 控制循环丢拍）→ 直线蛇形回归 → 撤。
+    # 现：~/ros2_ws/src/nav2_rotation_shim_controller 为 workspace overlay
+    #   补丁版（transform_tolerance 做成参数传入变换调用，见源内
+    #   "david 2026-07-27 overlay patch" 注释），0.5s > 滞后 0.3s →
+    #   变换用 latest-available TF 成功，不再拖垮控制循环。
+    # 验证指标：bringup 日志 Extrapolation Error 应为 0、无 missed-rate 刷屏。
+    FollowPath:
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "dwb_core::DWBLocalPlanner"
+      # overlay 补丁读 FollowPath.transform_tolerance（与 DWB 共用同名参数，
+      # 本块下方已设 1.0 —— 覆盖 lightning ~0.3s TF 滞后绰绰有余）
+      # 与路径朝向差 > 45° 时先原地转（最短方向），小于后交 DWB 跟线
+      angular_dist_threshold: 0.785
+      forward_sampling_distance: 0.5
+      # 0.55 = david_move 原地 kick floor；低于它会被抬升，索性同值直达
+      rotate_to_heading_angular_vel: 0.55
+      max_angular_accel: 3.2
+      simulate_ahead_time: 1.0
+      debug_trajectory_details: True
+      # Keep normal path tracking forward-only.
+      # Reverse motion is reserved for BT recovery BackUp actions, while
+      # min_speed_xy stays at 0.0 so DWB can still rotate in place near goal.
+      min_vel_x: 0.0
+      min_vel_y: 0.00
+      # 2026-06-08: 0.50 → 0.20。换电机/轮 + 修正轮速计(原值小 3×)后，实测
+      # 线速度 0.2 m/s 已让 70kg 上身明显晃动，0.2 为物理上限，不可更高。
+      # 2026-07-16 feature/dwb-control-opt: 0.20 → 0.15（bench iter4）。0.20 实跑 ~0.24(plant ~1.2×)
+      # 会冲进拐角弧、C3 过头螺旋；0.15/r=0.30 恰好 w=0.5=max_vel_theta，拐角物理可行、不需提前减速。
+      max_vel_x: <bind:limits.max_vel_x>
+      max_vel_y: 0.0
+      # 2026-07-23 止血（临时）：0.50 → 0.25。bag 闭环实测固件 cmd→响应纯滞后
+      # 0.6–0.9s（软件链仅 60ms），DWB 零延迟假设下直线极限环打满 ±0.5、
+      # 横向峰值 34–55cm；砍半 wz 上限直接砍半环幅。
+      # 拐角可行性：cmd_shaping:=false 后 min_vel_x=0 生效，DWB 可降速过弯
+      # （0.075/0.25 仍 = r0.30），不再依赖 w=0.5。
+      # 回退条件：STM32 速度环带宽修复（wz 阶跃 90% ≤200ms，见
+      # docs/reports/2026-07-23-stm32-velocity-loop-tuning-guide.md）后恢复 0.50。
+      max_vel_theta: <bind:limits.max_vel_theta>   # 2026-08-27 S1 回灌: 0.25→0.50 回退止血期下调值。0.25 时拐角 DWB 只给 w=0.12, 远低于原地破启 0.55,而 david_move 抬升只对纯原地转(linear.x==0)生效 → 滚动态转不动 → Failed to make progress
+      # 2026-06-05 restore-merge: 保留 0.0（物理调校结果）。
+      # 和 max_speed_xy / acc_lim_x 一起属于"70kg + 小电机 + 万向轮"的硬件标定值，
+      # 不随 nav2 策略一起回滚到 backup 的 0.10。
+      min_vel_theta: 0.0
+      min_speed_xy: 0.0
+      # 2026-06-05 restore-merge: 必须 == max_vel_x。
+      # backup 里是 0.2，会导致 isValidSpeed 把端点全部过滤 ⇒ DWB 不前进
+      # （CLAUDE.md §5 已记录为"DWB 完全不前进"坑的根因）。
+      # 2026-06-08: 同步 max_vel_x → 0.20（上身晃动物理上限）。
+      # 2026-07-16 feature/dwb-control-opt: 同步 max_vel_x → 0.15。必须 == max_vel_x（isValidSpeed 坑）。
+      max_speed_xy: <bind:limits.max_vel_x>
+      min_speed_theta: 0.0
+      # Add high threshold velocity for turtlebot 3 issue.
+      # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
+      # keyboard_teleop_ros2.py: 10Hz循环下每周期线速度变化0.1、角速度变化0.5
+      # 约等效为1.0 m/s^2和5.0 rad/s^2。
+      # 2026-06-05 restore-merge: 保留 acc/decel=2.5（物理调校结果）。
+      # 0→0.5 仅 0.2s，配合 70kg 重载启动时踢穿静摩擦，CLAUDE.md §6 列为生产配置。
+      acc_lim_x: 2.5
+      acc_lim_y: 0.0
+      acc_lim_theta: 5.0
+      decel_lim_x: -2.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -5.0
+      # 2026-05-18: 从 15 改成 5。粒度从 0.013 m/s 变 0.05 m/s。
+      # 70kg 重载下实测：cmd=0.10/0.15 跟踪率仅 30%/47%，DWB 选这种"不可达低速"
+      # 会让 david_move 死区抬升到 0.20 ⇒ 命令-反馈失配触发 CLOSED_LOOP smoother 抑振。
+      # 改 5 后样本为 [0, 0.05, 0.10, 0.15, 0.20]，DWB 更倾向选 0(原地转/停) 或 0.20(全速)。
+      # 保留 vx=0 让 RotateToGoal critic 仍能采到"原地旋转"轨迹。
+      vx_samples: 5
+      vy_samples: 1
+      vtheta_samples: 20
+      sim_time: 1.5                           # 2026-07-16 feature/dwb-control-opt: 1.2→1.5（更平滑前瞻，bench）
+      linear_granularity: 0.05
+      angular_granularity: 0.025
+      transform_tolerance: 1.0                # controller的transform最大容忍时间差，实际工况下1.5秒内的时间差都存在
+      # 2026-07-16 feature/dwb-control-opt: 0.25→0.30，与 general_goal_checker 对齐。
+      # RotateToGoal 已从 critics 移除（不入位），此阈值仅剩 DWB 内部到点判定用途。
+      xy_goal_tolerance: <bind:goal.xy_tolerance>
+      trans_stopped_velocity: 0.05
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+      # 2026-07-16 feature/dwb-control-opt: 去掉 "RotateToGoal" —— 终点不做末端入位旋转
+      # （配合 general_goal_checker.yaw_goal_tolerance=360°，到 xy 容忍圈内即停，不关心朝向）。
+      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      BaseObstacle.scale: 0.2
+      PathAlign.scale: 12.0
+      PathAlign.forward_point_distance: 0.3   # 2026-07-16: 0.2→0.3（抗抖，bench）
+      GoalAlign.scale: 6.0
+      GoalAlign.forward_point_distance: 0.2
+      PathDist.scale: 30.0                     # 2026-07-16: 24→30（路径贴合度，bench）
+      GoalDist.scale: 10.0
+      # RotateToGoal.* 已随 critic 移除而失效，保留注释以备回退：
+      # RotateToGoal.scale: 1.0
+      # RotateToGoal.slowing_factor: 2.0
+      # RotateToGoal.lookahead_time: -1.0
+
+      # # 纯追踪控制器插件
+      # plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"      
+      # # 速度/加速度限制也需要在速度平滑器中调整
+      # desired_linear_vel: 0.4                                     # 期望线速度 | 建议取值范围: 0.1-2.0 m/s; 室内环境: 0.3-0.6 m/s避免速度过快影响安全性; 室外环境: 0.5-1.5 m/s可根据地形状况适当调整; AGV场景: 0.8-2.0 m/s在确保安全的前提下提高效率
+      # lookahead_dist: 0.6                                         # 前瞻距离 | 建议取值范围: 0.3-1.5 m; 室内狭窄环境: 0.3-0.6 m减小前瞻距离提高灵活性; 室外开阔环境: 0.8-1.5 m增大前瞻距离提高路径平滑性; 高速场景: 建议设置为期望速度的1-2倍
+      # min_lookahead_dist: 0.4                                     # 最小前瞻距离 | 建议取值范围: 0.2-0.8 m; 应小于lookahead_dist,通常设置为lookahead_dist的50%-70%; 转弯较多场景偏小值以提高灵活性; 直线较多场景偏大值以提高稳定性
+      # max_lookahead_dist: 0.9                                     # 最大前瞻距离 | 建议取值范围: 0.6-2.0 m; 应大于lookahead_dist,通常设置为lookahead_dist的1.5-2倍; 室内环境: 0.6-1.2 m; 室外环境: 1.0-2.0 m
+      # lookahead_time: 2.0                                         # 前瞻时间 | 建议取值范围: 1.0-3.0 s; 低速场景: 1.5-2.0 s; 高速场景: 2.0-3.0 s
+      # transform_tolerance: 1.0                                    # 坐标变换容忍度 | 建议取值范围: 0.1-1.0 s; 实时性要求高: 0.1-0.3 s; 普通应用: 0.3-0.5 s
+      # use_velocity_scaled_lookahead_dist: true                    # 是否使用速度缩放的前瞻距离 | 建议: 一般设为true以提高适应性; 特殊场景如固定速度运动可设为false
+      # min_approach_linear_velocity: 0.1                           # 接近目标点的最小线速度 | 建议取值范围: 0.05-0.3 m/s; 精度要求高: 0.05-0.1 m/s; 一般场景: 0.1-0.2 m/s
+      # approach_velocity_scaling_dist: 0.4                         # 接近目标点时的速度缩放距离 | 建议取值范围: 0.3-1.0 m; 精确停靠: 0.3-0.5 m; 普通应用: 0.5-0.8 m
+      # use_collision_detection: true                               # 是否使用碰撞检测 | 建议: 除非特殊需求,否则应始终设为true以确保安全性
+      # max_allowed_time_to_collision_up_to_carrot: 1.0             # 到达胡萝卜点前允许的最大碰撞时间 | 建议取值范围: 0.5-2.0 s; 安全性要求高: 0.5-1.0 s; 一般场景: 1.0-1.5 s; 开阔环境: 1.5-2.0 s
+
+      # use_regulated_linear_velocity_scaling: true                 # 是否使用路径曲率的调节特性(例如在高曲率路径上减速) | 建议: 一般场景设为true以提高安全性; 高速场景可设为false以保持速度; 转弯较多场景建议开启; 直线路径为主可关闭
+      # use_cost_regulated_linear_velocity_scaling: true            # 是否使用障碍物接近度的调节特性(例如在接近障碍物时减速) | 建议: 狭窄空间/动态场景设为true; 开阔环境可设为false; 安全性要求高的场景建议开启; 追求效率场景可关闭
+
+      # regulated_lbaseinear_scaling_min_radius: 0.05                   # 调节线速度时的最小转弯半径 | 建议取值范围: 0.3-1.5 m; 室内/狭窄空间: 0.3-0.6 m; 普通场景: 0.6-1.0 m; 高速场景: 1.0-1.5 m; 转弯半径越小,转弯越灵活但稳定性降低
+      # regulated_linear_scaling_min_speed: 0.1                     # 调节线速度时的最小速度 | 建议取值范围: 0.05-0.3 m/s; 精确控制: 0.05-0.1 m/s; 一般场景: 0.1-0.2 m/s; 高速场景: 0.2-0.3 m/s
+      # allow_reversing: false                                      # 是否允许倒车 | 建议: 默认false; 需要倒车功能如停车场景设为true; 单向移动机器人设为false; 全向移动机器人通常设为false
+      # use_rotate_to_heading: false                                 # 是否使用旋转到目标朝向 | 建议: 需要精确朝向控制时设为true; 送货/服务机器人建议开启; 纯路径跟踪可设为false; 差速轮机器人建议开启
+      # rotate_to_heading_min_angle: 0.785                          # 触发旋转到目标朝向的最小角度 | 建议取值范围: 0.5-1.57 rad(约30-90度); 精确朝向: 0.5-0.7 rad; 一般场景: 0.7-1.0 rad; 宽松场景: 1.0-1.57 rad
+      # # 这只在旋转到朝向时使用(use_rotate_to_heading)
+      # # 由于某些原因rotate_to_heading_angular_vel被忽略，机器人以
+      # # max_angular_accel/10的角速度旋转(这就是为什么设置较高值的原因)
+      # max_angular_accel: 5.0                                      # 最大角加速度 | 建议取值范围: 3.0-8.0 rad/s²; 室内/精确控制: 3.0-5.0 rad/s²避免剧烈转向; 室外/开阔环境: 5.0-8.0 rad/s²可提高转向效率; 差速轮机器人偏小值; 全向轮机器人可用较大值
+      # rotate_to_heading_angular_vel: 1.8                          # 旋转到目标朝向时的角速度 | 建议取值范围: 0.8-2.5 rad/s; 精确定位: 0.8-1.2 rad/s提高准确性; 一般场景: 1.2-1.8 rad/s平衡效率和稳定性; 快速响应: 1.8-2.5 rad/s提高调整速度
+      # max_robot_pose_search_dist: 10.0                            # 搜索机器人位姿的最大距离 | 建议取值范围: 5.0-15.0 m; 室内环境: 5.0-8.0 m避免搜索范围过大; 室外环境: 8.0-15.0 m增大搜索范围; 开阔场景可适当增大; 狭窄空间建议减小
+      # use_interpolation: true                                     # 是否使用插值 | 建议: 通常设为true提高路径平滑性; 计算资源受限可设为false; 高精度导航建议开启; 快速响应场景可关闭
+
+
+# -----------------------------------------------------------------------------
+# local_costmap：局部代价地图（rolling window，通常在 odom frame 下用于实时避障）
+# - StaticLayer：订阅 /map（来自 SLAM），提供静态占据
+# - ObstacleLayer：订阅 /scan，标记/清除动态障碍（要求 TF 与 frame 正确）
+# - InflationLayer：对障碍做膨胀，生成安全距离代价场
+# -----------------------------------------------------------------------------
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 5.0
+      transform_tolerance: 1.0                         # costmap_2d_ros中的TF变化的容忍值
+      global_frame: <bind:frames.odom>
+      robot_base_frame: <bind:frames.nav_base>
+      use_sim_time: false
+      rolling_window: true
+      width: 3
+      height: 3
+      resolution: 0.1
+      # 2026-05-22: footprint = URDF 底盘 STL 外接矩形（david_nav/meshes/
+      # zongzhuang/base_link.STL）。在 base_footprint 帧下表达。
+      # 2026-06-22: 双轮前移 16.5cm，base_footprint(=旋转中心) 随之前移 +0.165，
+      # 机身未动，故多边形 X 整体后退 0.165：原 X[-0.30..0.42] -> X[-0.465..0.255]，
+      # Y(left) -0.30..+0.30 不变。inscribed 由前缘决定 = 0.255（仍 ≤ inflation 0.40）。
+      # 注意：此多边形无法从 URDF 读取——若 wheel_x_offset 再变 d，X 同步平移 -d
+      #（与 urdf/david.urdf 顶部 DIFF-DRIVE GEOMETRY 块互为引用）。
+      # 2026-06-05 restore-merge: 物理几何，不随 nav2 策略一起回滚。
+      footprint: <bind:footprint>
+      footprint_padding: 0.0
+      track_unknown_space: true
+      # plugins: ["voxel_layer", "inflation_layer"]
+      # Keep the live SLAM map in the local costmap so the controller also
+      # treats unknown cells as non-traversable even without /scan.
+      plugins: ["static_layer", "scan_priority_layer", "inflation_layer"]          # 2d建图，不使用体素层
+      scan_priority_layer:
+        plugin: "david_nav::ScanPriorityLayer"
+        enabled: True
+        scan_topic: <bind:nav2.scan_topic>
+        sector_min_angle: -0.55
+        sector_max_angle: 0.55
+        max_range: 2.5
+        ground_plane_z_in_base: 0.0
+        obstacle_margin_m: 0.12
+        min_contiguous_beams: 3
+        debug_markers_enabled: False
+        require_live_scan: True
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: <bind:nav2.scan_topic>
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          inf_is_valid: True
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.2
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.2
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # 2026-05-18 保守路线：开启 inflation 并改半径到 0.40 (≥ inscribed 0.375)。
+        # 机身矩形 0.95×0.75 m ⇒ inscribed = min(0.475, 0.375) = 0.375。
+        # 旧值 (enabled=False, radius=0.20) 让规划器没有任何安全 buffer。
+        # 注意：开启后局部 costmap 在窄道里可能出现"贴障 abort"，
+        # 若现场有 < 0.80m 的门或夹缝，再调 cost_scaling_factor 让代价更"温柔"。
+        enabled: True
+        cost_scaling_factor: 10.0              # 可能会影响路径太长的计算
+        inflation_radius: 0.40
+      # voxel_layer:
+      #   plugin: "nav2_costmap_2d::VoxelLayer"
+      #   enabled: True
+      #   publish_voxel_map: True 
+      #   origin_z: 0.0                 # z轴=origin_z+z_voxels*z_resolution，为了避免control节点报错
+      #   z_resolution: 0.1
+      #   z_voxels: 16                    # 这个值不能动，过大会使膨胀层消失
+      #   max_obstacle_height: 2.0
+      #   mark_threshold: 0
+      #   observation_sources: scan
+      #   scan:
+      #     topic: /scan
+      #     max_obstacle_height: 2.0
+      #     clearing: True
+      #     marking: True
+      #     data_type: "LaserScan"
+      #     raytrace_max_range: 3.0         # 射线追踪最大范围
+      #     raytrace_min_range: 0.3        # 射线追踪最小范围 (路由器盒子距离0.3)
+      #     obstacle_max_range: 2.5         # 障碍物最大范围
+      #     obstacle_min_range: 0.25         # 障碍物最小范围  (路由器盒子距离0.3)
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        enabled: True
+        map_subscribe_transient_local: True
+        map_topic: <bind:nav2.map_topic>
+        trinary_costmap: true
+        lethal_cost_threshold: 50
+        unknown_cost_value: -1
+      always_send_full_costmap: False
+
+# -----------------------------------------------------------------------------
+# global_costmap：全局代价地图（通常在 map frame 下用于全局规划）
+# - 若出现“全局路径穿障”，优先检查 global_costmap/costmap 是否正确标出障碍
+#   而不是先调 planner 参数。
+# -----------------------------------------------------------------------------
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      # 2026-08-28 开销压缩：5.0 -> 1.0。全局 costmap 被 static_layer 对齐到静态
+      # 地图的 948x813@0.05m = 770k 栅格（本节的 resolution: 0.1 不生效），每个
+      # 周期要重跑 static 拷贝 + inflation 膨胀，且它跑在 planner_server 进程内
+      # （改前实测该进程 18.5% CPU）。全局图基本静态，1Hz 足够；
+      # 局部避障由 local_costmap(3x3m@0.1m=30x30 栅格) 负责。
+      update_frequency: 1.0
+      # 2026-08-28: 5.0 -> 0.5。headless 下无人订阅全局 costmap
+      # （BT 的 RobotEmbeddedInObstacle 用的是 local_costmap/costmap_raw），
+      # 仅供 rviz / 回放。
+      publish_frequency: 0.5
+      global_frame: <bind:frames.map>
+      robot_base_frame: <bind:frames.nav_base>
+      use_sim_time: false
+      resolution: 0.1
+      # 2026-05-22: footprint = URDF 底盘 STL 外接矩形（david_nav/meshes/
+      # zongzhuang/base_link.STL）。在 base_footprint 帧下表达。
+      # 2026-06-22: 双轮前移 16.5cm，base_footprint(=旋转中心) 随之前移 +0.165，
+      # 机身未动，故多边形 X 整体后退 0.165：原 X[-0.30..0.42] -> X[-0.465..0.255]，
+      # Y(left) -0.30..+0.30 不变。inscribed 由前缘决定 = 0.255（仍 ≤ inflation 0.40）。
+      # 注意：此多边形无法从 URDF 读取——若 wheel_x_offset 再变 d，X 同步平移 -d
+      #（与 urdf/david.urdf 顶部 DIFF-DRIVE GEOMETRY 块互为引用）。
+      # 2026-06-05 restore-merge: 物理几何，不随 nav2 策略一起回滚。
+      footprint: <bind:footprint>
+      footprint_padding: 0.0
+      track_unknown_space: true
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        enabled: True
+        map_subscribe_transient_local: True
+        map_topic: <bind:nav2.map_topic>
+        trinary_costmap: true
+        lethal_cost_threshold: 50
+        unknown_cost_value: -1
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: <bind:nav2.scan_topic>
+          max_obstacle_height: 2.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          inf_is_valid: True
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.2
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.2
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # 2026-07-16: 全局 inflation_radius 0.40 -> 0.60，修拐角撞障。
+        # 根因（几何）：footprint 在 base_footprint 帧下 X[-0.465..0.255] Y[±0.30]，
+        #   inscribed = 0.255（最近边），circumscribed = √(0.465²+0.30²) = 0.553（后角）。
+        # 旧值 0.40 < circumscribed 0.553：NavfnPlanner 只把“机器人中心”规到离
+        #   lethal ~0.40m，但底盘在拐角处转身时后外角扫到 0.553m，于是规划器
+        #   看着安全的路径实际擦到拐角障碍。criterion 必须是 ≥ circumscribed，
+        #   不是 ≥ inscribed（旧注释的 0.375 既过时又用错了判据）。
+        # 2026-07-24: 0.60 -> 0.90，进一步扩大规划路径离障碍物的距离。
+        #   NavFn 会把路径贴在"代价降为 0"的膨胀边界外侧，所以 inflation_radius
+        #   ≈ 机器人中心到障碍的实际规划间距。0.60 时最坏拐角的机身净空只有
+        #   0.60 - circumscribed 0.553 ≈ 0.05m；0.90 给到 ≈ 0.35m 机身净空。
+        #   膨胀是渐变的（cost_scaling_factor 1.5 温柔），真正 lethal 只有
+        #   inscribed 0.255 那一圈，所以窄门/夹缝仍可穿，只是路径被推向
+        #   自由空间中心。只动 global：local_costmap 保持 0.40，避免 DWB
+        #   BaseObstacle critic 在窄处误 abort。
+        # 若还想更远：继续加 inflation_radius（每 +0.1 ≈ 多 0.1m 间距）；
+        #   降低 cost_scaling_factor 只影响被迫穿膨胀带时的代价坡度。
+        enabled: True
+        cost_scaling_factor: 1.5             # 可能会影响路径太长的计算
+        inflation_radius: 0.60
+      # 2026-08-28 开销压缩：True -> False。True 时每次发布都推送 948x813 全图
+      # (770KB)，costmap 与 costmap_raw 各一份 = 4.8MB/s，占导览录制全部话题字节
+      # 量的 99.6%（实测 440s 窗口）。要付序列化 + DDS 投递 + rosbag 写盘三笔钱，
+      # 而 headless 下无人订阅。改 False 后走增量 /global_costmap/costmap_updates。
+      # 注意：rviz 的 Map display 需订阅 costmap_updates 才能正常刷新。
+      always_send_full_costmap: False
+
+# map_server / amcl：
+# - 本工程使用 SLAM（slam_toolbox）时，通常直接消费 /map，而不是启 map_server+AMCL。
+# - 若切换到纯定位（已知地图）模式，再启用 map_server + AMCL 并停用 SLAM。
+# map_server:
+#   ros__parameters:
+#     use_sim_time: false
+#     # Overridden in launch by the "map" launch configuration or provided default value.
+#     # To use in yaml, remove the default "map" value in the tb3_simulation_launch.py file & provide full path to map below.
+#     yaml_filename: ""
+#     # topic_name: "map_amcl"            # 由于amcl订阅的map话题名写死为/map，所以这里不能调整参数  
+#     # frame_id: "map_slamtoolbox"         # acml模式下，map_server发布的map话题坐标id要和acml订阅的一致 mapfind
+#     frame_id: "map" 
+
+map_saver:
+  ros__parameters:
+    use_sim_time: false
+    save_map_timeout: 5.0
+    free_thresh_default: 0.25
+    occupied_thresh_default: 0.65
+    map_subscribe_transient_local: True
+
+# -----------------------------------------------------------------------------
+# planner_server：全局规划（在 global_costmap 上生成 nav_msgs/Path）
+# - 当前插件：nav2_navfn_planner/NavfnPlanner（经典栅格 Dijkstra/A* 类）
+# - 下方若出现 Smac/Hybrid-A* 参数：NavfnPlanner 不使用，会被忽略（见文件头说明）
+# -----------------------------------------------------------------------------
+planner_server:                              # 全局规划器服务器
+  ros__parameters:
+    expected_planner_frequency: 20.0
+    use_sim_time: false
+    planner_plugins: ["GridBased"]
+    GridBased:
+      # plugin: "nav2_navfn_planner/NavfnPlanner"
+      # tolerance: 0.2                        # 允许到达目标点附近的距离容差
+      # use_astar: false
+      # allow_unknown: true
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      # NOTE：NavfnPlanner 主要受 costmap（障碍/膨胀/未知区域语义）影响。
+      # 如果看到“路径直穿障碍物”，请优先在 RViz 检查 global_costmap/costmap：
+      # - 障碍是否真的被 ObstacleLayer 标出来？
+      # - StaticLayer 的 /map 是否与 SLAM 输出一致？
+      # - allow_unknown / track_unknown_space 是否导致穿越未知区？
+      downsample_costmap: false           # 是否对代价地图进行降采样,复杂环境建议false,简单环境可设为true以提高性能
+      downsampling_factor: 1              # 代价地图降采样因子,仅当downsample_costmap为true时有效,取值范围1-4,值越大精度越低但速度越快
+      tolerance: 0.5
+      allow_unknown: false                # 探索时目标点已吸附到free cell，规划不再允许穿过未知区域
+      max_iterations: 2000000             # 路径搜索最大迭代次数,取值范围10000-2000000,复杂环境需要更大的迭代次数
+      max_planning_time: 10.0             # 路径规划最大允许时间(秒),取值范围1.0-30.0,根据实时性要求设置
+
+      # -------------------- Smac / Hybrid-A* 类参数提示 --------------------
+      # 下面这批参数（motion_model_for_search/angle_quantization_bins/...）通常属于
+      # SmacPlannerHybrid/SmacPlannerLattice 的配置项；当 plugin=NavfnPlanner 时不会生效。
+      # 如果你计划切换到 Smac Planner，可保留这些参数并将 plugin 改为对应 Smac 插件。
+      motion_model_for_search: "REEDS_SHEPP"    # 运动模型类型,DUBIN适合前进受限的机器人,REEDS_SHEPP适合可后退的机器人
+      angle_quantization_bins: 64         # 角度量化区间数,取值16-72,值越大转向越平滑但计算量越大
+      analytic_expansion_ratio: 2.5       # 解析扩展比例,取值2.0-5.0,开阔环境可设大些以加快规划,狭窄环境设小些以提高精度
+      analytic_expansion_max_length: 1.5  # 最大解析扩展长度(米),取值0.5-5.0,空旷处可设大些,狭窄处设小些
+      minimum_turning_radius: 0.05       # 最小转弯半径(米),根据机器人运动学约束设置,轮式机器人一般0.3-1.0,全向机器人可接近0
+      reverse_penalty: 2.0                # 倒车代价权重,取值>=1.0,不允许倒车设很大,允许倒车可设1.0-3.0
+      change_penalty: 0.0                 # 改变方向的惩罚系数,取值>=0,动态环境设小些,静态环境可设大些提高路径平滑度
+      non_straight_penalty: 1.2           # 非直线运动惩罚系数,取值>=1.0,追求更直的路径设大些,追求更灵活设小些
+      cost_penalty: 2.0                   # 代价地图惩罚系数,取值1.3-3.5,值越大离障碍物越远,但可能导致路径过长
+      retrospective_penalty: 0.015        # 回溯惩罚系数,取值0.01-0.1,值越大越不易产生回头路,但可能导致找不到路径
+      lookup_table_size: 20.0             # 查找表大小(米),取值10.0-30.0,值越大预计算越多内存占用越大,但规划更快
+      cache_obstacle_heuristic: false     # 是否缓存启发式值,静态环境设true可提高性能,动态环境需设false
+      smooth_path: True                   # 是否对规划路径进行平滑处理,一般建议开启以获得更平滑的路径
+      cost_travel_factor: 8.0
+      
+      
+      
+      
+      smoother:                           # 路径平滑器参数配置
+        max_iterations: 1000              # 平滑最大迭代次数,取值500-2000,值越大越平滑但耗时越长
+        w_smooth: 0.3                     # 平滑权重,取值0.1-0.4,值越大越平滑但可能偏离原始路径
+        w_data: 0.2                       # 数据保持权重,取值0.1-0.3,值越大越接近原始路径
+        tolerance: 1.0e-10                # 平滑收敛阈值,取值1e-10到1e-5,值越小越精确但耗时越长
+        do_refinement: true               # 是否进行路径细化,开启可获得更高质量的路径,但会增加计算时间
+
+
+# -----------------------------------------------------------------------------
+# smoother_server：路径平滑（对 planner 输出路径做平滑/细化）
+# -----------------------------------------------------------------------------
+smoother_server:
+  ros__parameters:
+    use_sim_time: false
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: True
+
+# -----------------------------------------------------------------------------
+# behavior_server / recoveries_server：恢复与脱困动作（spin/backup/wait/...）
+# - progress_checker / BT 决定何时触发恢复
+# - 你计划实现的“脱困机制”可优先复用这里的动作与触发链路
+# -----------------------------------------------------------------------------
+behavior_server:
+  ros__parameters:
+    costmap_topic: local_costmap/costmap_raw              # 代价地图话题名称
+    footprint_topic: local_costmap/published_footprint    # 机器人轮廓话题名称
+    cycle_frequency: 10.0                                 # 行为服务器循环频率(Hz)
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]    # 启用的行为插件列表
+    spin:
+      plugin: "nav2_behaviors/Spin"                       # 原地旋转行为插件
+    backup:
+      plugin: "nav2_behaviors/BackUp"                     # 后退行为插件
+    drive_on_heading:
+        plugin: "nav2_behaviors/DriveOnHeading"             # 沿指定方向行驶插件
+    wait:
+      plugin: "nav2_behaviors/Wait"                       # 等待行为插件
+    assisted_teleop:
+      plugin: "nav2_behaviors/AssistedTeleop"             # 辅助遥控行为插件
+    # 2026-09-10 map -> odom：必须与 local_costmap 的 global_frame 一致。
+    # behavior_server 的 costmap_topic 指向 local_costmap/costmap_raw，该图发布在
+    # odom 系且是 3x3m rolling window；这里写 map 的话，Spin 会在 map 系算出
+    # 模拟位姿(如 7.7, 2.1)再拿去查 odom 系的小图 -> 坐标出图 ->
+    # `Pose Goes Off Grid` -> `Collision Ahead - Exiting Spin` -> 每次 ~100ms 内
+    # ABORT。实测这台车上 spin/backup 等恢复行为**从来没成功过**。
+    # 用 odom 还顺带让 Spin 的相对转角基于平滑的里程计，不受定位跳变影响。
+    global_frame: <bind:frames.odom>                                  # 必须 == local_costmap.global_frame
+    robot_base_frame: <bind:frames.nav_base>                              # 机器人基座坐标系名称
+    transform_tolerance: 1.0                             # 坐标变换容差(秒)
+    use_sim_time: false                                    # 是否使用仿真时间
+    simulate_ahead_time: 3.0                              # 前向模拟时间(秒)
+    max_rotational_vel: 0.8                              # 最大旋转速度(rad/s)
+    min_rotational_vel: 0.4                               # 最小旋转速度(rad/s)
+    rotational_acc_lim: 3.2                               # 旋转加速度限制(rad/s^2)
+
+
+recoveries_server:
+  ros__parameters:
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    recovery_plugins: ["spin", "back_up", "wait"]
+    spin:
+      plugin: "nav2_recoveries/Spin"
+    back_up:
+      plugin: "nav2_recoveries/BackUp"
+    wait:
+      plugin: "nav2_recoveries/Wait"
+    global_frame: <bind:frames.map>
+    robot_base_frame: <bind:frames.nav_base>
+    transform_timeout: 0.1
+    use_sim_time: false
+    simulate_ahead_time: 2.0
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.4
+    rotational_acc_lim: 3.2
+
+
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: false
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: false
+    loop_rate: 20
+    stop_on_failure: false
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: True
+      waypoint_pause_duration: 200
+
+# -----------------------------------------------------------------------------
+# velocity_smoother：速度平滑与加减速约束
+# - 作用：把 controller 输出的 cmd_vel 做滤波/限幅，避免突变伤硬件或引发跌倒
+# - 非全向/差速底盘通常应将 y 分量的 max/min 都设为 0
+# -----------------------------------------------------------------------------
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: false
+    smoothing_frequency: 10.0
+    scale_velocities: False
+    # CLOSED_LOOP since 2026-05-18: enabled after the wheeltec_robot_node
+    # serial parser was fixed (Get_Sensor_Data_New drain-all-available),
+    # lifting /odom from ~4Hz to ~22Hz and removing cross-run sign reversals
+    # on angular commands. See docs/report/2026-05-18-velocity-repeatability.md §10.
+    feedback: "CLOSED_LOOP"
+    # feedback: "OPEN_LOOP"
+    # smoother 线速度上限必须与 DWB max_vel_x 一致，否则会截断 DWB 端点。
+    # 2026-06-08: 线 0.50 → 0.20（换电机/轮 + 修正轮速计后，0.2 已是上身晃动物理上限）。
+    # 角速度保持 0.5。
+    max_velocity: [0.20, 0.0, 0.5]
+    min_velocity: [-0.20, 0.0, -0.5]
+    max_accel: [2.5, 0.0, 5.0]
+    max_decel: [-2.5, 0.0, -5.0]
+    # Use the wheeltec wheel-encoder odom (was /lightning/odometry — that
+    # topic only exists when the Unitree Go2 SLAM stack is running; the
+    # current Wheeltec C50C base publishes encoder-derived twist on /odom).
+    odom_topic: <bind:chassis.odom_topic>
+    odom_duration: 0.1
+    # Keep deadband handling in david_move to avoid double-threshold stop-go motion.
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0

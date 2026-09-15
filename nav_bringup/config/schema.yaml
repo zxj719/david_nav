@@ -1,9 +1,68 @@
-# Robot profile keys consumed by nav_bringup (navrun up, run recorder).
+# Robot profile keys consumed by nav_bringup (navrun up, run recorder, navcfg render).
 # Format: nav_bringup/navcfg/schema.py. Values for a robot live in its
 # <robot>_config package; defaults here are robot independent and conservative.
+# Keys bound in config/nav2_bindings.yaml are required: they have no robot
+# independent value.
 schema_version: 1
 package: nav_bringup
 parameters:
+  frames.map:
+    type: string
+    required: true
+    description: 全局地图帧（Nav2 BT、全局代价图）
+  frames.odom:
+    type: string
+    required: true
+    description: 里程计帧（控制器、局部代价图与恢复行为，三处必须一致）
+  frames.nav_base:
+    type: string
+    required: true
+    description: 导航基准帧（旋转中心；Nav2、代价图、入位使用）；与机身帧分开书写，不得混用
+  footprint:
+    type: list
+    unit: m
+    required: true
+    description: 机器人轮廓多边形 [[x, y], ...]，在 frames.nav_base 下表达，至少三个点
+  limits.max_vel_x:
+    type: float
+    unit: m/s
+    required: true
+    range: [0.0, null]
+    description: 导航最大前进线速度（DWB max_vel_x 与 max_speed_xy 取同一值）
+  limits.max_vel_theta:
+    type: float
+    unit: rad/s
+    required: true
+    range: [0.0, null]
+    description: 导航最大角速度（DWB max_vel_theta）
+  goal.xy_tolerance:
+    type: float
+    unit: m
+    required: true
+    range: [0.0, null]
+    description: 到点位置容差（目标检查器与 DWB 两处取同一值）
+  goal.yaw_tolerance:
+    type: float
+    unit: rad
+    required: true
+    range: [0.0, 6.2832]
+    description: 到点朝向容差；6.2832（2π）表示不约束朝向，小于 2π 时控制器 critics 必须含 RotateToGoal
+  nav2.odom_topic:
+    type: string
+    required: true
+    description: Nav2 BT 与控制器订阅的里程计话题
+  nav2.scan_topic:
+    type: string
+    required: true
+    description: 代价图障碍物层订阅的激光话题
+  nav2.map_topic:
+    type: string
+    required: true
+    description: 代价图静态层订阅的栅格地图话题（启动文件可能改写，见 PROGRESS P2.4）
+  chassis.odom_topic:
+    type: string
+    required: true
+    description: 底盘轮式里程计话题（速度平滑器闭环反馈）
   platform.jetson:
     type: bool
     default: false
