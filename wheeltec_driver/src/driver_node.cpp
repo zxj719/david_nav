@@ -66,9 +66,13 @@ WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, Stre
   core_ = std::make_unique<DriverCore>(
     *stream_, scales, now().seconds(), get_parameter("cmd_timeout_sec").as_double(),
     steadySeconds());
-  voltage_publisher_ = create_publisher<std_msgs::msg::Float32>("PowerVoltage", 10);
+  if (get_parameter("publish_voltage").as_bool()) {
+    voltage_publisher_ = create_publisher<std_msgs::msg::Float32>("PowerVoltage", 10);
+  }
   odom_publisher_ = create_publisher<nav_msgs::msg::Odometry>("odom", 50);
-  imu_publisher_ = create_publisher<sensor_msgs::msg::Imu>("imu", 20);
+  if (get_parameter("publish_imu").as_bool()) {
+    imu_publisher_ = create_publisher<sensor_msgs::msg::Imu>("imu", 20);
+  }
   diagnostics_publisher_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
     "/diagnostics", 10);
   command_subscription_ = create_subscription<geometry_msgs::msg::Twist>(
@@ -155,13 +159,15 @@ void WheeltecDriverNode::control()
   }
   const builtin_interfaces::msg::Time stamp = now();
   odom_publisher_->publish(makeOdometry(*sample, odom_frame_, robot_frame_, stamp));
-  // Reuse the already-extracted compatibility helper; never modify or start alias 3.
-  attitude_.update(
-    sample->sensor.angular_velocity[0], sample->sensor.angular_velocity[1],
-    sample->sensor.angular_velocity[2], sample->sensor.acceleration[0],
-    sample->sensor.acceleration[1], sample->sensor.acceleration[2]);
-  imu_publisher_->publish(makeImu(*sample, attitude_.orientation(), gyro_frame_, stamp));
-  if (sample->publish_voltage) {
+  if (imu_publisher_) {
+    // Reuse the existing compatibility helper only when explicitly retained by the profile.
+    attitude_.update(
+      sample->sensor.angular_velocity[0], sample->sensor.angular_velocity[1],
+      sample->sensor.angular_velocity[2], sample->sensor.acceleration[0],
+      sample->sensor.acceleration[1], sample->sensor.acceleration[2]);
+    imu_publisher_->publish(makeImu(*sample, attitude_.orientation(), gyro_frame_, stamp));
+  }
+  if (voltage_publisher_ && sample->publish_voltage) {
     std_msgs::msg::Float32 voltage;
     voltage.data = sample->sensor.voltage;
     voltage_publisher_->publish(voltage);

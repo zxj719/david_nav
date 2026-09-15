@@ -80,4 +80,18 @@ This file lists every robot-profile key declared by package schemas.
 
 ## `wheeltec_driver`
 
-No parameters declared.
+| Key | Type | Unit | Required / default | Constraints | Description | Tuning |
+|---|---|---|---|---|---|---|
+| `chassis.driver.parameters.cmd_timeout_sec` | `float` | s | default: `0.0` | range: `0.0 .. inf` | 驱动命令超时，0 关闭；启用 0.5 需另行实机审核 | — |
+| `chassis.driver.parameters.gyro_frame_id` | `string` | — | default: `"gyro_link"` | — | 可选底盘 IMU 消息帧；与 3 的 IMU 链路独立 | — |
+| `chassis.driver.parameters.log_tx_frames` | `bool` | — | default: `false` | — | 是否记录非零下行帧；开启后仍需 DEBUG 日志级别 | — |
+| `chassis.driver.parameters.odom_frame_id` | `string` | — | default: `"odom_combined"` | — | 原轮速里程计父帧；不自动改接定位端 TF | — |
+| `chassis.driver.parameters.odom_x_scale` | `float` | — | default: `1.0` | — | 旧前向轮速校准比例，保持 float 精度 | — |
+| `chassis.driver.parameters.odom_y_scale` | `float` | — | default: `1.0` | — | 旧横向轮速校准比例 | — |
+| `chassis.driver.parameters.odom_z_scale_negative` | `float` | — | default: `1.0` | — | 负偏航角速度校准比例 | — |
+| `chassis.driver.parameters.odom_z_scale_positive` | `float` | — | default: `1.0` | — | 非负偏航角速度校准比例 | — |
+| `chassis.driver.parameters.publish_imu` | `bool` | — | default: `true` | — | 发布旧底盘 IMU 兼容消息；独立驱动默认保留，David 导航档案关闭 | — |
+| `chassis.driver.parameters.publish_voltage` | `bool` | — | default: `true` | — | 发布 PowerVoltage 话题；关闭不影响 diagnostics 中的原始电压 | — |
+| `chassis.driver.parameters.robot_frame_id` | `string` | — | default: `"base_footprint"` | — | 原轮速里程计子帧 | — |
+| `chassis.driver.parameters.serial_baud_rate` | `int` | baud | default: `115200` | range: `1 .. 4294967295` | 串口波特率 | — |
+| `chassis.driver.parameters.usart_port_name` | `string` | — | default: `"/dev/wheeltec_controller"` | — | Wheeltec 串口设备；构造节点后才连接，测试必须注入假串口 | — |

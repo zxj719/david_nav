@@ -29,6 +29,8 @@ public:
   }
   static void control(WheeltecDriverNode & node) {node.control();}
   static void report(WheeltecDriverNode & node) {node.reportTransport();}
+  static bool hasImu(WheeltecDriverNode & node) {return node.imu_publisher_ != nullptr;}
+  static bool hasVoltage(WheeltecDriverNode & node) {return node.voltage_publisher_ != nullptr;}
   static void command(WheeltecDriverNode & node, double angular)
   {
     auto message = std::make_shared<geometry_msgs::msg::Twist>();
@@ -285,6 +287,60 @@ TEST_F(DriverNodeChecks, DiagnosticsArePublishedOnTheReportTimerWithoutStatusInp
   EXPECT_EQ(received->status[0].name, "wheeltec_driver/serial");
   EXPECT_EQ(received->status[0].level, diagnostic_msgs::msg::DiagnosticStatus::WARN);
   EXPECT_TRUE(trace.writes.empty());
+}
+
+TEST_F(DriverNodeChecks, OptionalPublishersAreIndependentAndOdometryAlwaysRemains)
+{
+  for (int combination = 0; combination < 4; ++combination) {
+    const bool imu_enabled = combination & 1;
+    const bool voltage_enabled = combination & 2;
+    Trace trace;
+    RecordingStream * stream{};
+    rclcpp::NodeOptions options;
+    options.parameter_overrides(
+      {{"publish_imu", imu_enabled}, {"publish_voltage", voltage_enabled}});
+    const std::string prefix = "/publisher_check_" + std::to_string(combination);
+    options.arguments(
+      {"--ros-args", "-r", "imu:=" + prefix + "/imu",
+        "-r", "PowerVoltage:=" + prefix + "/voltage", "-r", "odom:=" + prefix + "/odom"});
+    auto driver = makeDriver(trace, &stream, options);
+    EXPECT_EQ(DriverNodeTestAccess::hasImu(*driver), imu_enabled);
+    EXPECT_EQ(DriverNodeTestAccess::hasVoltage(*driver), voltage_enabled);
+    auto observer = std::make_shared<rclcpp::Node>("optional_publisher_observer");
+    unsigned int imu_count = 0;
+    unsigned int voltage_count = 0;
+    unsigned int odom_count = 0;
+    auto imu = observer->create_subscription<sensor_msgs::msg::Imu>(
+      prefix + "/imu", 20, [&imu_count](sensor_msgs::msg::Imu::SharedPtr) {++imu_count;});
+    auto voltage = observer->create_subscription<std_msgs::msg::Float32>(
+      prefix + "/voltage", 10,
+      [&voltage_count](std_msgs::msg::Float32::SharedPtr) {++voltage_count;});
+    auto odom = observer->create_subscription<nav_msgs::msg::Odometry>(
+      prefix + "/odom", 50, [&odom_count](nav_msgs::msg::Odometry::SharedPtr) {++odom_count;});
+    ASSERT_TRUE(
+      spinUntil(
+        driver, observer, [&]() {
+          return odom->get_publisher_count() > 0 &&
+          (!imu_enabled || imu->get_publisher_count() > 0) &&
+          (!voltage_enabled || voltage->get_publisher_count() > 0);
+        }));
+    const StatusFrame golden{
+      0x7B, 0x01, 0, 0, 0, 0, 0, 0, 0, 0x16, 0xFF, 0xF4,
+      0x40, 0x02, 0, 0x01, 0xFF, 0xFF, 0, 0, 0x10, 0xF2, 0xC6, 0x7D};
+    for (int count = 0; count < 12; ++count) {
+      stream->incoming.insert(stream->incoming.end(), golden.begin(), golden.end());
+      DriverNodeTestAccess::control(*driver);
+    }
+    ASSERT_TRUE(
+      spinUntil(
+        driver, observer, [&]() {
+          return odom_count == 12 && (!imu_enabled || imu_count == 12) &&
+          (!voltage_enabled || voltage_count == 1);
+        }));
+    EXPECT_EQ(imu_count, imu_enabled ? 12u : 0u);
+    EXPECT_EQ(voltage_count, voltage_enabled ? 1u : 0u);
+    EXPECT_TRUE(trace.writes.empty());
+  }
 }
 
 }  // namespace

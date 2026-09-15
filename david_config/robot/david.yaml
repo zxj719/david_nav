@@ -64,6 +64,8 @@ chassis:
       odom_z_scale_negative: 1.0
       cmd_timeout_sec: 0.0          # D3：实机冒烟后改 0.5
       log_tx_frames: false
+      publish_imu: false           # 用户明确：IMU 由 3/uslam 提供，导航不重复发布
+      publish_voltage: true
     detect_patterns:
       - wheeltec_robot_node
       - wheeltec_driver_node

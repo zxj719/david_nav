@@ -15,7 +15,7 @@ P3.8 / D2 传输层：`ByteStream` 可注入内存假串口；`SerialStream` 连
 `config/wheeltec_driver.yaml`，可用普通 ROS 参数覆盖；话题可 remap。
 当前可执行文件仍叫 `wheeltec_robot_node`，节点名仍是 `wheeltec_robot`，后续 D9 独立改名。
 构造节点会连接配置的串口，故自动测试禁止运行该硬件入口。析构执行一次尽力零速并关闭；
-发布开关尚属后续 D8，不在此步宣称完成。
+可选发布见 D8；参数在启动时读取，修改后需正常重启节点才生效。
 
 D4：硬件入口构造节点后注册弱引用 pre-shutdown 回调，在 ROS context 关闭前停车并记录日志。
 rclcpp 的 SIGINT/SIGTERM 退出与节点析构
@@ -31,6 +31,13 @@ D7：1 Hz 发布可 remap 的 `/diagnostics`，包含串口在线、按实际 st
 收帧率、累计校验/读写错误、重连、看门狗停车、电压及原始 Flag_Stop。未收过有效帧的值
 写 unavailable，在线无首帧 WARN，离线 ERROR；OK 只表示串口在线且曾收到有效帧，并非
 定位健康或底盘停稳承诺。电压/Flag_Stop 不推断固件含义，不添加未经审核的电压告警阈值。
+
+D8：9 个旧参数均保留，新增 cmd_timeout_sec、log_tx_frames、publish_imu、publish_voltage。
+后两个在独立驱动默认 true 保留兼容；按用户要求，David **导航档案**将 publish_imu 设 false，
+不建立底盘 IMU publisher、不调用兼容姿态更新，IMU 由人工启动的 3/uslam 提供。
+这不修改或启停 3 的任何代码、配置或脚本；此前 IMU 安全移植副本仍留待最终审核。
+publish_voltage=false 只关闭 PowerVoltage，diagnostics 仍携带最新原始电压；odom 始终发布。
+schema 中这 13 个键为 Wheeltec 可选键，不强迫采用 nav_sim 或其它驱动的档案配置串口。
 
 D3：`cmd_timeout_sec` 默认 `0.0`（关闭），保持现有行为。显式设为正值后，启动或最后一次
 成功下发有效指令超过该时间，按 20 Hz 尽力发送零速直到新有效指令成功写出；非法指令不续租。
