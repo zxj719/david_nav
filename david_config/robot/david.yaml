@@ -115,6 +115,17 @@ sensors:
     range_min: 0.3
     range_max: 12.0
 
+reactive:
+  # Existing behavior, including lateral escape and the 0.25 m/s recovery
+  # speeds, is preserved. A new differential-drive escape policy is TODO-E1.
+  escape: {longitudinal_speed: 0.25, lateral_speed: 0.20}
+  embedded_backup: {distance: 0.35, speed: 0.25}
+  recovery:
+    backup_distance: 0.30
+    backup_speed: 0.15
+    spin_distance: 1.57
+    passed_goal_radius: 0.7
+
 platform:
   jetson: true
   maxn: true

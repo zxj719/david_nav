@@ -48,7 +48,7 @@ pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
 install(TARGETS ${plugin_libraries} EXPORT export_nav_plugins
   LIBRARY DESTINATION lib ARCHIVE DESTINATION lib RUNTIME DESTINATION bin)
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config behavior_trees DESTINATION share/${PROJECT_NAME})
 install(FILES README.md costmap_plugins.xml DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)

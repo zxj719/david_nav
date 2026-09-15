@@ -1,0 +1,103 @@
+<!--
+  David custom NavigateThroughPoses tree:
+  - Reuses the same embedded-obstacle detection and staged escape recovery as NavigateToPose
+  - Keeps IsStuck as an auxiliary recovery trigger in the generic recovery branch
+  - EmbeddedRecoveryGuard owns the entire plan/follow pipeline, so escape success always
+    restarts planning and sends a new FollowPath goal instead of finishing navigation.
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <RecoveryNode number_of_retries="2" name="EmbeddedRecoveryGuard">
+        <PipelineSequence name="NavigateWithReplanning">
+          <Inverter>
+            <RobotEmbeddedInObstacle
+              confirmations_required="3"
+              costmap_topic="local_costmap/costmap_raw"
+              footprint_topic="local_costmap/published_footprint"
+              lethal_cost_threshold="254"
+              transform_tolerance="0.2"/>
+          </Inverter>
+          <!-- Keep Nav2's internal replan rate very low so a growing SLAM map
+               does not repeatedly invalidate the same in-flight path segment. -->
+          <RateController hz="0.05">
+            <RecoveryNode number_of_retries="1" name="ComputePathThroughPoses">
+              <ReactiveSequence>
+                <RemovePassedGoals
+                  input_goals="{goals}"
+                  output_goals="{goals}"
+                  radius="${passed_goal_radius}"
+                  global_frame="${map_frame}"
+                  robot_base_frame="${nav_base}"/>
+                <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="GridBased"/>
+              </ReactiveSequence>
+              <ClearEntireCostmap
+                name="ClearGlobalCostmap-Context"
+                service_name="global_costmap/clear_entirely_global_costmap"/>
+            </RecoveryNode>
+          </RateController>
+          <RecoveryNode number_of_retries="1" name="FollowPath">
+            <FollowPath path="{path}" controller_id="FollowPath"/>
+            <ClearEntireCostmap
+              name="ClearLocalCostmap-Context"
+              service_name="local_costmap/clear_entirely_local_costmap"/>
+          </RecoveryNode>
+        </PipelineSequence>
+        <ReactiveFallback name="EmbeddedRecoveryFallback">
+          <GoalUpdated/>
+          <RoundRobin name="EmbeddedRecoveryStages">
+            <Sequence name="EmbeddedRecoveryLevel1">
+              <CancelControl name="CancelControl-EmbeddedEscape"/>
+              <EscapeObstacle
+                clear_confirmations="3"
+                cmd_vel_topic="cmd_vel"
+                costmap_topic="local_costmap/costmap_raw"
+                footprint_topic="local_costmap/published_footprint"
+                robot_base_frame="${nav_base}"
+                longitudinal_speed="${escape_longitudinal_speed}"
+                lateral_speed="${escape_lateral_speed}"
+                lethal_cost_threshold="254"
+                transform_tolerance="0.2"/>
+              <ClearEntireCostmap
+                name="EmbeddedClearLocalCostmap-Level1"
+                service_name="local_costmap/clear_entirely_local_costmap"/>
+              <ClearEntireCostmap
+                name="EmbeddedClearGlobalCostmap-Level1"
+                service_name="global_costmap/clear_entirely_global_costmap"/>
+            </Sequence>
+            <Sequence name="EmbeddedRecoveryLevel2">
+              <Wait wait_duration="0.8"/>
+              <BackUp backup_dist="${embedded_backup_distance}" backup_speed="${embedded_backup_speed}" time_allowance="3.0"/>
+              <ClearEntireCostmap
+                name="EmbeddedClearLocalCostmap-Level2"
+                service_name="local_costmap/clear_entirely_local_costmap"/>
+            </Sequence>
+          </RoundRobin>
+        </ReactiveFallback>
+      </RecoveryNode>
+      <ReactiveFallback name="RecoveryFallback">
+        <GoalUpdated/>
+        <RoundRobin name="RecoveryActions">
+          <Sequence name="NoProgressAssist">
+            <IsStuck/>
+            <Wait wait_duration="1.0"/>
+            <ClearEntireCostmap
+              name="ClearLocalCostmap-IsStuck"
+              service_name="local_costmap/clear_entirely_local_costmap"/>
+          </Sequence>
+          <Sequence name="ClearingActions">
+            <ClearEntireCostmap
+              name="ClearLocalCostmap-Subtree"
+              service_name="local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap
+              name="ClearGlobalCostmap-Subtree"
+              service_name="global_costmap/clear_entirely_global_costmap"/>
+          </Sequence>
+          <Spin spin_dist="${recovery_spin_distance}"/>
+          <Wait wait_duration="5"/>
+          <BackUp backup_dist="${recovery_backup_distance}" backup_speed="${recovery_backup_speed}" time_allowance="4.0"/>
+        </RoundRobin>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

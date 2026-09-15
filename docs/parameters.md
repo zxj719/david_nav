@@ -36,4 +36,13 @@ This file lists every robot-profile key declared by package schemas.
 
 ## `nav_plugins`
 
-No parameters declared.
+| Key | Type | Unit | Required / default | Constraints | Description | Tuning |
+|---|---|---|---|---|---|---|
+| `reactive.embedded_backup.distance` | `float` | m | **required** | range: `0.0 .. inf` | 嵌入恢复第二级后退距离 | — |
+| `reactive.embedded_backup.speed` | `float` | m/s | **required** | range: `0.0 .. inf` | 嵌入恢复第二级后退速度，保持既有值 | — |
+| `reactive.escape.lateral_speed` | `float` | m/s | **required** | range: `0.0 .. inf` | 既有横向脱困速度；差速底盘只告警不启用新策略，TODO-E1 | — |
+| `reactive.escape.longitudinal_speed` | `float` | m/s | **required** | range: `0.0 .. inf` | 既有嵌入脱困纵向速度；与普通导航限速分别保留，策略重设计见 TODO-E1 | — |
+| `reactive.recovery.backup_distance` | `float` | m | **required** | range: `0.0 .. inf` | 普通恢复分支后退距离 | — |
+| `reactive.recovery.backup_speed` | `float` | m/s | **required** | range: `0.0 .. inf` | 普通恢复分支后退速度 | — |
+| `reactive.recovery.passed_goal_radius` | `float` | m | **required** | range: `0.0 .. inf` | 多目标导航移除已通过目标的距离阈值 | — |
+| `reactive.recovery.spin_distance` | `float` | rad | **required** | range: `0.0 .. inf` | 普通恢复分支旋转角度 | — |

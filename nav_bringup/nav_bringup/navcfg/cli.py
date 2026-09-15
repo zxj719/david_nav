@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 from typing import Dict, Optional, Sequence
 
+from nav_bringup.navcfg import behavior_trees
 from nav_bringup.navcfg import documentation
 from nav_bringup.navcfg import render
 from nav_bringup.navcfg import schema
@@ -49,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=f'binding table (default: share/{PACKAGE_NAME}/config/{BINDINGS_FILE})')
     render_parser.add_argument(
         '--output', required=True, type=Path, help='parameter file to write')
+    render_parser.add_argument(
+        '--bt-output-dir', type=Path,
+        help='also render BT XML and bind Nav2 paths to this directory')
+    render_parser.add_argument(
+        '--bt-template-dir', type=Path, help='override BT template directory')
+    render_parser.add_argument('--bt-bindings', type=Path, help='override BT binding table')
     validate_parser = commands.add_parser(
         'validate', help='check a robot profile, mode, site, Nav2 tree, BTs and URDF')
     validate_parser.add_argument('--profile', required=True, type=Path, help='robot profile')
@@ -91,12 +98,42 @@ def _render_command(args: argparse.Namespace) -> int:
         base = args.base or _installed_config(BASE_FILE)
         bindings = args.bindings or _installed_config(BINDINGS_FILE)
         tree = render.render_files(base, bindings, args.profile, args.mode)
+        bundle = _render_behavior_trees(args, tree)
+        # All input validation finishes before any output is written.
+        if bundle:
+            args.bt_output_dir.mkdir(parents=True, exist_ok=True)
+            for name, xml in bundle.items():
+                (args.bt_output_dir / name).write_text(xml, encoding='utf-8')
         render.write_parameters(args.output, tree)
     except (render.RenderError, LookupError, OSError) as error:
         print(f'navcfg render: {error}', file=sys.stderr)
         return 2
     print(f'navcfg render: wrote {args.output}')
     return 0
+
+
+def _render_behavior_trees(args: argparse.Namespace, tree: Dict[str, object]) -> Dict[str, str]:
+    """按需渲染 BT 数据资源；只有资产发现依赖 ament，不加载插件实现."""
+    if args.bt_output_dir is None:
+        if args.bt_template_dir or args.bt_bindings:
+            raise render.RenderError('BT template options require --bt-output-dir')
+        return {}
+    template_dir, binding_file = args.bt_template_dir, args.bt_bindings
+    if template_dir is None or binding_file is None:
+        from ament_index_python.packages import get_package_share_directory
+
+        share = Path(get_package_share_directory('nav_plugins'))
+        template_dir = template_dir or share / 'behavior_trees'
+        binding_file = binding_file or share / 'config' / 'bt_bindings.yaml'
+    profile = render.load_yaml(args.profile)
+    if not isinstance(profile, dict):
+        raise render.RenderError('robot profile must be a mapping')
+    if args.mode:
+        mode = render.parse_mode(render.load_yaml(args.mode), args.mode)
+        profile = render.deep_merge(profile, mode.profile)
+    bundle = behavior_trees.render_bundle(template_dir, binding_file, profile)
+    behavior_trees.bind_output_paths(tree, bundle, args.bt_output_dir)
+    return bundle
 
 
 def _catalog(args: argparse.Namespace) -> schema.ParameterCatalog:

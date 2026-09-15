@@ -1,0 +1,13 @@
+# Explicit formats preserve legacy XML attribute text, including trailing zeros.
+schema_version: 1
+bindings:
+  nav_base: {key: frames.nav_base}
+  map_frame: {key: frames.map}
+  escape_longitudinal_speed: {key: reactive.escape.longitudinal_speed, format: '.2f'}
+  escape_lateral_speed: {key: reactive.escape.lateral_speed, format: '.2f'}
+  embedded_backup_distance: {key: reactive.embedded_backup.distance, format: '.2f'}
+  embedded_backup_speed: {key: reactive.embedded_backup.speed, format: '.2f'}
+  recovery_backup_distance: {key: reactive.recovery.backup_distance, format: '.2f'}
+  recovery_backup_speed: {key: reactive.recovery.backup_speed, format: '.2f'}
+  recovery_spin_distance: {key: reactive.recovery.spin_distance, format: '.2f'}
+  passed_goal_radius: {key: reactive.recovery.passed_goal_radius, format: '.1f'}

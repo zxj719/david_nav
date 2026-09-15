@@ -49,3 +49,22 @@ Run only through `bash sandbox_tests/run_sandbox_checks.sh`; that launcher
 refuses an active user stack, loads the DDS whitelist, forces domain 99 and
 keeps logs in a dedicated temporary directory. It never opens serial devices
 or sends velocities.
+
+## Behavior-tree templates (P3.2)
+
+`behavior_trees/*.xml.tmpl` are data-only string.Template assets. The explicit
+`config/bt_bindings.yaml` maps placeholders to robot profile keys; recovery
+speeds and distances are owned by this package's schema, frames by nav_bringup.
+Fixed decimal formats preserve the old XML text without rounding new values.
+Legacy XML filenames remain stable for parameter-golden compatibility.
+
+`navcfg render --profile <robot.yaml> --mode <mode.yaml> --output <nav2.yaml>
+--bt-output-dir <run>/bt` writes the XML and sets all three Nav2 BT file parameters
+to absolute paths under that output directory. Template/binding inputs can be
+overridden explicitly for source-tree checks. The renderer imports no runtime
+plugin implementation. `navcfg validate --bt-dir <run>/bt ...` checks the result;
+nonzero lateral escape remains a differential-drive warning (TODO-E1).
+
+All three templates across all four David modes are compared node-by-node and
+attribute-by-attribute with the compatibility XML. Embedded recovery wraps the
+entire planning/following pipeline, retaining the user-requested U-2 retry fix.
