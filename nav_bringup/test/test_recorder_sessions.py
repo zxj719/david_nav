@@ -16,13 +16,20 @@ def _start(code):
 def test_stop_session_interrupts_a_process():
     """A process that handles SIGINT exits with its own status."""
     process = _start(
-        'import signal, sys, time\n'
-        'signal.signal(signal.SIGINT, lambda *args: sys.exit(0))\n'
+        'import signal, time\n'
+        'interrupted = False\n'
+        'def stop(*args):\n'
+        '    global interrupted\n'
+        '    interrupted = True\n'
+        'signal.signal(signal.SIGINT, stop)\n'
         'print("ready", flush=True)\n'
-        'time.sleep(30)\n')
+        'while not interrupted:\n'
+        '    time.sleep(0.01)\n'
+        'print("interrupted", flush=True)\n')
     assert process.stdout.readline() == b'ready\n'
 
     assert sessions.stop_session(process, timeout_sec=10.0) == 0
+    assert process.stdout.readline() == b'interrupted\n'
     process.stdout.close()
 
 
