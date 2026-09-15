@@ -79,6 +79,17 @@ parameters:
     type: bool
     default: false
     description: 启动前运行 jetson_clocks 固定 CPU/GPU 频率；需要 platform.jetson 为 true
+  platform.maxn_mode_id:
+    type: int
+    default: 0
+    range: [0, null]
+    description: nvpmodel 的 MAXN 模式编号；David 旧入口为 0，不同 Jetson 板型可在档案覆盖
+  platform.command_timeout_sec:
+    type: float
+    unit: s
+    default: 30.0
+    range: [0.001, null]
+    description: 每条平台命令的等待期限；无密码、无交互，失败后停止后续平台步骤
   preflight.kill_patterns:
     type: list
     items: string

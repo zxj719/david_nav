@@ -24,9 +24,11 @@ This file lists every robot-profile key declared by package schemas.
 | `nav2.map_topic` | `string` | — | **required** | — | 代价图静态层订阅的栅格地图话题（启动文件可能改写，见 PROGRESS P2.4） | — |
 | `nav2.odom_topic` | `string` | — | **required** | — | Nav2 BT 与控制器订阅的里程计话题 | — |
 | `nav2.scan_topic` | `string` | — | **required** | — | 代价图障碍物层订阅的激光话题 | — |
+| `platform.command_timeout_sec` | `float` | s | default: `30.0` | range: `0.001 .. inf` | 每条平台命令的等待期限；无密码、无交互，失败后停止后续平台步骤 | — |
 | `platform.jetson` | `bool` | — | default: `false` | — | 主机是 NVIDIA Jetson；为 true 时 navrun up 才处理功耗模式与 jetson_clocks | — |
 | `platform.jetson_clocks` | `bool` | — | default: `false` | — | 启动前运行 jetson_clocks 固定 CPU/GPU 频率；需要 platform.jetson 为 true | — |
 | `platform.maxn` | `bool` | — | default: `false` | — | 启动前把 Jetson 切到最高功耗模式（nvpmodel MAXN）；需要 platform.jetson 为 true | — |
+| `platform.maxn_mode_id` | `int` | — | default: `0` | range: `0 .. inf` | nvpmodel 的 MAXN 模式编号；David 旧入口为 0，不同 Jetson 板型可在档案覆盖 | — |
 | `preflight.kill_foreign_stacks` | `bool` | — | default: `false` | — | 是否结束不属于本导航栈的其它 ROS 栈进程；默认不动 | — |
 | `preflight.kill_patterns` | `list[string]` | — | default: `[]` | — | 启动前结束的本导航栈残留进程的命令行匹配式 | — |
 | `preflight.kill_stale_robot_state_publishers` | `bool` | — | default: `false` | — | 启动前结束残留的 robot_state_publisher，避免 TF 分裂成两棵树 | — |

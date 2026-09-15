@@ -134,6 +134,23 @@ publishing a launchable bundle; it does not overwrite or delete existing records
 
 ### Unit tests
 
+`navrun.locking.RunLock` implements the shared `/tmp/navrun.lock` lease for the
+future `up` supervisor. Construction does no I/O. Acquire is nonblocking, checks
+file ownership/type/links, and only writes diagnostic PID metadata after flock
+succeeds. Release never unlinks the inode; a crashed owner's old PID does not
+block a new run. The descriptor is close-on-exec, and releasing an inherited
+object after fork cannot unlock the parent. Tests use private temporary paths.
+
+`navrun.platform.plan_platform` is pure; `configure_platform(..., dry_run=True)`
+never calls its runner. Enabled operations use `sudo -n --` with explicit Jetson
+tool paths, DEVNULL stdin and a per-command deadline. MAXN precedes clocks;
+the first failure stops the sequence and carries partial results for recording.
+Already successful power settings are not rolled back or reported as undone.
+`platform.maxn_mode_id` defaults to the legacy value 0, and
+`platform.command_timeout_sec` defaults to 30 seconds. These are not automatically
+executed by imports or the existing wrap command. Permission setup remains an
+operator-owned sudoers task; the code never supplies a password or edits policy.
+
 ```bash
 source /opt/ros/humble/setup.bash
 cd ~/ros2_ws_refactor
