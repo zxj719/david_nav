@@ -1,5 +1,5 @@
-#ifndef David_NAV__ROBOT_EMBEDDED_IN_OBSTACLE_CONDITION_HPP_
-#define David_NAV__ROBOT_EMBEDDED_IN_OBSTACLE_CONDITION_HPP_
+#ifndef NAV_PLUGINS__ROBOT_EMBEDDED_IN_OBSTACLE_CONDITION_HPP_
+#define NAV_PLUGINS__ROBOT_EMBEDDED_IN_OBSTACLE_CONDITION_HPP_
 
 #include <cstdint>
 #include <mutex>
@@ -13,7 +13,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.h"
 
-namespace david_nav
+namespace nav_plugins
 {
 
 class RobotEmbeddedInObstacleCondition : public BT::ConditionNode
@@ -82,6 +82,6 @@ private:
   int consecutive_hits_{0};
 };
 
-}  // namespace david_nav
+}  // namespace nav_plugins
 
-#endif  // David_NAV__ROBOT_EMBEDDED_IN_OBSTACLE_CONDITION_HPP_
+#endif  // NAV_PLUGINS__ROBOT_EMBEDDED_IN_OBSTACLE_CONDITION_HPP_

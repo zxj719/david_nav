@@ -1,4 +1,4 @@
-#include "david_nav/scan_priority_layer.hpp"
+#include "nav_plugins/scan_priority_layer.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +13,7 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2_ros/buffer.h"
 
-namespace david_nav
+namespace nav_plugins
 {
 
 ScanPriorityLayer::ScanPriorityLayer()
@@ -323,6 +323,6 @@ void ScanPriorityLayer::clearLayer()
   std::fill(costmap_, costmap_ + size_x * size_y, nav2_costmap_2d::NO_INFORMATION);
 }
 
-}  // namespace david_nav
+}  // namespace nav_plugins
 
-PLUGINLIB_EXPORT_CLASS(david_nav::ScanPriorityLayer, nav2_costmap_2d::Layer)
+PLUGINLIB_EXPORT_CLASS(nav_plugins::ScanPriorityLayer, nav2_costmap_2d::Layer)

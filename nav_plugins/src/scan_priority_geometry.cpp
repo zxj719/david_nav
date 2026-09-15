@@ -1,8 +1,8 @@
-#include "david_nav/scan_priority_geometry.hpp"
+#include "nav_plugins/scan_priority_geometry.hpp"
 
 #include <cmath>
 
-namespace david_nav
+namespace nav_plugins
 {
 
 std::optional<GroundIntersection> intersect_ray_with_ground(
@@ -81,4 +81,4 @@ std::vector<ObstacleRun> find_obstacle_runs(
   return runs;
 }
 
-}  // namespace david_nav
+}  // namespace nav_plugins

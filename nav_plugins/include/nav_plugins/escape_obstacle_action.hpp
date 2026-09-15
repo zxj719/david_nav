@@ -1,5 +1,5 @@
-#ifndef David_NAV__ESCAPE_OBSTACLE_ACTION_HPP_
-#define David_NAV__ESCAPE_OBSTACLE_ACTION_HPP_
+#ifndef NAV_PLUGINS__ESCAPE_OBSTACLE_ACTION_HPP_
+#define NAV_PLUGINS__ESCAPE_OBSTACLE_ACTION_HPP_
 
 #include <cstdint>
 #include <memory>
@@ -16,7 +16,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.h"
 
-namespace david_nav
+namespace nav_plugins
 {
 
 struct EscapeOverlapPoint
@@ -142,6 +142,6 @@ private:
   rclcpp::Time recovery_start_time_{0, 0, RCL_ROS_TIME};
 };
 
-}  // namespace david_nav
+}  // namespace nav_plugins
 
-#endif  // David_NAV__ESCAPE_OBSTACLE_ACTION_HPP_
+#endif  // NAV_PLUGINS__ESCAPE_OBSTACLE_ACTION_HPP_

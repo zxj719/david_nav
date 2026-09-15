@@ -11,9 +11,9 @@
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
-#include "david_nav/scan_priority_geometry.hpp"
+#include "nav_plugins/scan_priority_geometry.hpp"
 
-namespace david_nav
+namespace nav_plugins
 {
 
 class ScanPriorityLayer : public nav2_costmap_2d::CostmapLayer
@@ -80,4 +80,4 @@ private:
   bool require_live_scan_{true};
 };
 
-}  // namespace david_nav
+}  // namespace nav_plugins

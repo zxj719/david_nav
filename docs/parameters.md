@@ -33,3 +33,7 @@ This file lists every robot-profile key declared by package schemas.
 | `record.monitor_period_sec` | `float` | s | default: `5.0` | range: `1.0 .. 60.0` | navrun monitor 写一行 metrics/topics.csv 的间隔（默认 5 s，即 0.2 Hz） | — |
 | `record.monitor_topics` | `list[string]` | — | default: `[]` | — | navrun monitor 统计频率与发布者数的话题；只选轻量话题（大点云等仍有传输开销） | — |
 | `record.storage` | `string` | — | default: `"sqlite3"` | choices: `"sqlite3"` | rosbag2 存储插件；mcap 插件未安装（TODO） | — |
+
+## `nav_plugins`
+
+No parameters declared.

@@ -4,14 +4,14 @@
 
 #include <gtest/gtest.h>
 
-#include "david_nav/scan_priority_geometry.hpp"
+#include "nav_plugins/scan_priority_geometry.hpp"
 
 namespace
 {
 
-using david_nav::BeamDecision;
-using david_nav::BeamSample;
-using david_nav::CameraRay;
+using nav_plugins::BeamDecision;
+using nav_plugins::BeamSample;
+using nav_plugins::CameraRay;
 
 TEST(ScanPriorityGeometryTest, IntersectsForwardDownwardRayWithGroundPlane)
 {
@@ -23,7 +23,7 @@ TEST(ScanPriorityGeometryTest, IntersectsForwardDownwardRayWithGroundPlane)
   ray.dir_y = 0.0;
   ray.dir_z = -1.0;
 
-  const auto hit = david_nav::intersect_ray_with_ground(ray, 0.0);
+  const auto hit = nav_plugins::intersect_ray_with_ground(ray, 0.0);
 
   ASSERT_TRUE(hit.has_value());
   EXPECT_NEAR(hit->range_m, std::sqrt(0.5), 1e-6);
@@ -41,7 +41,7 @@ TEST(ScanPriorityGeometryTest, ReturnsNulloptWhenRayNeverHitsGround)
   ray.dir_y = 0.0;
   ray.dir_z = 0.1;
 
-  EXPECT_FALSE(david_nav::intersect_ray_with_ground(ray, 0.0).has_value());
+  EXPECT_FALSE(nav_plugins::intersect_ray_with_ground(ray, 0.0).has_value());
 }
 
 TEST(ScanPriorityGeometryTest, ClassifiesEarlierBeamAsObstacle)
@@ -50,7 +50,7 @@ TEST(ScanPriorityGeometryTest, ClassifiesEarlierBeamAsObstacle)
   sample.range_m = 1.2;
   sample.valid = true;
 
-  const auto decision = david_nav::classify_beam_against_ground(
+  const auto decision = nav_plugins::classify_beam_against_ground(
     sample,
     /*ground_range_m=*/1.6,
     /*obstacle_margin_m=*/0.15);
@@ -64,7 +64,7 @@ TEST(ScanPriorityGeometryTest, ClassifiesNearGroundMatchAsFloorCompatible)
   sample.range_m = 1.52;
   sample.valid = true;
 
-  const auto decision = david_nav::classify_beam_against_ground(
+  const auto decision = nav_plugins::classify_beam_against_ground(
     sample,
     /*ground_range_m=*/1.6,
     /*obstacle_margin_m=*/0.15);
@@ -78,7 +78,7 @@ TEST(ScanPriorityGeometryTest, TreatsInvalidBeamAsUnknown)
   sample.range_m = std::numeric_limits<double>::quiet_NaN();
   sample.valid = false;
 
-  const auto decision = david_nav::classify_beam_against_ground(
+  const auto decision = nav_plugins::classify_beam_against_ground(
     sample,
     /*ground_range_m=*/1.6,
     /*obstacle_margin_m=*/0.15);
@@ -97,7 +97,7 @@ TEST(ScanPriorityGeometryTest, SuppressesShortObstacleRunsBelowThreshold)
     BeamDecision::kFloorCompatible,
   };
 
-  const auto runs = david_nav::find_obstacle_runs(decisions, /*min_contiguous_beams=*/2);
+  const auto runs = nav_plugins::find_obstacle_runs(decisions, /*min_contiguous_beams=*/2);
 
   ASSERT_EQ(runs.size(), 1u);
   EXPECT_EQ(runs[0].start_index, 1u);

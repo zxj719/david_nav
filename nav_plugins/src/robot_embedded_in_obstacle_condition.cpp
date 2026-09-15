@@ -1,4 +1,4 @@
-#include "david_nav/robot_embedded_in_obstacle_condition.hpp"
+#include "nav_plugins/robot_embedded_in_obstacle_condition.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -14,7 +14,7 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2/utils.h"
 
-namespace david_nav
+namespace nav_plugins
 {
 
 namespace
@@ -399,9 +399,9 @@ bool RobotEmbeddedInObstacleCondition::hasFreshObservationLocked(
   return fresh;
 }
 
-}  // namespace david_nav
+}  // namespace nav_plugins
 
 BT_REGISTER_NODES(factory)
 {
-  factory.registerNodeType<david_nav::RobotEmbeddedInObstacleCondition>("RobotEmbeddedInObstacle");
+  factory.registerNodeType<nav_plugins::RobotEmbeddedInObstacleCondition>("RobotEmbeddedInObstacle");
 }

@@ -1,0 +1,12 @@
+<class_libraries>
+  <library path="david_nav_scan_priority_layer">
+    <class name="nav_plugins::ScanPriorityLayer" type="nav_plugins::ScanPriorityLayer"
+           base_class_type="nav2_costmap_2d::Layer">
+      <description>Front-sector scan/ground comparison costmap layer.</description>
+    </class>
+    <class name="david_nav::ScanPriorityLayer" type="nav_plugins::ScanPriorityLayer"
+           base_class_type="nav2_costmap_2d::Layer">
+      <description>Compatibility alias; prefer nav_plugins::ScanPriorityLayer.</description>
+    </class>
+  </library>
+</class_libraries>

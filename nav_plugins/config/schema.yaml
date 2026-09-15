@@ -1,0 +1,4 @@
+# Profile frame keys are owned by nav_bringup; no duplicate declarations here.
+schema_version: 1
+package: nav_plugins
+parameters: {}

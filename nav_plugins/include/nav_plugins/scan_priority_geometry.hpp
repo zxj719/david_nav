@@ -4,7 +4,7 @@
 #include <optional>
 #include <vector>
 
-namespace david_nav
+namespace nav_plugins
 {
 
 struct CameraRay
@@ -56,4 +56,4 @@ std::vector<ObstacleRun> find_obstacle_runs(
   const std::vector<BeamDecision> & decisions,
   std::size_t min_contiguous_beams);
 
-}  // namespace david_nav
+}  // namespace nav_plugins

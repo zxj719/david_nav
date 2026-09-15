@@ -1,4 +1,4 @@
-#include "david_nav/escape_obstacle_action.hpp"
+#include "nav_plugins/escape_obstacle_action.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -14,7 +14,7 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "tf2/utils.h"
 
-namespace david_nav
+namespace nav_plugins
 {
 
 namespace
@@ -598,9 +598,9 @@ void EscapeObstacleAction::publish_stop_command()
   cmd_vel_pub_->publish(make_stop_twist());
 }
 
-}  // namespace david_nav
+}  // namespace nav_plugins
 
 BT_REGISTER_NODES(factory)
 {
-  factory.registerNodeType<david_nav::EscapeObstacleAction>("EscapeObstacle");
+  factory.registerNodeType<nav_plugins::EscapeObstacleAction>("EscapeObstacle");
 }

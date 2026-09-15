@@ -54,85 +54,8 @@ ament_target_dependencies(
   visualization_msgs
 )
 
-add_library(david_robot_embedded_in_obstacle_condition_bt_node SHARED
-  src/robot_embedded_in_obstacle_condition.cpp
-)
-target_compile_features(david_robot_embedded_in_obstacle_condition_bt_node PUBLIC cxx_std_17)
-target_compile_definitions(
-  david_robot_embedded_in_obstacle_condition_bt_node
-  PRIVATE BT_PLUGIN_EXPORT
-)
-target_include_directories(
-  david_robot_embedded_in_obstacle_condition_bt_node
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-)
-ament_target_dependencies(
-  david_robot_embedded_in_obstacle_condition_bt_node
-  behaviortree_cpp_v3
-  geometry_msgs
-  nav2_behavior_tree
-  nav2_costmap_2d
-  nav2_msgs
-  rclcpp
-  tf2
-  tf2_geometry_msgs
-  tf2_ros
-)
-
-add_library(david_escape_obstacle_action_bt_node SHARED
-  src/escape_obstacle_action.cpp
-)
-target_compile_features(david_escape_obstacle_action_bt_node PUBLIC cxx_std_17)
-target_compile_definitions(
-  david_escape_obstacle_action_bt_node
-  PRIVATE BT_PLUGIN_EXPORT
-)
-target_include_directories(
-  david_escape_obstacle_action_bt_node
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-)
-ament_target_dependencies(
-  david_escape_obstacle_action_bt_node
-  behaviortree_cpp_v3
-  geometry_msgs
-  nav2_behavior_tree
-  nav2_costmap_2d
-  nav2_msgs
-  rclcpp
-  tf2
-  tf2_geometry_msgs
-  tf2_ros
-)
-
-add_library(david_nav_scan_priority_layer SHARED
-  src/scan_priority_layer.cpp
-  src/scan_priority_geometry.cpp
-)
-target_compile_features(david_nav_scan_priority_layer PUBLIC cxx_std_17)
-target_include_directories(
-  david_nav_scan_priority_layer
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-)
-ament_target_dependencies(
-  david_nav_scan_priority_layer
-  geometry_msgs
-  nav2_costmap_2d
-  pluginlib
-  rclcpp
-  rclcpp_lifecycle
-  sensor_msgs
-  tf2
-  tf2_geometry_msgs
-  tf2_ros
-  visualization_msgs
-)
-pluginlib_export_plugin_description_file(nav2_costmap_2d costmap_plugins.xml)
+# Costmap and BT libraries are now exported by nav_plugins. The old plugin XML
+# path remains installed as a compatibility descriptor, without registration.
 
 install(DIRECTORY
   behavior_trees
@@ -227,27 +150,6 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(TARGETS
-  david_robot_embedded_in_obstacle_condition_bt_node
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION lib
-)
-
-install(TARGETS
-  david_escape_obstacle_action_bt_node
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION lib
-)
-
-install(TARGETS
-  david_nav_scan_priority_layer
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION lib
-)
-
 if(BUILD_TESTING)
   ament_add_gtest(
     frontier_completion_policy_test
@@ -285,25 +187,6 @@ if(BUILD_TESTING)
   )
   target_compile_features(frontier_search_test PUBLIC cxx_std_17)
   target_include_directories(frontier_search_test PUBLIC include)
-
-  ament_add_gtest(
-    escape_obstacle_action_test
-    test/escape_obstacle_action_test.cpp
-    src/escape_obstacle_action.cpp
-  )
-  target_compile_features(escape_obstacle_action_test PUBLIC cxx_std_17)
-  target_include_directories(escape_obstacle_action_test PUBLIC include)
-  ament_target_dependencies(
-    escape_obstacle_action_test
-    behaviortree_cpp_v3
-    geometry_msgs
-    nav2_costmap_2d
-    nav2_msgs
-    rclcpp
-    tf2
-    tf2_geometry_msgs
-    tf2_ros
-  )
 
   ament_add_pytest_test(
     headless_navigation_script_test
@@ -406,13 +289,6 @@ if(BUILD_TESTING)
     test/test_precise_nav_bringup_launch.py
   )
 
-  ament_add_gtest(
-    scan_priority_geometry_test
-    test/scan_priority_geometry_test.cpp
-    src/scan_priority_geometry.cpp
-  )
-  target_compile_features(scan_priority_geometry_test PUBLIC cxx_std_17)
-  target_include_directories(scan_priority_geometry_test PUBLIC include)
 endif()
 
 ament_package()
