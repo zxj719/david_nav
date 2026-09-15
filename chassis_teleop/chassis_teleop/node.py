@@ -1,7 +1,9 @@
-"""Standalone guarded keyboard runtime; combined supervisor integration remains pending."""
+"""Guarded keyboard runtime with standalone and explicit delegated ownership."""
 
+import argparse
 from dataclasses import asdict
 import math
+import os
 import signal
 import sys
 import threading
@@ -18,6 +20,9 @@ from chassis_teleop.control import KeyboardState, TeleopConfig
 from chassis_teleop.interlock import CommandConflict, wait_for_clear_topics
 from chassis_teleop.terminal import TerminalKeyboard, TerminalUnavailable
 from nav_bringup.navrun.locking import LockBusy, RunLock
+from nav_bringup.navrun.locking import DEFAULT_LOCK_PATH
+from nav_bringup.navrun.delegated_lock import DelegatedLock
+from nav_bringup.navrun.keyboard_channel import KeyboardChannel, KeyboardOwnerLost
 
 
 class KeyboardNode(Node):
@@ -102,13 +107,20 @@ class KeyboardNode(Node):
                 time.sleep(0.02)
 
 
-def run_keyboard(node: KeyboardNode, keyboard: TerminalKeyboard, stopped: threading.Event) -> None:
+def run_keyboard(
+    node: KeyboardNode, keyboard: TerminalKeyboard, stopped: threading.Event,
+    channel: Optional[KeyboardChannel] = None,
+) -> None:
     """Guard and operate one keyboard while the caller holds its navigation lease.
 
     Args:
         node: Unarmed keyboard node owned by the caller.
         keyboard: Open terminal owned by the caller.
         stopped: INT/TERM flag; no signal handler publishes or destroys ROS objects.
+        channel: Optional inherited supervisor socket, validated along with its lease.
+
+    Raises:
+        KeyboardOwnerLost: Delegated activation fails or the supervisor disconnects.
     """
     def spin(duration: float) -> None:
         if stopped.is_set() or not rclpy.ok():
@@ -119,13 +131,26 @@ def run_keyboard(node: KeyboardNode, keyboard: TerminalKeyboard, stopped: thread
                           spin, time.monotonic, node.discovery_sec)
     if stopped.is_set() or not rclpy.ok():
         return
+    if channel is not None:
+        channel.ready()
+        deadline = time.monotonic() + 30.0
+        while not channel.permitted():
+            if time.monotonic() >= deadline:
+                raise KeyboardOwnerLost('supervisor activation timed out')
+            spin(0.05)
+        if stopped.is_set() or not rclpy.ok():
+            return
     node.arm()
     print('Keyboard ready: WASD/arrows (or configured uiojkl); space/k stop; q/Ctrl-C quit.',
           flush=True)
     while rclpy.ok() and not stopped.is_set():
+        if channel is not None:
+            channel.check_owner()
         key = keyboard.read_key(node.config.period_sec)
         if stopped.is_set():
             break
+        if channel is not None:
+            channel.check_owner()
         if key and node.handle_key(key) == 'quit':
             break
         node.publish_current_command()
@@ -150,7 +175,50 @@ def main(args: Optional[Sequence[str]] = None) -> int:
         return 2
 
 
-def _run(args: Optional[Sequence[str]]) -> int:
+def managed_main(args: Optional[Sequence[str]] = None) -> int:
+    """Run only with inherited lease, owner socket and terminal capabilities.
+
+    This internal entry is not an environment-based lock bypass. The selected
+    descriptor must carry the existing exclusive flock for DEFAULT_LOCK_PATH;
+    merely opening that path fails validation. All three passed descriptors
+    belong to this entry and are closed on return. The supervisor must retain
+    its own lease and restore the terminal after draining the keyboard process.
+
+    Args:
+        args: Explicit internal capability arguments followed by ROS arguments.
+
+    Returns:
+        Zero for a normal quit or signal; two for rejected delegation or owner loss.
+    """
+    parser = argparse.ArgumentParser(description='Supervisor-owned keyboard entry')
+    for name in ('lock', 'control', 'tty'):
+        parser.add_argument(f'--{name}-fd', type=int, required=True)
+    selected, ros_args = parser.parse_known_args(args)
+    descriptors = (selected.lock_fd, selected.control_fd, selected.tty_fd)
+    if any(fd < 3 for fd in descriptors) or len(set(descriptors)) != 3:
+        parser.error('three distinct nonstandard descriptors are required')
+    try:
+        for descriptor in descriptors:
+            os.set_inheritable(descriptor, False)
+        with DelegatedLock(selected.lock_fd, DEFAULT_LOCK_PATH):
+            with KeyboardChannel(selected.control_fd) as channel:
+                return _run(ros_args, channel, selected.tty_fd)
+    except (CommandConflict, TerminalUnavailable, ValueError, OSError,
+            KeyboardOwnerLost) as error:
+        print(f'chassis_teleop: {error}', file=sys.stderr)
+        return 2
+    finally:
+        for descriptor in descriptors:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _run(
+    args: Optional[Sequence[str]], channel: Optional[KeyboardChannel] = None,
+    tty_fd: Optional[int] = None,
+) -> int:
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     previous = {}
     stopped = threading.Event()
@@ -163,9 +231,11 @@ def _run(args: Optional[Sequence[str]]) -> int:
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous[signum] = signal.signal(signum, stop)
         node = KeyboardNode()
-        with TerminalKeyboard(node.config.tty_device) as keyboard:
+        terminal = (TerminalKeyboard(node.config.tty_device) if tty_fd is None else
+                    TerminalKeyboard(node.config.tty_device, descriptor=tty_fd))
+        with terminal as keyboard:
             try:
-                run_keyboard(node, keyboard, stopped)
+                run_keyboard(node, keyboard, stopped, channel)
             finally:
                 node.publish_stop_burst()
     except (KeyboardInterrupt, ExternalShutdownException):

@@ -180,3 +180,36 @@ def test_unfinished_kill_retains_leader_for_safe_retry(tmp_path, monkeypatch):
         assert process.close(0.2) in (-signal.SIGINT, -signal.SIGKILL)
     finally:
         process.close(0.2)
+
+
+def test_only_explicit_descriptors_survive_exec(tmp_path):
+    """A keyboard can inherit capabilities without leaking unrelated parent files."""
+    read_fd, write_fd = os.pipe()
+    process = None
+    try:
+        code = ('import os,sys\n'
+                'os.write(int(sys.argv[1]), b"ready")\n'
+                'try: os.fstat(int(sys.argv[2]))\n'
+                'except OSError: raise SystemExit(0)\n'
+                'raise SystemExit(7)\n')
+        process = OwnedProcess(
+            [sys.executable, '-c', code, str(write_fd), str(read_fd)], os.environ,
+            tmp_path / 'fds.log', pass_fds=(write_fd,))
+        _until(lambda: process.poll() is not None)
+        assert process.poll() == 0
+        assert os.read(read_fd, 5) == b'ready'
+        assert not os.get_inheritable(write_fd)
+    finally:
+        if process is not None:
+            process.close(0.2)
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+@pytest.mark.parametrize('fds', [(True,), (-1,), (0,), ('3',)])
+def test_invalid_passed_descriptors_fail_before_log_creation(tmp_path, fds):
+    """Malformed handoff arguments cannot start a child or create an output log."""
+    with pytest.raises(ValueError):
+        OwnedProcess([sys.executable, '-c', 'pass'], os.environ,
+                     tmp_path / 'fds.log', pass_fds=fds)
+    assert not (tmp_path / 'fds.log').exists()

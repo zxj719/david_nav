@@ -14,6 +14,25 @@ INT/TERM, quit and terminal failures stop an armed output before restoring termi
 attributes, destroying ROS and releasing the lock. An already running adapter is
 not exempted; combined startup needs the pending supervisor integration.
 
+The internal `chassis_teleop_managed` entry accepts three explicit inherited
+descriptors: `--lock-fd`, `--control-fd` and `--tty-fd`, followed by ROS arguments.
+It is not a public lock bypass: the lock descriptor must carry the already-held
+exclusive Linux flock for the normal navigation lock path. Independently opening
+that inode, using another locked file, a shared lock or an unheld descriptor is
+rejected before ROS initialization. The entry closes only its own inherited
+descriptors and duplicates; it never unlocks the shared open file description.
+
+After publisher exclusion, the keyboard sends a ready byte on its inherited
+Unix socket and waits up to 30 seconds for the owning supervisor's activation.
+No publisher is created before activation. The owner may then start its own
+adapter without a node-name exemption. Channel loss before activation publishes
+nothing; after activation it stops the armed output. Liveness is checked both
+before and after a key read, so a key arriving with disconnection cannot publish
+motion. The supervisor must retain its lease until the keyboard and all other
+owned children drain, and retain a terminal-attribute snapshot for crash recovery.
+This child-side entry is implemented and tested; the combined launch's parent-side
+ordering, terminal backup and lifecycle integration remain unfinished and rejected.
+
 `control.TeleopConfig` retains the Apache-2.0 `david_cmd.david_keyboard` standalone
 defaults. `KeyboardState` owns only one command and its last motion timestamp.
 Default WASD/arrows, signed deadzone lifting, ceilings, monotonic-time strict
@@ -32,6 +51,9 @@ stdin, with NOCTTY/NONBLOCK/CLOEXEC. It saves attributes, enables cbreak mode an
 restores attributes before closing, including on exceptions. Missing terminals,
 regular files and disconnects report `TerminalUnavailable`, never silent success.
 Only terminal device paths should be configured, never robot serial devices.
+An inherited `descriptor` instead duplicates the supervisor-opened terminal, so a
+private child session need not reopen `/dev/tty`. The original descriptor remains
+owned by the caller, and terminal attributes are still restored on graceful exit.
 
 The escape parser retains fragmented sequences across bounded polls. This avoids
 treating a delayed arrow suffix A as a separate WASD key. Unknown/overlong CSI

@@ -174,6 +174,14 @@ The standalone keyboard executable has its own lease and publisher guard, but
 launching it concurrently with the adapter would make startup ordering unsafe.
 Until the combined handoff is implemented, the launch runtime rejects teleop before
 resolving or spawning any child; no PID-name exemption or environment bypass exists.
+The child-side handoff now uses explicit inherited descriptors: `DelegatedLock`
+checks Linux fdinfo for an exclusive FLOCK record on the expected open file
+description, without issuing flock or unlocking the parent. `KeyboardChannel`
+provides ready/permit and EOF detection over a local socket, using per-call
+nonblocking flags so it does not mutate the source descriptor's file status.
+`OwnedProcess(pass_fds=...)` delegates only those explicitly selected capabilities;
+its default still closes every nonstandard descriptor. Parent-side teleop ordering
+and terminal crash restoration still need integration before enabling that mode.
 
 ### Executor and recording preparation (P4.2)
 

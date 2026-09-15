@@ -137,3 +137,27 @@ def test_read_disconnect_is_not_an_infinite_empty_poll():
         if master is not None:
             os.close(master)
         os.close(slave)
+
+
+def test_inherited_terminal_works_without_opening_device(terminal_pair, monkeypatch):
+    """A new session can read a delegated descriptor without reopening /dev/tty."""
+    master, slave, _ = terminal_pair
+    before = termios.tcgetattr(slave)
+
+    def forbidden(*args):
+        raise AssertionError('inherited terminal must not open a path')
+
+    monkeypatch.setattr(os, 'open', forbidden)
+    with TerminalKeyboard(descriptor=slave) as reader:
+        assert reader.fileno() != slave
+        os.write(master, b'q')
+        assert reader.read_key(0.1) == 'q'
+    assert termios.tcgetattr(slave) == before
+    assert os.isatty(slave)
+
+
+@pytest.mark.parametrize('descriptor', [-1, True, '3', 0])
+def test_invalid_inherited_terminal_selector(descriptor):
+    """Only explicit nonstandard integer descriptors can be delegated."""
+    with pytest.raises(ValueError):
+        TerminalKeyboard(descriptor=descriptor)

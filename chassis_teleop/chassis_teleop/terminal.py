@@ -16,13 +16,21 @@ class TerminalUnavailable(RuntimeError):
 class TerminalKeyboard:
     """Own one close-on-exec terminal descriptor and a bounded escape-sequence buffer."""
 
-    def __init__(self, device: str = '/dev/tty') -> None:
+    def __init__(self, device: str = '/dev/tty', descriptor: Optional[int] = None) -> None:
         """Store the requested device without opening anything.
 
         Args:
             device: Explicit terminal path; tests must use their own pseudoterminal.
+            descriptor: Optional supervisor-opened terminal capability. Its duplicate
+                is used instead of opening device; the caller retains the original.
+
+        Raises:
+            ValueError: An inherited descriptor is not an explicit nonstandard integer.
         """
+        if descriptor is not None and (type(descriptor) is not int or descriptor < 3):
+            raise ValueError('terminal descriptor must be an integer greater than two')
         self.device = device
+        self._source = descriptor
         self._fd: Optional[int] = None
         self._settings = None
         self._sequence = ''
@@ -42,7 +50,9 @@ class TerminalKeyboard:
             raise RuntimeError('terminal reader is already open')
         try:
             flags = os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK | os.O_CLOEXEC
-            self._fd = os.open(self.device, flags)
+            self._fd = (os.open(self.device, flags) if self._source is None
+                        else os.dup(self._source))
+            os.set_inheritable(self._fd, False)
             if not os.isatty(self._fd):
                 raise TerminalUnavailable(f'TTY required: {self.device}')
             self._settings = termios.tcgetattr(self._fd)

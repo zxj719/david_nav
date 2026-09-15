@@ -25,13 +25,18 @@ from typing import Mapping, Optional, Sequence
 class OwnedProcess:
     """One private process group with bounded, idempotent shutdown."""
 
-    def __init__(self, argv: Sequence[str], environ: Mapping[str, str], log: Path) -> None:
+    def __init__(
+        self, argv: Sequence[str], environ: Mapping[str, str], log: Path,
+        pass_fds: Sequence[int] = (),
+    ) -> None:
         """Start a command with a new session, closed stdin and exclusive output log.
 
         Args:
             argv: Exact argument vector, never interpreted by a shell.
             environ: Explicit inherited environment for the child.
             log: New output file within the caller-owned run directory.
+            pass_fds: Explicit capabilities for this child only; empty closes all
+                nonstandard descriptors, as before. The parent retains ownership.
 
         Raises:
             ValueError: The command is empty or contains invalid arguments.
@@ -40,6 +45,10 @@ class OwnedProcess:
         """
         if not argv or any(not isinstance(arg, str) or '\0' in arg for arg in argv):
             raise ValueError('expected a nonempty argument vector without NUL')
+        if any(type(fd) is not int or fd < 3 for fd in pass_fds):
+            raise ValueError('passed descriptors must be integers greater than two')
+        for descriptor in pass_fds:
+            os.fstat(descriptor)
         if signal.getsignal(signal.SIGCHLD) == signal.SIG_IGN:
             raise RuntimeError('owned processes require waitable children')
         self._owner_pid = os.getpid()
@@ -48,7 +57,7 @@ class OwnedProcess:
             self._process = subprocess.Popen(
                 list(argv), env=dict(environ), stdin=subprocess.DEVNULL,
                 stdout=output, stderr=subprocess.STDOUT, start_new_session=True,
-                close_fds=True)
+                close_fds=True, pass_fds=tuple(pass_fds))
 
     @property
     def pid(self) -> int:

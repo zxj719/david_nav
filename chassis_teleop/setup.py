@@ -15,5 +15,8 @@ setup(
     maintainer='zhangxingjian', maintainer_email='xingjian.zhang@amicro.com.cn',
     description='Keyboard motion state and terminal input without ROS or hardware ownership.',
     license='Apache-2.0', tests_require=['pytest'],
-    entry_points={'console_scripts': ['chassis_teleop = chassis_teleop.node:main']},
+    entry_points={'console_scripts': [
+        'chassis_teleop = chassis_teleop.node:main',
+        'chassis_teleop_managed = chassis_teleop.node:managed_main',
+    ]},
 )

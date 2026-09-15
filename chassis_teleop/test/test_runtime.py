@@ -1,12 +1,16 @@
 """Guard and shutdown sequencing with fake ROS, locks, terminals and publishers."""
 
 from contextlib import nullcontext
+import os
+import pty
 import signal
+import socket
 from types import SimpleNamespace
 
 import pytest
 
 from chassis_teleop import node as runtime
+from nav_bringup.navrun.locking import LockBusy, RunLock
 
 
 @pytest.fixture
@@ -165,3 +169,91 @@ def test_signal_during_key_read_prevents_stale_command(runtime_hooks, monkeypatc
     assert runtime_hooks.history == [
         'lock', 'init', 'arm', 'zero_burst', 'destroy', 'shutdown', 'unlock']
     assert all(handler == 'original' for handler in handlers.values())
+
+
+def test_delegated_keyboard_waits_for_owner_before_arming(runtime_hooks):
+    """Publisher exclusion and ready/permit precede even the first zero command."""
+    import threading
+
+    history = runtime_hooks.history
+    channel = SimpleNamespace(ready=lambda: history.append('ready'),
+                              permitted=lambda: history.append('permit') or True,
+                              check_owner=lambda: history.append('owner'))
+    keyboard = SimpleNamespace(read_key=lambda _: 'q')
+    runtime.rclpy.init()
+    runtime.run_keyboard(runtime_hooks.node, keyboard, threading.Event(), channel)
+    assert history == ['init', 'ready', 'permit', 'arm', 'owner', 'owner']
+
+
+def test_delegated_owner_loss_prevents_processing_received_motion(runtime_hooks):
+    """A disconnect racing with a motion key cannot publish that motion."""
+    import threading
+
+    checks = []
+
+    def owner():
+        checks.append(True)
+        if len(checks) > 1:
+            raise runtime.KeyboardOwnerLost('owner gone')
+
+    channel = SimpleNamespace(ready=lambda: None, permitted=lambda: True, check_owner=owner)
+    runtime.rclpy.init()
+    with pytest.raises(runtime.KeyboardOwnerLost):
+        runtime.run_keyboard(runtime_hooks.node, SimpleNamespace(read_key=lambda _: 'w'),
+                             threading.Event(), channel)
+    assert runtime_hooks.history == ['init', 'arm']
+
+
+def test_delegated_missing_permit_has_bounded_unarmed_wait(runtime_hooks):
+    """A stalled owner never silently activates keyboard output."""
+    import threading
+
+    channel = SimpleNamespace(ready=lambda: None, permitted=lambda: False)
+    runtime.rclpy.init()
+    with pytest.raises(runtime.KeyboardOwnerLost, match='activation'):
+        runtime.run_keyboard(runtime_hooks.node, SimpleNamespace(read_key=lambda _: 'w'),
+                             threading.Event(), channel)
+    assert runtime_hooks.history == ['init']
+
+
+@pytest.mark.parametrize('valid', [False, True])
+def test_managed_entry_requires_real_flock_before_ros(tmp_path, monkeypatch, valid):
+    """A complete capability tuple cannot replace the kernel ownership check."""
+    path = tmp_path / 'lease'
+    parent, child = socket.socketpair()
+    master, slave = pty.openpty()
+    entered = []
+    descriptors = []
+    monkeypatch.setattr(runtime, 'DEFAULT_LOCK_PATH', path)
+    monkeypatch.setattr(runtime, '_run', lambda *args: entered.append(args) or 0)
+    try:
+        with RunLock(path) as lease:
+            with path.open('rb') as wrong:
+                source = lease.fileno() if valid else wrong.fileno()
+                descriptors = [os.dup(fd) for fd in (source, child.fileno(), slave)]
+                args = [item for name, fd in zip(('lock', 'control', 'tty'), descriptors)
+                        for item in (f'--{name}-fd', str(fd))]
+                assert runtime.managed_main(args) == (0 if valid else 2)
+                assert bool(entered) == valid
+                for fd in descriptors:
+                    with pytest.raises(OSError):
+                        os.fstat(fd)
+                with pytest.raises(LockBusy):
+                    RunLock(path).acquire()
+    finally:
+        parent.close()
+        child.close()
+        os.close(master)
+        os.close(slave)
+
+
+def test_owner_loss_after_activation_stops_and_restores(runtime_hooks, monkeypatch):
+    """A disconnected supervisor cannot skip the armed keyboard's stop burst."""
+    def lost():
+        raise runtime.KeyboardOwnerLost('disconnected')
+
+    channel = SimpleNamespace(ready=lambda: None, permitted=lambda: True, check_owner=lost)
+    with pytest.raises(runtime.KeyboardOwnerLost):
+        runtime._run([], channel)
+    assert runtime_hooks.history == [
+        'init', 'tty', 'arm', 'zero_burst', 'restore_tty', 'destroy', 'shutdown']
