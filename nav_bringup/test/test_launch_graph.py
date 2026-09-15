@@ -98,6 +98,8 @@ def test_profile_topics_and_optional_processes_are_respected() -> None:
     {'driver_package': ''}, {'chassis_command_topic': ''},
     {'mode': 'teleop', 'start_executor': True}, {'mode': 'chassis', 'start_chassis': False},
     {'mode': 'chassis', 'scan_bridge': True},
+    {'ready_timeout_sec': 0.0}, {'ready_timeout_sec': float('inf')},
+    {'executor_arguments': 'not argv'}, {'ready_action': ''},
 ])
 def test_invalid_graphs_are_rejected(changes) -> None:
     """Invalid switches fail while the graph is still pure data."""

@@ -71,6 +71,39 @@ def test_docstring_policy():
 
 ## Testing
 
+### Prepared launch entry (P4.1; supervisor integration pending)
+
+`nav.launch.py` consumes a pre-rendered run directory. It does not render, copy,
+remove, probe or signal external processes, and never starts localization.
+The selector arguments are `robot`, `site`, `mode`, `chassis:=on|off`,
+`executor:=true|false`, `composition:=false` and required `run_dir`.
+Robot/site/mode selectors must match the prepared bundle. Composition remains
+explicitly rejected until P5.4, rather than silently ignored.
+
+`launch.json` has version 1 and fields `schema_version`, `robot`, `site`, `options`.
+Options are the fields of `launching.graph.GraphOptions`, except `run_dir` comes
+from the launch argument; tuple-valued executor arguments are JSON arrays.
+All selected parameters must already exist under `params/rendered/`:
+`driver.yaml`, `adapter.yaml`, `nav2.yaml`, `lifecycle.yaml`, and the applicable
+`map_server.yaml`, `robot_state.yaml`, `scan_bridge.yaml`, `dock.yaml`,
+`rviz.yaml` or `teleop.yaml`. RViz also uses `inputs/navigation.rviz`.
+Lifecycle node order is checked against the graph before process construction.
+
+The launch adapter eagerly resolves every executable before returning actions.
+It allows only the configured number of driver respawns, shuts down on final
+critical exits, and never respawns during shutdown. Each respawn uses a fresh
+owned action instead of an unlimited background restart loop. External drivers
+are omitted completely. The plain legacy executor CLI is protected by a
+read-only action-server readiness gate and receives its exact argv, without a shell.
+
+This is not yet a ready-to-deploy replacement for aliases: P4.2 must prepare the
+complete bundle and finish navrun supervision; P4.3/P4.4 must supply the adapter
+and teleop packages referenced by the graph. No production alias has changed.
+The sandbox launch checks use disposable Python children and an optional fake
+Nav2 server; they never run the physical driver or submit a goal.
+
+### Unit tests
+
 ```bash
 source /opt/ros/humble/setup.bash
 cd ~/ros2_ws_refactor

@@ -49,6 +49,8 @@ class GraphOptions:
         cloud_topic: Optional preprocessing input.
         scan_topic: Optional preprocessing output.
         executor_arguments: Frozen legacy executor CLI arguments until Phase 6.
+        ready_timeout_sec: Maximum wall-clock wait before refusing to start the executor.
+        ready_action: Navigation action server checked without submitting any goal.
     """
 
     mode: str
@@ -71,6 +73,8 @@ class GraphOptions:
     cloud_topic: str = 'cloud_in'
     scan_topic: str = 'scan'
     executor_arguments: Tuple[str, ...] = ()
+    ready_timeout_sec: float = 90.0
+    ready_action: str = '/navigate_to_pose'
 
 
 @dataclass(frozen=True)
@@ -89,6 +93,8 @@ class ProcessSpec:
         critical: Whether an unexpected final exit shuts down the whole graph.
         wait_for_navigation: Whether a readiness gate precedes process execution.
         ros_node: Whether ROS node name/parameter arguments may be appended.
+        ready_timeout_sec: Deadline of the optional navigation readiness gate.
+        ready_action: Action name used by the optional readiness gate.
     """
 
     name: str
@@ -102,6 +108,8 @@ class ProcessSpec:
     critical: bool = True
     wait_for_navigation: bool = False
     ros_node: bool = True
+    ready_timeout_sec: float = 90.0
+    ready_action: str = '/navigate_to_pose'
 
 
 @dataclass(frozen=True)
@@ -133,13 +141,19 @@ def _validate(options: GraphOptions) -> None:
             raise ValueError('launch delays must be finite and nonnegative')
     if type(options.driver_restarts) is not int or options.driver_restarts < 0:
         raise ValueError('driver_restarts must be a nonnegative integer')
+    if isinstance(options.ready_timeout_sec, bool) or not math.isfinite(
+            options.ready_timeout_sec) or options.ready_timeout_sec <= 0:
+        raise ValueError('ready_timeout_sec must be finite and positive')
+    if not isinstance(options.executor_arguments, tuple) or not all(
+            isinstance(argument, str) for argument in options.executor_arguments):
+        raise ValueError('executor_arguments must be a tuple of strings')
     if options.start_executor and options.mode not in ('tour', 'precise'):
         raise ValueError('the executor is only valid in tour or precise mode')
     if options.scan_bridge and options.mode not in NAVIGATION_MODES:
         raise ValueError('preprocessing is only valid in a navigation mode')
     for name in ('driver_package', 'driver_executable', 'nav_command_topic',
                  'smooth_command_topic', 'chassis_command_topic', 'chassis_odom_topic',
-                 'cloud_topic', 'scan_topic'):
+                 'cloud_topic', 'scan_topic', 'ready_action'):
         if not isinstance(getattr(options, name), str) or not getattr(options, name).strip():
             raise ValueError(f'{name} must be a nonempty string')
 
@@ -219,7 +233,8 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
         processes.append(ProcessSpec(
             'navigation_executor', 'david_nav', 'navigation_executor.py',
             arguments=options.executor_arguments, delay_sec=delay,
-            wait_for_navigation=True, ros_node=False))
+            wait_for_navigation=True, ros_node=False,
+            ready_timeout_sec=options.ready_timeout_sec, ready_action=options.ready_action))
     if options.rviz:
         processes.append(ProcessSpec(
             'rviz2', 'rviz2', 'rviz2', params('rviz'),

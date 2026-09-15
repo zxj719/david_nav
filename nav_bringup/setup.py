@@ -12,6 +12,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + PACKAGE_NAME]),
         ('share/' + PACKAGE_NAME, ['package.xml', 'README.md']),
+        ('share/' + PACKAGE_NAME + '/launch', ['launch/nav.launch.py']),
         ('share/' + PACKAGE_NAME + '/config', [
             'config/nav2_base.yaml',
             'config/nav2_bindings.yaml',
@@ -29,6 +30,7 @@ setup(
         'console_scripts': [
             'navcfg = nav_bringup.navcfg.cli:main',
             'navrun = nav_bringup.navrun.cli:main',
+            'nav_ready_exec = nav_bringup.launching.ready_exec:main',
         ],
     },
 )
