@@ -1,3 +1,5 @@
+"""Legacy navigation WS v1 commands and ordered event mappings, with no I/O."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,14 +9,21 @@ from david_nav.navigation_types import StoredPoi
 
 
 class CommandParseError(ValueError):
-    """navigate_to 等命令字段缺失/类型错。
+    """Report missing or malformed navigate_to fields with recoverable request context.
 
     v1 checklist:"target_id 缺字段/类型不对 → 发 on_error,不要启车"。
     带上 request_id/sub_id(尽力从 payload 提取),core 据此构造 on_error;
     request_id 也拿不到时 core 只能记日志丢弃。
     """
 
-    def __init__(self, message: str, request_id: str | None, sub_id: int):
+    def __init__(self, message: str, request_id: str | None, sub_id: int) -> None:
+        """Retain recoverable request context with the original error text.
+
+        Args:
+            message: Human-readable protocol failure.
+            request_id: Recovered request identity, or None.
+            sub_id: Recovered subtask number, defaulting to zero at decoding.
+        """
         super().__init__(message)
         self.request_id = request_id
         self.sub_id = sub_id
@@ -22,6 +31,8 @@ class CommandParseError(ValueError):
 
 @dataclass(frozen=True)
 class NavigateToCommand:
+    """A v1 navigation request referring only to a stored POI identifier."""
+
     action: str
     request_id: str
     sub_id: int
@@ -30,6 +41,8 @@ class NavigateToCommand:
 
 @dataclass(frozen=True)
 class MarkCurrentPoiCommand:
+    """A request to capture the current pose as a named POI."""
+
     action: str
     request_id: str
     sub_id: int
@@ -39,12 +52,16 @@ class MarkCurrentPoiCommand:
 
 @dataclass(frozen=True)
 class AbortNavigationCommand:
+    """A cancellation request scoped to one navigation request identifier."""
+
     action: str
     request_id: str
 
 
 @dataclass(frozen=True)
 class UpdatePoiListCommand:
+    """A versioned semantic directory update, preserving the legacy list payload."""
+
     action: str
     version: int
     poi_list: list[dict]
@@ -69,6 +86,20 @@ def _extract_request_context(payload: dict) -> tuple[str | None, int]:
 
 
 def parse_command(payload: dict) -> Command:
+    """Decode a legacy command without changing malformed-frame behavior.
+
+    Args:
+        payload: Already decoded JSON mapping.
+
+    Returns:
+        The corresponding command value object.
+
+    Raises:
+        CommandParseError: A navigate_to request lacks required context or target.
+        ValueError: An action is unsupported or a legacy numeric conversion fails.
+        KeyError: A non-navigation command lacks a required field.
+        TypeError: A legacy field cannot be converted to its expected type.
+    """
     action = str(payload.get("action", "")).strip()
     if action == "navigate_to":
         # nav 协议 v1(2026-07-22 回退定稿):只认 target_id(POI id 字符串)。
@@ -120,6 +151,17 @@ def build_progress_event(
     remaining_distance: float,
     status: str,
 ) -> dict:
+    """Build the ordered progress mapping with legacy three-decimal rounding.
+
+    Args:
+        request_id: Request correlation identifier.
+        sub_id: Subtask correlation number.
+        remaining_distance: Remaining distance in meters.
+        status: Legacy running/paused status string.
+
+    Returns:
+        Ordered protocol mapping, ready for unchanged JSON serialization.
+    """
     return {
         "event_type": "on_progress",
         "request_id": request_id,
@@ -134,6 +176,16 @@ def build_mark_poi_success_event(
     sub_id: int,
     poi: StoredPoi,
 ) -> dict:
+    """Build the successful mark acknowledgement using the stored POI identity.
+
+    Args:
+        request_id: Request correlation identifier.
+        sub_id: Subtask correlation number.
+        poi: Stored POI providing its identifier and name.
+
+    Returns:
+        Ordered legacy on_mark_poi_success event mapping.
+    """
     return {
         "event_type": "on_mark_poi_success",
         "request_id": request_id,
@@ -146,6 +198,15 @@ def build_mark_poi_success_event(
 
 
 def build_arrived_event(request_id: str, sub_id: int) -> dict:
+    """Build the successful navigation terminal event.
+
+    Args:
+        request_id: Request correlation identifier.
+        sub_id: Subtask correlation number.
+
+    Returns:
+        Ordered legacy on_arrived event mapping.
+    """
     return {
         "event_type": "on_arrived",
         "request_id": request_id,
@@ -154,6 +215,16 @@ def build_arrived_event(request_id: str, sub_id: int) -> dict:
 
 
 def build_error_event(request_id: str, sub_id: int, error_message: str) -> dict:
+    """Build the navigation failure event without altering its error text.
+
+    Args:
+        request_id: Request correlation identifier.
+        sub_id: Subtask correlation number.
+        error_message: Failure detail converted with the legacy str operation.
+
+    Returns:
+        Ordered legacy on_error event mapping.
+    """
     return {
         "event_type": "on_error",
         "request_id": request_id,
@@ -163,6 +234,15 @@ def build_error_event(request_id: str, sub_id: int, error_message: str) -> dict:
 
 
 def build_mark_poi_ack(request_id: str, sub_id: int) -> dict:
+    """Build the immediate acknowledgement before pose capture completes.
+
+    Args:
+        request_id: Request correlation identifier.
+        sub_id: Subtask correlation number.
+
+    Returns:
+        Ordered accepted acknowledgement mapping.
+    """
     return {
         "event_type": "on_mark_poi_ack",
         "request_id": request_id,
@@ -172,6 +252,16 @@ def build_mark_poi_ack(request_id: str, sub_id: int) -> dict:
 
 
 def build_mark_poi_error(request_id: str, sub_id: int, error_message: str) -> dict:
+    """Build a capture/storage failure event with the existing wire field order.
+
+    Args:
+        request_id: Request correlation identifier.
+        sub_id: Subtask correlation number.
+        error_message: Failure detail converted with the legacy str operation.
+
+    Returns:
+        Ordered legacy on_mark_poi_error event mapping.
+    """
     return {
         "event_type": "on_mark_poi_error",
         "request_id": request_id,

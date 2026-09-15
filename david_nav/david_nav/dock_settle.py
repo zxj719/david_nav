@@ -1,4 +1,4 @@
-"""dock_settle —— 判断底盘是否真的停稳了。纯函数，无 ROS 依赖，可单测。
+"""Detect continuous settling from pose samples without ROS dependencies.
 
 ## 为什么需要它
 
@@ -27,6 +27,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
+from typing import Callable, Sequence
 
 # 浮点容差：窗口覆盖判定用，避免 0.4 vs 0.39999999 这种误判
 _EPS = 1e-9
@@ -34,7 +35,7 @@ _EPS = 1e-9
 
 @dataclass(frozen=True)
 class SettleSpec:
-    """停稳判据。
+    """Thresholds for a continuously settled trailing sample window.
 
     max_rate_rad_s : 窗口内任意相邻样本间的角速度上限。实测静态定位抖动
                      yaw std 仅 0.068°(≈0.0012 rad)，20Hz 下抖动带来的表观角速度
@@ -53,8 +54,8 @@ def _wrap(a: float) -> float:
     return (a + math.pi) % (2.0 * math.pi) - math.pi
 
 
-def is_settled(samples, spec: SettleSpec) -> bool:
-    """samples = [(t, yaw)] 按时间升序。尾部 window_sec 内一直低于角速度上限才算停稳。
+def is_settled(samples: Sequence[tuple[float, float]], spec: SettleSpec) -> bool:
+    """Check continuous angular-rate stability across the complete trailing window.
 
     两条都必须满足，缺一不可：
       ① 尾部窗口**被数据铺满**（时间跨度 >= window_sec）—— 这条专门堵"刚停 100ms
@@ -62,6 +63,13 @@ def is_settled(samples, spec: SettleSpec) -> bool:
       ② 窗口内每一对相邻样本的角速度都低于上限。
     角度差一律先 wrap，否则车停在 ±180° 附近时 +π/−π 的表示切换会被当成 2π 的
     高速旋转。
+
+    Args:
+        samples: Time/yaw samples ordered by ascending time.
+        spec: Continuous-window and angular-rate thresholds.
+
+    Returns:
+        Whether the trailing window is covered and every measured rate satisfies the threshold.
     """
     if len(samples) < 2:
         return False
@@ -96,15 +104,30 @@ def is_settled(samples, spec: SettleSpec) -> bool:
     return True
 
 
-def wait_until_settled(pose_fn, spec: SettleSpec, timeout_sec: float,
-                       now_fn=None, sleep_fn=None):
-    """轮询 pose_fn 直到停稳或超时。返回 (settled, last_pose)。
+def wait_until_settled(
+    pose_fn: Callable[[], tuple[float, float, float] | None],
+    spec: SettleSpec,
+    timeout_sec: float,
+    now_fn: Callable[[], float] | None = None,
+    sleep_fn: Callable[[float], None] | None = None,
+) -> tuple[bool, tuple[float, float, float] | None]:
+    """Poll until settled or timed out, retaining the last available pose.
 
     pose_fn : 无参可调用，返回 (x, y, yaw) 或 None（取不到位姿）。
     now_fn / sleep_fn : 注入时钟，方便确定性单测；默认用 time.monotonic / time.sleep。
 
     超时也把**最后一次拿到的位姿**交出去 —— 调用方需要它来报告实际误差，
     "等不到停稳"和"取不到位姿"是两回事。
+
+    Args:
+        pose_fn: Pose provider returning x/y/yaw or None.
+        spec: Continuous-window and angular-rate thresholds.
+        timeout_sec: Maximum polling duration.
+        now_fn: Injected monotonic clock; defaults to time.monotonic.
+        sleep_fn: Injected sleeper; defaults to time.sleep.
+
+    Returns:
+        Settled flag and the latest available pose, including when the wait times out.
     """
     now_fn = now_fn or time.monotonic
     sleep_fn = sleep_fn or time.sleep

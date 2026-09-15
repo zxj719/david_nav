@@ -1,4 +1,4 @@
-"""dock_finish —— 阶段2 之后的"测量 -> 判定 -> 纯旋转补偿"。纯逻辑，无 ROS，可单测。
+"""Measure, judge and optionally correct yaw after phase two, without ROS dependencies.
 
 ## 这段逻辑为什么要单独拎出来
 
@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Callable
 
 from david_nav.dock_settle import SettleSpec, wait_until_settled
 
 
 @dataclass(frozen=True)
 class DockTolerance:
-    """与 dock_navigator 的参数同名同义，避免两处漂移。"""
+    """Preserve the parameter names and meanings consumed by dock_navigator."""
 
     xy_ok: float = 0.10
     yaw_ok: float = 0.087           # rad, 约 5°
@@ -46,9 +47,11 @@ class DockTolerance:
 
 @dataclass
 class DockOutcome:
+    """Finish verdict and measured settled pose, errors and correction count."""
+
     ok: bool
     reason: str          # settled_ok / xy_out_of_tol / yaw_not_converged /
-                         # no_pose / not_settled
+    # Remaining reason values: no_pose / not_settled.
     pose: tuple          # 判定所依据的位姿（停稳后的），取不到时为 None
     exy: float
     eyaw: float
@@ -65,12 +68,34 @@ def _errors(pose, goal):
     return exy, _wrap(pose[2] - goal[2])
 
 
-def finish_docking(goal, pose_fn, spin_fn, tol: DockTolerance, spec: SettleSpec,
-                   settle_timeout_sec: float, now_fn=None, sleep_fn=None,
-                   on_event=None) -> DockOutcome:
-    """goal = (x, y, yaw)；pose_fn() -> (x,y,yaw)|None；spin_fn(target_yaw) -> bool。
+def finish_docking(
+    goal: tuple[float, float, float],
+    pose_fn: Callable[[], tuple[float, float, float] | None],
+    spin_fn: Callable[[float], bool],
+    tol: DockTolerance,
+    spec: SettleSpec,
+    settle_timeout_sec: float,
+    now_fn: Callable[[], float] | None = None,
+    sleep_fn: Callable[[float], None] | None = None,
+    on_event: Callable[..., None] | None = None,
+) -> DockOutcome:
+    """Finish docking only after settling, retaining the legacy correction policy.
 
     on_event(name, **kw) 可选，用来把过程打进 ROS 日志而不把 ROS 塞进本模块。
+
+    Args:
+        goal: Desired x/y/yaw pose.
+        pose_fn: Current pose provider returning x/y/yaw or None.
+        spin_fn: Injected spin operation, preserving the legacy ignored boolean result.
+        tol: Position/yaw tolerances and correction budget.
+        spec: Settling window and angular-rate thresholds.
+        settle_timeout_sec: Maximum wait before each measurement.
+        now_fn: Optional injected monotonic clock.
+        sleep_fn: Optional injected sleeper.
+        on_event: Optional callback receiving the unchanged event name and fields.
+
+    Returns:
+        The existing finish verdict, measurements and correction count.
     """
     def emit(name, **kw):
         if on_event is not None:
