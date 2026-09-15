@@ -191,10 +191,14 @@ def test_external_cancel_preserves_g12_paused_active_semantics():
         events = manager.subscribe_events()
         await manager.submit(_request())
         await skill.starts.get()
+        skill.contexts[0].feedback(8.5)
+        await events.get()
         skill.results[0].set_result(NavOutcome(NavStatus.CANCELED))
         event = await events.get()
         assert event.kind == EventKind.PROGRESS
         assert event.status == 'paused'
+        assert event.remaining_distance == 0.0
+        assert manager.status().remaining_distance == 0.0
         assert manager.status().state == TaskState.NAVIGATING
         assert manager.status().task_id == 'task'
         skill.contexts[0].feedback(99)

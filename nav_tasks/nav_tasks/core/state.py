@@ -212,6 +212,9 @@ class TaskManager:
         if not self._is_current(active):
             return
         if outcome.status == NavStatus.CANCELED:
+            # The legacy backend reports zero for external cancellation, unlike
+            # our own abort acknowledgement, which retains the last feedback.
+            active.remaining = 0.0
             self._state = TaskState.NAVIGATING
             self._emit(active, EventKind.PROGRESS, status='paused')
             return
