@@ -18,8 +18,16 @@ ament_target_dependencies(wheeltec_transport serial)
 target_compile_options(wheeltec_transport PRIVATE -Wall -Wextra -Wpedantic)
 install(TARGETS wheeltec_transport EXPORT export_wheeltec_transport
   LIBRARY DESTINATION lib ARCHIVE DESTINATION lib RUNTIME DESTINATION bin)
+add_library(wheeltec_attitude SHARED src/imu_attitude.cpp)
+target_compile_features(wheeltec_attitude PUBLIC cxx_std_17)
+target_compile_options(wheeltec_attitude PRIVATE -Wall -Wextra -Wpedantic -ffp-contract=off)
+target_include_directories(wheeltec_attitude PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+install(TARGETS wheeltec_attitude EXPORT export_wheeltec_attitude
+  LIBRARY DESTINATION lib ARCHIVE DESTINATION lib RUNTIME DESTINATION bin)
 install(DIRECTORY include/ DESTINATION include)
-install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config docs DESTINATION share/${PROJECT_NAME})
 install(FILES README.md NOTICE DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
@@ -34,9 +42,20 @@ if(BUILD_TESTING)
     UPLINK_GOLDEN_FILE="${CMAKE_CURRENT_SOURCE_DIR}/../third_party/wheeltec_original/golden/uplink_status_frames_2026-09-14.txt")
   ament_add_gtest(test_status_reader test/test_status_reader.cpp)
   target_link_libraries(test_status_reader wheeltec_transport)
+  include(cmake/imu_reference.cmake)
+  # Instrument both the new implementation and the sanitized vendor reference.
+  # No ROS context or hardware is created by this pure numerical test.
+  ament_add_gtest(test_imu_attitude
+    test/test_imu_attitude.cpp src/imu_attitude.cpp "${imu_reference}")
+  target_compile_features(test_imu_attitude PUBLIC cxx_std_17)
+  target_include_directories(test_imu_attitude PRIVATE include test)
+  target_compile_options(test_imu_attitude PRIVATE
+    -ffp-contract=off -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_libraries(test_imu_attitude -fsanitize=address,undefined)
 endif()
 
 ament_export_targets(export_wheeltec_protocol HAS_LIBRARY_TARGET)
 ament_export_targets(export_wheeltec_transport HAS_LIBRARY_TARGET)
+ament_export_targets(export_wheeltec_attitude HAS_LIBRARY_TARGET)
 ament_export_dependencies(serial)
 ament_package()

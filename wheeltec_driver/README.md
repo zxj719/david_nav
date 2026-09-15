@@ -9,6 +9,10 @@ P3.8 / D2 传输层：`ByteStream` 可注入内存假串口；`SerialStream` 连
 若有效帧后发生 I/O 异常，本次不返回样本，与旧实现一致。实例间不共享旧 static 半帧状态。
 统计量是累计值，供后续 diagnostics 使用；本层不改变重连时序、写帧或停车策略。
 
+`ImuAttitude` 提取原 20 Hz 姿态算法，并修复 Jetson 上已复现的 long/float 越界读取；
+数值参考仅修正旧函数的内存访问，详细范围与 sanitizer 验证见 `docs/imu_safety.md`。
+不宣称与旧未定义行为逐位等价；生产仍未切换。
+
 下行 11 字节：`7B 00 00 vx_hi vx_lo vy_hi vy_lo wz_hi wz_lo xor 7D`。
 三个轴以 1000 倍转换为有符号 int16、大端、向零截断；X/Y 单位 m/s，Z 单位 rad/s。
 `encodeCommand()` 只返回数组，不向任何设备写入。

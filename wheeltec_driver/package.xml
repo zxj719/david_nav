@@ -5,6 +5,7 @@
   <description>Pure Wheeltec wire protocol; isolated driver migration in progress.</description>
   <maintainer email="xingjian.zhang@amicro.com.cn">zhangxingjian</maintainer>
   <license>Apache-2.0</license>
+  <license>LicenseRef-Wheeltec-Unspecified</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>serial</depend>
   <test_depend>ament_cmake_gtest</test_depend>
