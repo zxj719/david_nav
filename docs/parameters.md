@@ -81,6 +81,10 @@ This file lists every robot-profile key declared by package schemas.
 | `record.storage` | `string` | — | default: `"sqlite3"` | choices: `"sqlite3"` | rosbag2 存储插件；mcap 插件未安装（TODO） | — |
 | `startup.nav_ready_timeout_sec` | `float` | s | default: `120.0` | range: `0.0 .. inf` | 统一入口等待 Nav2 action server 的最长时间，运行时严格大于零；不限制人工定位等待 | — |
 
+## `nav_executor`
+
+No parameters declared.
+
 ## `nav_perception_iface`
 
 | Key | Type | Unit | Required / default | Constraints | Description | Tuning |
@@ -124,6 +128,10 @@ This file lists every robot-profile key declared by package schemas.
 | `simulation.dt` | `float` | s | default: `0.02` | range: `0.0 .. inf` | 假底盘固定积分步长，必须大于零；保留旧脚本 Euler 积分语义 | — |
 | `simulation.odom_topic` | `string` | — | default: `"/odom"` | — | 假底盘输出 Odometry，假定位从此订阅；节点 odom_topic 参数 | — |
 | `simulation.output_odom_topic` | `string` | — | default: `""` | — | 假定位可选镜像里程计话题；空值或与输入相同则不再发布 | — |
+
+## `nav_tasks`
+
+No parameters declared.
 
 ## `wheeltec_driver`
 

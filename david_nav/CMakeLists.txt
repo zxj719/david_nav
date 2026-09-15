@@ -289,6 +289,11 @@ if(BUILD_TESTING)
     test/test_precise_nav_bringup_launch.py
   )
 
+  ament_add_pytest_test(
+    pure_contract_migration_test
+    test/test_pure_contract_migration.py
+  )
+
 endif()
 
 ament_package()

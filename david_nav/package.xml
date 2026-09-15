@@ -6,6 +6,8 @@
   <description>Navigation package for Unitree David robot</description>
   <maintainer email="luoyifan902008@126.com">FLYivan</maintainer>
   <license>Apache-2.0</license>
+  <exec_depend>nav_tasks</exec_depend>
+  <exec_depend>nav_executor</exec_depend>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
