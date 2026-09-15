@@ -6,6 +6,7 @@
     收到 /goal_pose (map 系) ->
       预备点 = 目标位置 - approach_dist * [cos(goal_yaw), sin(goal_yaw)]
                朝向 = goal_yaw
+      静态地图校验预备点的完整车身轮廓；有占用格或超出地图就拒绝
       阶段1  NavigateToPose(预备点)   允许位移
       阶段2  NavigateToPose(目标)     允许位移, 沿目标航向直线入位
       TF 实测 map->base_footprint:
@@ -38,12 +39,16 @@ import rclpy
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose, Spin
+from nav_msgs.msg import OccupancyGrid
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from tf2_ros import Buffer, TransformListener
 
+from david_nav.dock_approach import FootprintCheck, OccupancyGridView
+from david_nav.dock_approach import check_footprint, parse_footprint
 from david_nav.dock_finish import DockTolerance, finish_docking
 from david_nav.dock_settle import SettleSpec
 
@@ -59,6 +64,7 @@ def wrap(a):
 
 # dock_finish 的失败判词; 其余 outcome 都是入位达标(见 execute_docking 末尾的 report)。
 DOCK_FAILURE_REASONS = ('no_pose', 'not_settled', 'xy_out_of_tol', 'yaw_not_converged')
+DEFAULT_FOOTPRINT = '[[0.255, 0.30], [0.255, -0.30], [-0.465, -0.30], [-0.465, 0.30]]'
 
 
 def wait_done(fut, timeout_sec, should_cancel=None, poll_sec=0.1):
@@ -104,10 +110,14 @@ class DockNavigator(Node):
         self.declare_parameter('global_frame', 'map')
         self.declare_parameter('nav_timeout_sec', 120.0)
         self.declare_parameter('spin_timeout_sec', 30.0)
+        # 预备点在发给 Nav2 前必须通过静态地图完整 footprint 校验。
+        self.declare_parameter('static_map_topic', '/map')
+        self.declare_parameter('static_occupied_threshold', 50)
+        self.declare_parameter('footprint', DEFAULT_FOOTPRINT)
         # ---- 停稳判据（2026-09-10 新增）----
         # 实测静态定位抖动 yaw std 仅 0.068°，20Hz 下表观角速度约 0.02-0.05 rad/s，
         # 所以 max_rate 不能定得比这更严，否则永远等不到"停稳"。
-        self.declare_parameter('settle_max_rate_rad_s', 0.02)
+        self.declare_parameter('settle_max_rate_rad_s', 0.05)
         self.declare_parameter('settle_window_sec', 0.4)
         self.declare_parameter('settle_timeout_sec', 8.0)
 
@@ -120,6 +130,8 @@ class DockNavigator(Node):
         self.global_frame = g('global_frame').value
         self.nav_timeout = g('nav_timeout_sec').value
         self.spin_timeout = g('spin_timeout_sec').value
+        self.static_occupied_threshold = int(g('static_occupied_threshold').value)
+        self.footprint = parse_footprint(g('footprint').value)
         self.settle_timeout = g('settle_timeout_sec').value
         self.settle_spec = SettleSpec(
             max_rate_rad_s=g('settle_max_rate_rad_s').value,
@@ -129,6 +141,16 @@ class DockNavigator(Node):
         self._spin_idx = 0
 
         self.cbg = ReentrantCallbackGroup()
+        self._static_map = None
+        self._static_map_lock = threading.Lock()
+        map_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.create_subscription(
+            OccupancyGrid, g('static_map_topic').value, self._on_static_map,
+            map_qos, callback_group=self.cbg)
         self.tf_buf = Buffer()
         self.tf_listener = TransformListener(self.tf_buf, self)
         self.nav_cli = ActionClient(self, NavigateToPose, 'navigate_to_pose',
@@ -156,6 +178,10 @@ class DockNavigator(Node):
         self.get_logger().info(
             '[dock] 动作接口: %s（NavigateToPose 类型，供 navigation_executor 调用）'
             % g('action_name').value)
+        self.get_logger().info(
+            '[dock] 预备点安全校验: 静态地图=%s occupied>=%d footprint=%s'
+            % (g('static_map_topic').value, self.static_occupied_threshold,
+               self.footprint))
 
     # ---------- 工具 ----------
     def pose_now(self, timeout_sec=2.0):
@@ -178,6 +204,25 @@ class DockNavigator(Node):
         p.pose.orientation.z = math.sin(yaw / 2.0)
         p.pose.orientation.w = math.cos(yaw / 2.0)
         return p
+
+    def _on_static_map(self, message):
+        """缓存 transient-local 静态地图，供 dock 工作线程做预备点校验。"""
+        view = OccupancyGridView.from_message(message)
+        with self._static_map_lock:
+            self._static_map = view
+
+    def _check_approach_footprint(self, x, y, yaw):
+        """检查预备点的完整车身轮廓，地图未就绪或帧不一致时保守拒绝。"""
+        with self._static_map_lock:
+            grid = self._static_map
+        if grid is None:
+            return FootprintCheck(False, 'static_map_not_received')
+        if grid.frame_id != self.global_frame:
+            return FootprintCheck(
+                False, 'static_map_frame_mismatch:%s!=%s'
+                % (grid.frame_id, self.global_frame))
+        return check_footprint(
+            grid, self.footprint, (x, y, yaw), self.static_occupied_threshold)
 
     def wait_future(self, fut, timeout_sec, should_cancel=None):
         """等 future 完成，但**自己绝不 spin** —— 由 main() 里的执行器负责转。
@@ -320,6 +365,16 @@ class DockNavigator(Node):
         self.get_logger().info(
             '[dock] 阶段1 预备点 (%.3f, %.3f) yaw=%.1f°（沿目标航向后退 %.2fm）'
             % (px, py, math.degrees(gyaw), self.approach_dist))
+
+        approach_check = self._check_approach_footprint(px, py, gyaw)
+        if not approach_check.clear:
+            detail = approach_check.reason
+            if approach_check.occupied_cell is not None:
+                mx, my, value = approach_check.occupied_cell
+                detail += ' cell=(%d,%d) value=%d' % (mx, my, value)
+            self.report(False, '预备点车身轮廓静态地图校验失败: %s' % detail)
+            return 'failed'
+        self.get_logger().info('[dock] 预备点车身轮廓静态地图校验通过')
 
         g1 = NavigateToPose.Goal()
         g1.pose = self.make_pose(px, py, gyaw)

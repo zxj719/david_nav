@@ -44,7 +44,7 @@ class SettleSpec:
     sample_period_sec : 轮询周期。
     """
 
-    max_rate_rad_s: float = 0.02
+    max_rate_rad_s: float = 0.05
     window_sec: float = 0.4
     sample_period_sec: float = 0.05
 

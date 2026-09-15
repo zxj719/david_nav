@@ -397,6 +397,11 @@ if(BUILD_TESTING)
   )
 
   ament_add_pytest_test(
+    dock_approach_test
+    test/test_dock_approach.py
+  )
+
+  ament_add_pytest_test(
     precise_nav_bringup_launch_test
     test/test_precise_nav_bringup_launch.py
   )
