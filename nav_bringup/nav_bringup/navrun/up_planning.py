@@ -197,7 +197,7 @@ def report_plan(plan: UpPlan) -> Dict[str, Any]:
     """
     options = plan.bundle.options
     return {
-        'dry_run': True, 'runtime_enabled': False,
+        'dry_run': True, 'runtime_enabled': plan.request.mode != 'teleop',
         'robot': plan.bundle.robot, 'site': plan.bundle.site, 'mode': options.mode,
         'run_dir': options.run_dir, 'record': plan.request.record,
         'recording': asdict(plan.recording),
@@ -216,6 +216,5 @@ def report_plan(plan: UpPlan) -> Dict[str, Any]:
         'artifacts': [name for name, _ in plan.bundle.artifacts],
         'warnings': [asdict(issue) for issue in plan.bundle.issues],
         'errors': list(plan.errors),
-        'pending_runtime': ['recording and manifest orchestration',
-                            'readiness and manual localization checks', 'exit zero and cleanup'],
+        'pending_runtime': ['combined teleop ownership and navigation acceptance'],
     }

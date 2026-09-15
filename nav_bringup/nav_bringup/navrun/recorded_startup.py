@@ -2,7 +2,7 @@
 
 Host operations and command binding are explicit callbacks: importing this module
 does not configure hardware, discover ROS, clean DDS, or start a process. The live
-CLI remains disabled until its real bindings and zero publisher are verified.
+CLI supplies these bindings explicitly; tests substitute private or fake adapters.
 """
 
 from __future__ import annotations
@@ -119,8 +119,17 @@ class _Signals:
             signal.signal(number, handler)
 
 
-class _Interrupted(Exception):
-    pass
+class StartupInterrupted(Exception):
+    """An explicit shutdown request observed by a startup operation."""
+
+    def __init__(self, signum: int) -> None:
+        """Preserve the first signal even across a host-operation boundary.
+
+        Args:
+            signum: Signal number received by the owning supervisor.
+        """
+        self.signum = signum
+        super().__init__(f'startup interrupted by signal {signum}')
 
 
 def run_recorded_startup(
@@ -218,9 +227,10 @@ def run_recorded_startup(
             _check_signal(stopped)
             stage = 'launch'
             result = supervise(selected, run.path, events, env, lease, stopped)
-        except _Interrupted:
-            result = LifecycleResult(128 + stopped(),
-                                     'ctrl_c' if stopped() == signal.SIGINT else 'terminated')
+        except StartupInterrupted as interrupted:
+            result = LifecycleResult(128 + interrupted.signum,
+                                     'ctrl_c' if interrupted.signum == signal.SIGINT
+                                     else 'terminated')
         except KeyboardInterrupt:
             result = LifecycleResult(130, 'ctrl_c')
         except Exception as error:
@@ -273,7 +283,7 @@ def _check_plan(options, plan, path):
 
 def _check_signal(stopped):
     if stopped() is not None:
-        raise _Interrupted()
+        raise StartupInterrupted(stopped())
 
 
 def _link_spec(plan):

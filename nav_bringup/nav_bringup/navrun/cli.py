@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog='navrun', description='Navigation run supervisor and recorder.')
     subparsers = parser.add_subparsers(dest='subcommand', required=True)
 
-    up_parser = subparsers.add_parser('up', help='preview unified startup (runtime pending)')
+    up_parser = subparsers.add_parser('up', help='start and record a navigation mode')
     up_parser.add_argument('--mode', required=True, choices=(
         'tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'))
     up_parser.add_argument('--robot', default='david')
@@ -48,7 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     up_parser.add_argument('--chassis', choices=('auto', 'on', 'off'), default='auto')
     up_parser.add_argument('--no-executor', action='store_true')
     up_parser.add_argument('--dry-run', action='store_true')
-    up_parser.add_argument('--runs-root', type=Path, help='prospective run root; not created')
+    up_parser.add_argument('--strict', action='store_true', help='fail on live check errors')
+    up_parser.add_argument('--repo', type=Path, help='repository whose code state is recorded')
+    up_parser.add_argument('--runs-root', type=Path, help='run root; not created by --dry-run')
     up_parser.add_argument('--source-root', type=Path, help='use source-tree resource files')
 
     wrap_parser = subparsers.add_parser(
@@ -205,6 +207,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     """
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
+    args.invocation = ('navrun', *(sys.argv[1:] if argv is None else list(argv)))
     if args.subcommand == 'up':
         from nav_bringup.navrun import up
 

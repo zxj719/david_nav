@@ -1,8 +1,9 @@
-"""Startup CLI preview; actual startup remains disabled until lifecycle wiring is complete."""
+"""Unified startup CLI with a pure preview and a lock-scoped recorded runtime."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,10 @@ from typing import Any, Dict, Tuple
 from nav_bringup.launching.executables import resolve_executable
 from nav_bringup.navcfg import schema
 from nav_bringup.navrun.preflight import PreflightError, ProcessInfo
+from nav_bringup.navrun.locking import DEFAULT_LOCK_PATH
+from nav_bringup.navrun.recorded_startup import run_recorded_startup, StartupOptions
+from nav_bringup.navrun.runtime_commands import bind_commands
+from nav_bringup.navrun.runtime_host import bind_host_steps
 from nav_bringup.navrun.up_planning import discover_inputs, plan_up, report_plan, UpRequest
 from nav_bringup.recorder.run_dir import default_runs_root
 
@@ -39,7 +44,19 @@ def preview(args: argparse.Namespace) -> Dict[str, Any]:
         PreflightError: Process visibility is insufficient for chassis auto detection.
     """
     root = (args.runs_root or default_runs_root()).expanduser().absolute()
-    request = UpRequest(args.mode, args.robot, args.site, root / 'dry_run_preview',
+    plan = _plan(args, root / 'dry_run_preview')
+    report = report_plan(plan)
+    if not plan.errors:
+        try:
+            report['runtime_commands'] = asdict(bind_commands(
+                plan, strict=args.strict, resolve=resolve_executable))
+        except (ValueError, LookupError, OSError) as error:
+            report['errors'].append(str(error))
+    return report
+
+
+def _plan(args, run_dir):
+    request = UpRequest(args.mode, args.robot, args.site, run_dir,
                         args.chassis, args.record, args.no_executor)
 
     def share(package: str) -> Path:
@@ -58,28 +75,59 @@ def preview(args: argparse.Namespace) -> Dict[str, Any]:
              else schema.find_installed_schemas(schema.ament_prefixes(os.environ)))
     if not paths:
         raise ValueError('no package schemas found')
-    plan = plan_up(request, inputs, schema.load_catalog(paths), _processes(), os.getpid(),
+    return plan_up(request, inputs, schema.load_catalog(paths), _processes(), os.getpid(),
                    resolve_executable)
-    return report_plan(plan)
+
+
+def start(args: argparse.Namespace) -> int:
+    """Execute the prepared recorded startup without modifying production aliases.
+
+    Args:
+        args: Parsed mode, profile, recording, repository and strict-check selectors.
+
+    Returns:
+        Recorded shell-compatible exit status after cleanup and finalization.
+
+    Raises:
+        ValueError: An installed copy needs an explicit repository for traceability.
+        OSError: A required file, executable or recording operation is unavailable.
+        RuntimeError: Ownership, host preparation or recording cannot be established.
+    """
+    repo = args.repo or args.source_root
+    if repo is None:
+        candidate = Path(__file__).resolve().parents[3]
+        if not (candidate / '.git').exists():
+            raise ValueError('cannot locate source repository; provide --repo explicitly')
+        repo = candidate
+    options = StartupOptions(
+        args.mode, args.robot, 'none' if args.mode in ('chassis', 'teleop') else args.site,
+        (args.runs_root or default_runs_root()).expanduser().absolute(),
+        repo.expanduser().absolute(), DEFAULT_LOCK_PATH,
+        command=getattr(args, 'invocation', ('navrun', 'up', '--mode', args.mode)))
+    result = run_recorded_startup(
+        options, lambda path: _plan(args, path),
+        lambda plan: bind_commands(plan, strict=args.strict, resolve=resolve_executable),
+        bind_host_steps(Path('/dev/shm')))
+    print(f'navrun: run record {result.run.path} '
+          f'({result.exit_reason}, exit {result.exit_code})', file=sys.stderr)
+    return result.exit_code
 
 
 def run(args: argparse.Namespace) -> int:
-    """Dispatch an up request without enabling unfinished runtime orchestration.
+    """Dispatch either a read-only preview or the explicit recorded startup.
 
     Args:
         args: Parsed startup arguments.
 
     Returns:
-        Zero for a valid preview, two for missing dependencies or unsupported live
-        startup. A valid preview does not imply the runtime path is implemented.
+        Zero for a valid preview, two for invalid setup, or the runtime exit code.
+        A valid preview never certifies hardware or deployment acceptance.
     """
-    if not args.dry_run:
-        print('navrun up: live startup is not yet enabled; use --dry-run to inspect '
-              'the plan. Production aliases are unchanged.', file=sys.stderr)
-        return 2
     try:
+        if not args.dry_run:
+            return start(args)
         report = preview(args)
-    except (ValueError, LookupError, OSError, PreflightError) as error:
+    except (ValueError, LookupError, OSError, PreflightError, RuntimeError) as error:
         print(f'navrun up: {error}', file=sys.stderr)
         return 2
     print(json.dumps(report, ensure_ascii=False, allow_nan=False, indent=2))

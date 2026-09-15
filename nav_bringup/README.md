@@ -21,7 +21,7 @@ This package is robot independent: robot-specific values live in a
 | `navrun wrap --monitor-base-frame FRAME [--monitor-topic TOPIC]`: runs `navrun monitor` next to the command (own session; output in the terminal and `console.log`; stopped after the command; failures recorded as warnings) and dumps effective parameters once `--ready-action` (default `/navigate_to_pose`) has a server | available (P1.4b) | plan §10.3, §13.2 |
 | `navrun doctor`: read-only checks (ROS/DDS environment, orphan Fast DDS segments, map yaml mode, duplicate robot_state_publisher, stale copied scripts, chassis serial device, ROS log directory size) | available (P1.5a, P1.5b) | plan §13.3 |
 | `navrun doctor --live [--cmd-topic T] [--watch-topic T]`: stale ros2 CLI daemon (compared with `--no-daemon`; never started or stopped), several publishers on a command topic, publishers from more than one host (Fast DDS GID host bytes), map→odom transform missing (hint) | available (P1.5b) | plan §13.3 |
-| `navrun up` | planned (P4.2) | plan §13.1 |
+| `navrun up` | recorded navigation/chassis entry available; combined teleop pending (P4.2) | plan §13.1 |
 | `navcfg render --profile FILE [--mode FILE] --output FILE` (`nav_bringup.navcfg.render`): a base parameter tree whose robot-specific values are `<bind:KEY>` markers, a binding table listing every parameter each profile key is written to (markers and table must agree), the robot profile and a mode overlay (profile values plus `nav2_overrides`, which may not touch bound parameters); PyYAML and the standard library only | available (P2.3) | plan §12.3 |
 | `config/nav2_base.yaml` + `config/nav2_bindings.yaml`: Nav2 base parameters (the David tour values and their tuning notes) with frames, footprint, speed limits, goal tolerances and odom/scan/map topics bound to profile keys, which `config/schema.yaml` declares as required | available (P2.3) | plan §12.3 |
 | `navcfg validate --profile FILE --mode FILE --site FILE --urdf FILE --bt-dir DIR [--source-root SRC]`: schema checks plus the frame, speed, precise-mode, trinary-map, teleop, diff-drive BT and POI-frame rules; warnings do not reject the configuration | available (P2.5) | plan §12.4 |
@@ -71,7 +71,7 @@ def test_docstring_policy():
 
 ## Testing
 
-### Prepared launch entry (P4.1; supervisor integration pending)
+### Prepared launch entry (P4.1)
 
 `nav.launch.py` consumes a pre-rendered run directory. It does not render, copy,
 remove, probe or signal external processes, and never starts localization.
@@ -96,19 +96,19 @@ owned action instead of an unlimited background restart loop. External drivers
 are omitted completely. The plain legacy executor CLI is protected by a
 read-only action-server readiness gate and receives its exact argv, without a shell.
 
-This is not yet a ready-to-deploy replacement for aliases: P4.2 must prepare the
-complete bundle and finish navrun supervision; P4.3/P4.4 must supply the adapter
-and teleop packages referenced by the graph. No production alias has changed.
+This is not yet an accepted production replacement for aliases: combined teleop
+ownership and navigation/physical acceptance remain pending. Bundle preparation,
+the Python chassis adapter and recorded supervision are available. No production alias has changed.
 The sandbox launch checks use disposable Python children and an optional fake
 Nav2 server; they never run the physical driver or submit a goal.
 
-### Offline bundle preparation (P4.2 component; up supervision pending)
+### Offline bundle preparation (P4.2)
 
 `navrun.preparation.prepare_bundle(GraphOptions, BundleInputs, catalog)` renders
 all five modes without creating directories, importing ROS clients, discovering
 processes or opening devices. Its explicit paths work with source or installed
 configuration packages. The caller still resolves chassis auto-detection and
-legacy executor CLI arguments; the complete `navrun up` workflow is not yet exposed.
+legacy executor CLI arguments; `navrun up` supplies that orchestration.
 
 Preparation binds driver package/executable, delay/restart budget and chassis
 topics from the mode-merged profile. `chassis.driver.executable` is explicit in
@@ -124,15 +124,15 @@ The returned immutable artifacts include input snapshots, rendered node YAML,
 run-local BT XML, `checks.yaml`, input hashes and `launch.json`. Map image and
 manually maintained named poses are only hashed; neither is rewritten or copied.
 The rendered map metadata references its absolute original image path. Recorder
-manifest integration remains in the supervisor work; `fingerprints.json` is its
-prepared input, not a replacement manifest.
+manifest integration is supplied by the recorded supervisor; `fingerprints.json`
+is its prepared input, not a replacement manifest.
 
 `write_bundle` adds these files exclusively to a newly recorder-owned directory.
 It rejects existing artifacts and symlinked destinations before writing, and
 writes `launch.json` last. A failed write leaves diagnostic partial files without
 publishing a launchable bundle; it does not overwrite or delete existing records.
 
-### Startup preview (P4.2, runtime integration still pending)
+### Startup preview and recorded entry (P4.2)
 
 The installed `navrun up --dry-run` combines robot/site selection, mode overlays,
 chassis auto-detection, bundle validation and executable availability. Resource
@@ -152,13 +152,22 @@ process command lines. Dry-run does not acquire the global lock, create a run
 directory, execute subprocesses, inspect/delete shared memory, or start ROS nodes.
 `dry_run_preview` is a prospective path only, not a real run record.
 
-Exit 0 means the preview is valid, not that live startup is available. Missing
+Exit 0 means the preview is valid, not that deployment is accepted. Missing
 executables/configuration return 2. Legacy executor arguments now come from the
 frozen robot/site inputs; `--no-executor` still explicitly omits that process.
-Actual `up` without `--dry-run`
-returns 2 before discovery, because recording/manifest, readiness/localization and
-exit-zero orchestration remain unfinished. The report says `runtime_enabled:
-false`. Do not replace production aliases with this intermediate entry point.
+Actual `up` without `--dry-run` now enters the lock-scoped recorded workflow for
+tour, precise, bench_slamgt and chassis. `--repo` supplies the repository recorded
+in the manifest; `--source-root` also serves as the repository when `--repo` is
+absent. Installed layouts without a discoverable repository require `--repo`.
+`--strict` makes live-check errors stop navigation startup. Chassis never waits
+for localization. The report includes exact `runtime_commands` and reports
+`runtime_enabled: true` for these modes, not a claim of physical acceptance.
+
+This is an active host operation: profile-enabled platform configuration,
+identity-checked residual cleanup and conservative DDS hygiene precede launch.
+Do not run it casually as a diagnostic or replace production aliases before
+operator acceptance. Implementation tests replace all platform/signal operations
+and the DDS directory; they never execute host cleanup on the robot.
 
 Teleop previews additionally report the pending supervisor-owned startup interlock.
 The standalone keyboard executable has its own lease and publisher guard, but
@@ -187,9 +196,9 @@ and `record.full_regex` and requires at least one selection, never an implicit
 David preserves both old topic lists, regex, 100 MiB cache and zstd full recording;
 large global maps remain excluded from light. Storage is SQLite, not MCAP.
 
-Preparation does not start a recorder. Actual recorder launch after readiness,
-monitoring its exit, orderly finalization and run summaries still belong to the
-pending supervisor orchestration. Isolated CLI tests record only an owned text
+Preparation does not start a recorder. Recorded startup launches it after readiness
+and live checking, supervises it and finalizes it before writing summaries.
+Isolated CLI tests record only an owned text
 topic and verify SQLite metadata and full-mode compression without velocity traffic.
 
 ### Live configuration check and manual localization (P4.5)
@@ -226,9 +235,9 @@ a continuous health watchdog and does not prove message rates, odometry quality,
 hardware stop behavior or atomic graph ownership. Perception-contract sampling
 and Phase 6 health integration remain distinct work.
 
-The CLI and reusable wait/assessment primitives are available; automatic invocation
-and stop-on-strict-failure in the unfinished `navrun up` supervisor remain pending.
-Do not treat a standalone check as completion of the full startup workflow.
+The CLI and reusable wait/assessment primitives are automatically invoked by
+navigation-mode `navrun up`, including stop-on-strict-failure. Full message/TF
+contract sampling and combined navigation acceptance remain pending.
 
 ### Unit tests
 
@@ -265,15 +274,15 @@ processes reject startup instead of widening cleanup. Dry-run invokes none of
 the observation, signal, clock or sleep hooks. Signal and snapshot adapters are
 explicit arguments, with no implicit os.kill default.
 
-`navrun.process_backend` provides the Linux adapters for future up integration:
+`navrun.process_backend` provides the Linux adapters for explicit up host preparation:
 read-only psutil snapshots reject incomplete views, and signaling opens a pidfd
 before rechecking PID/creation time/user/argv. It has no PID-only fallback, shell,
-sudo or permission change. The snapshot adapter is used by startup preview; no
-entry point calls the signal adapter yet. Tests replace psutil/pidfd signals with fakes;
+sudo or permission change. Preview uses only the snapshot adapter; actual up can
+call the signal adapter after planning and validation. Tests replace signals with fakes;
 no production residual has been stopped or restarted during this implementation.
 
 `navrun.locking.RunLock` implements the shared `/tmp/navrun.lock` lease for the
-future `up` supervisor. Construction does no I/O. Acquire is nonblocking, checks
+recorded `up` supervisor. Construction does no I/O. Acquire is nonblocking, checks
 file ownership/type/links, and only writes diagnostic PID metadata after flock
 succeeds. Release never unlinks the inode; a crashed owner's old PID does not
 block a new run. The descriptor is close-on-exec, and releasing an inherited
@@ -291,16 +300,16 @@ operator-owned sudoers task; the code never supplies a password or edits policy.
 
 `navrun.startup_lifecycle.supervise` now executes an explicitly supplied startup
 pipeline under an already acquired `RunLock`: owned launch → ordered readiness
-and live-check gates → optional diagnostic monitor → optional recorder → foreground
+and live-check gates → independent parameter dump → optional monitor/recorder → foreground
 supervision → stop attempts and cleanup. Manual localization can wait indefinitely,
 but launcher exits and requested signals remain observable throughout that wait.
 Unexpected launcher/recorder exits fail the run, including early exit code zero;
-optional monitor failures only warn. Two bounded zero-command attempts bracket
-launch shutdown, and recorder shutdown follows the second attempt. A failed stop
-does not skip other cleanup. This is a lifecycle engine, **not an enabled live `up`
-entry point**: the public CLI remains preview-only until real command/host/zero
-bindings and combined teleop ownership are integrated and verified. The recorded
-outer transaction described below now provides manifest, signals, logs and metrics.
+optional monitor/dump failures only warn. Two bounded zero-command attempts bracket
+launch shutdown, with the first before waiting for interrupted gates; recorder
+shutdown follows the second attempt. A failed stop does not skip other cleanup.
+`runtime_commands` resolves installed launch, ready, navcfg, dump, monitor, bag
+and zero programs before host work; no shell or implicit daemon is used.
+The outer transaction below provides manifest, signals, logs and metrics.
 
 Each child gets an exclusive `logs/<name>.log`, run-local `ROS_LOG_DIR`, closed
 stdin, and a private session. `navrun.owned_process.OwnedProcess` uses Linux
@@ -310,8 +319,8 @@ has drained. Repeated close never signals a reused numeric PID. Commands must no
 detach descendants: Humble launch children retain their group; independently
 detached helpers must be separately owned. The legacy wrap/session implementation
 has not been changed by this addition. If cleanup cannot drain a group, the result
-retains its live ownership handle: the future outer entry point must keep the lock
-and retry, not finalize the run and release ownership. Cleanup errors and failed
+retains its live ownership handle: the outer entry point keeps the lock
+and retries, rather than finalizing the run and releasing ownership. Cleanup errors and failed
 zero attempts are recorded explicitly, not reported as successful stopping.
 
 The lifecycle tests execute only fakes and private, non-ROS Python processes.
@@ -345,8 +354,13 @@ partial event lines and a disconnected terminal. It does not follow log symlinks
 Sampling errors warn without discarding child logs; this observer has no ROS context.
 Integration tests use a real example-robot bundle but bind launch/check/zero to
 ordinary private Python children. Three signal tests prove cleanup and finalized
-records after INT/TERM/HUP; none opens a serial port or sends ROS messages. Real
-deployment bindings, parameter-dump selection and combined teleop remain P4.2 work.
+records after INT/TERM/HUP; none opens a serial port or sends ROS messages.
+Separate domain-99 sandbox checks exercise real CLI/launch with the fictional
+fake chassis, private lease and fake/private host operations. Their only velocity
+publications are zero. `zero_command` accepts topic/discovery selectors, no speed
+argument; it publishes five default-constructed Twist messages per topic and
+reports missing receivers. Publication is a stop attempt, not proof of physical
+stopping. Combined teleop ownership and navigation acceptance remain P4.2 work.
 
 ```bash
 source /opt/ros/humble/setup.bash

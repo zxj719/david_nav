@@ -136,6 +136,8 @@ def _profile_options(options: GraphOptions, profile: Mapping[str, Any]) -> Graph
         driver_package=_identity(profile, 'chassis.driver.package'),
         driver_executable=_identity(profile, 'chassis.driver.executable'),
         driver_restarts=driver.get('max_restarts', 1),
+        ready_timeout_sec=profile.get('startup', {}).get(
+            'nav_ready_timeout_sec', options.ready_timeout_sec),
         chassis_delay_sec=driver.get('startup_delay_sec', 0.0),
         chassis_command_topic=_identity(profile, 'chassis.cmd_topic'),
         chassis_odom_topic=_identity(profile, 'chassis.odom_topic'),

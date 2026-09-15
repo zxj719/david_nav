@@ -277,3 +277,23 @@ def test_successful_gate_with_unfinished_cleanup_cannot_advance(rig, tmp_path):
     assert len(result.remaining) == 1
     rig[2]['ready_close'] = False
     result.remaining[0].close()
+
+
+def test_parameter_dump_runs_independently_and_warns_on_failure(rig, tmp_path):
+    """A one-shot dump failure does not block the persistent recorder or kill launch."""
+    rig[2]['parameter_dump'] = 1
+    selected = replace(rig[0], parameter_dump=('parameter_dump',))
+    assert _run((selected, *rig[1:]), tmp_path).exit_code == 130
+    assert ('start', 'record') in rig[1]
+    assert ('close', 'parameter_dump') in rig[1]
+    assert any(event.event_type == 'parameter_dump_finished' and event.severity == 'warn'
+               for event in read_events(rig[3].path)[0])
+
+
+def test_zero_attempt_precedes_waiting_for_pending_gate_cleanup(rig, tmp_path):
+    """A slow diagnostic exit cannot delay the first zero attempt."""
+    rig[2]['ready'] = None
+    result = _run(rig, tmp_path,
+                  lambda: signal.SIGINT if ('start', 'ready') in rig[1] else None)
+    assert result.exit_code == 130
+    assert rig[1].index(('start', 'zero')) < rig[1].index(('close', 'ready'))

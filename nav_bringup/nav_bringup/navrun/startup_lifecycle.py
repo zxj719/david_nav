@@ -42,10 +42,12 @@ class StartupCommands:
 
     Attributes:
         launch: Foreground launch command, expected to remain alive.
-        gates: Ordered readiness, localization/check and parameter-dump commands.
+        gates: Ordered readiness and localization/check commands.
         record: Optional persistent rosbag command; empty explicitly disables it.
         monitor: Optional persistent diagnostic command; its failure only warns.
         zero: Required bounded stop command. It must publish only zero velocity.
+        parameter_dump: Optional one-shot diagnostic, owned separately from the
+            monitor so its children cannot escape the supervisor's cleanup group.
     """
 
     launch: Tuple[str, ...]
@@ -53,6 +55,7 @@ class StartupCommands:
     record: Tuple[str, ...]
     monitor: Tuple[str, ...]
     zero: Tuple[str, ...]
+    parameter_dump: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,7 @@ class _Supervisor:
         self.launched = False
         self.record_broken = False
         self.monitor_failed = False
+        self.dump_finished = False
 
     def emit(self, event, severity='info', **data):
         # A broken event file must not prevent stop attempts on other children.
@@ -131,6 +135,12 @@ class _Supervisor:
             self.monitor_failed = True
             self.emit('monitor_failed', 'warn', exit_code=monitor.poll())
             self.close('monitor')
+        dump = self.children.get('parameter_dump')
+        if dump is not None and not self.dump_finished and dump.poll() is not None:
+            self.dump_finished = True
+            code = dump.poll()
+            self.emit('parameter_dump_finished', 'info' if code == 0 else 'warn', exit_code=code)
+            self.close('parameter_dump')
 
     def gate(self, gate):
         self.check()
@@ -160,6 +170,12 @@ class _Supervisor:
         self.launched = True
         for gate in self.commands.gates:
             self.gate(gate)
+        self.check()
+        if self.commands.parameter_dump:
+            try:
+                self.start('parameter_dump', self.commands.parameter_dump)
+            except OSError as error:
+                self.emit('parameter_dump_failed', 'warn', error=str(error))
         self.check()
         if self.commands.monitor:
             try:
@@ -205,15 +221,18 @@ class _Supervisor:
             self.close(name)
 
     def cleanup(self):
+        if self.launched:
+            # Attempt stopping before waiting on any diagnostic helper to exit.
+            self.zero('zero_before')
         for gate in self.commands.gates:
             self.close(gate.name)
         if self.launched:
-            self.zero('zero_before')
             self.close('launch')
             # An external driver survives launch. Try again after navigation
             # publishers have stopped, so a final nonzero cannot overtake zero.
             self.zero('zero_after')
         self.close('record')
+        self.close('parameter_dump')
         self.close('monitor')
 
 
@@ -285,7 +304,8 @@ def validate_commands(
     if not run_dir.is_absolute() or not (run_dir / 'logs').is_dir():
         raise ValueError('expected an absolute existing run directory with logs')
     _timeout(stop_timeout)
-    reserved = {'launch', 'record', 'monitor', 'zero_before', 'zero_after', 'ros'}
+    reserved = {'launch', 'record', 'monitor', 'parameter_dump',
+                'zero_before', 'zero_after', 'ros'}
     argv_list = [commands.launch, commands.zero]
     for gate in commands.gates:
         if not re.fullmatch('[a-z][a-z0-9_]*', gate.name) or gate.name in reserved:
@@ -294,7 +314,8 @@ def validate_commands(
         if gate.timeout_sec is not None:
             _timeout(gate.timeout_sec)
         argv_list.append(gate.argv)
-    argv_list.extend(argv for argv in (commands.record, commands.monitor) if argv)
+    argv_list.extend(argv for argv in (commands.record, commands.monitor, commands.parameter_dump)
+                     if argv)
     if any(not argv or any(not isinstance(arg, str) or '\0' in arg for arg in argv)
            for argv in argv_list):
         raise ValueError('commands must be nonempty argument vectors without NUL')
