@@ -249,7 +249,7 @@ def supervise(
         OSError: The run-local ROS log directory cannot be created.
     """
     lease.fileno()
-    _validate(commands, run_dir, stop_timeout_sec)
+    validate_commands(commands, run_dir, stop_timeout_sec)
     (run_dir / 'logs/ros').mkdir(exist_ok=True)
     owner = _Supervisor(commands, run_dir, events, environ, stopped, stop_timeout_sec)
     result = LifecycleResult(2, 'startup_failed')
@@ -269,7 +269,19 @@ def supervise(
     return result
 
 
-def _validate(commands, run_dir, stop_timeout):
+def validate_commands(
+    commands: StartupCommands, run_dir: Path, stop_timeout: float = 10.0,
+) -> None:
+    """Validate a complete command plan before any host or process mutation.
+
+    Args:
+        commands: Resolved vectors and startup gates.
+        run_dir: Existing absolute run directory with logs.
+        stop_timeout: Finite nonnegative cleanup grace period.
+
+    Raises:
+        ValueError: A path, label, command or time limit is invalid.
+    """
     if not run_dir.is_absolute() or not (run_dir / 'logs').is_dir():
         raise ValueError('expected an absolute existing run directory with logs')
     _timeout(stop_timeout)

@@ -298,9 +298,9 @@ Unexpected launcher/recorder exits fail the run, including early exit code zero;
 optional monitor failures only warn. Two bounded zero-command attempts bracket
 launch shutdown, and recorder shutdown follows the second attempt. A failed stop
 does not skip other cleanup. This is a lifecycle engine, **not an enabled live `up`
-entry point**: the public CLI remains preview-only until manifest/platform/DDS
-orchestration, signal handling, foreground log forwarding, metrics, actual
-zero-publisher binding and combined teleop ownership are integrated and verified.
+entry point**: the public CLI remains preview-only until real command/host/zero
+bindings and combined teleop ownership are integrated and verified. The recorded
+outer transaction described below now provides manifest, signals, logs and metrics.
 
 Each child gets an exclusive `logs/<name>.log`, run-local `ROS_LOG_DIR`, closed
 stdin, and a private session. `navrun.owned_process.OwnedProcess` uses Linux
@@ -319,6 +319,34 @@ Their zero command is a text-printing placeholder, not a ROS publisher. Tests
 cover early leader exit with an uncooperative grandchild, graceful log flushing,
 unrelated-session survival, wait ownership loss, bounded escalation, gate failure,
 manual-wait interruption, recording failure, event-file errors and cleanup retry.
+
+`navrun.recorded_startup.run_recorded_startup` connects that lifecycle to the run
+recorder under one `RunLock`. The explicit repository is fingerprinted, a new
+manifest is written before configuration preparation, the prepared bundle and
+input hashes are persisted, all supplied commands are validated, and only then
+are the explicitly supplied platform/preflight/DDS callbacks executed in order.
+Partial host success remains recorded if a later step fails; no rollback is
+invented. Navigation modes associate localization metadata and log excerpts from
+the frozen profile read-only; missing or unreadable provider metadata only warns.
+Chassis modes do not inspect localization. No provider is started or signaled.
+
+SIGINT, SIGTERM and SIGHUP request shutdown without interrupting cleanup. Remaining
+owned handles are retried while the lease stays acquired and the manifest stays
+unfinished; retry events are visible in the console. Only after groups drain are
+the final manifest and summary written and ownership released. Manifest replacement
+is atomic, so a failed final write preserves the prior readable record. Retention
+only considers finalized older records; current, unfinished and malformed records
+are kept. Tests delete only their own temporary history fixtures.
+
+`startup_observer` captures an initial resource sample, then samples the supervisor
+tree at 1 Hz and forwards child logs/key events to both the terminal and an
+exclusive `logs/console.log`. Forwarding preserves bytes and handles partial writes,
+partial event lines and a disconnected terminal. It does not follow log symlinks.
+Sampling errors warn without discarding child logs; this observer has no ROS context.
+Integration tests use a real example-robot bundle but bind launch/check/zero to
+ordinary private Python children. Three signal tests prove cleanup and finalized
+records after INT/TERM/HUP; none opens a serial port or sends ROS messages. Real
+deployment bindings, parameter-dump selection and combined teleop remain P4.2 work.
 
 ```bash
 source /opt/ros/humble/setup.bash
