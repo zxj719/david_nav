@@ -19,6 +19,22 @@ This file lists every robot-profile key declared by package schemas.
 | `chassis.adapter.stationary_angular_threshold` | `float` | rad/s | default: `0.025` | range: `0.0 .. inf` | 原地角速度绝对值达到该门槛时使用原地转向地板 | — |
 | `chassis.cmd_topic` | `string` | — | default: `"/cmd_vel"` | — | 底盘指令话题；绑定 adapter.output_cmd_vel_topic 与驱动输入 | — |
 
+## `chassis_teleop`
+
+| Key | Type | Unit | Required / default | Constraints | Description | Tuning |
+|---|---|---|---|---|---|---|
+| `teleop.angular_deadzone` | `float` | rad/s | default: `0.35` | range: `0.0 .. inf` | 键盘非零角速度地板，实际不超过键盘 max_angular_z | — |
+| `teleop.angular_speed` | `float` | rad/s | default: `0.35` | range: `0.0 .. inf` | 当前转向档位；经过死区抬升和上限钳位 | — |
+| `teleop.cmd_topic` | `string` | — | default: `"cmd_vel_safe"` | — | 键盘输出话题，应接模式的 adapter 输入，不直连驱动；节点 cmd_vel_topic | — |
+| `teleop.key_timeout_sec` | `float` | s | default: `0.4` | — | 单调时间下按键静默超过阈值后零速；非正值关闭，节点 key_timeout | — |
+| `teleop.layout` | `string` | — | default: `"wasd"` | choices: `"wasd"`, `"uiojkl"` | 键位布局；两种均支持方向键、空格/k 停车和 q 退出，没有全向或加速键 | — |
+| `teleop.linear_deadzone` | `float` | m/s | default: `0.2` | range: `0.0 .. inf` | 键盘非零线速度地板，实际不超过键盘 max_linear_x | — |
+| `teleop.linear_speed` | `float` | m/s | default: `0.2` | range: `0.0 .. inf` | 当前前进/后退档位；经过死区抬升和上限钳位 | — |
+| `teleop.max_angular_z` | `float` | rad/s | default: `0.5` | range: `0.0 .. inf` | 键盘角速度上限；档案校验要求不超过 adapter 硬限 | — |
+| `teleop.max_linear_x` | `float` | m/s | default: `0.2` | range: `0.0 .. inf` | 键盘线速度上限；档案校验要求不超过 adapter 硬限 | — |
+| `teleop.publish_hz` | `float` | Hz | default: `20.0` | — | 键盘轮询/发布频率，延续旧节点最低 1 Hz 的语义 | — |
+| `teleop.tty_device` | `string` | — | default: `"/dev/tty"` | — | 单独打开的交互终端，独立于 launch 的 stdin；只用于终端，不能指向底盘串口 | — |
+
 ## `nav_bringup`
 
 | Key | Type | Unit | Required / default | Constraints | Description | Tuning |

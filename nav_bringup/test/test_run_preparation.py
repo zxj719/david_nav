@@ -108,6 +108,17 @@ def test_bt_paths_and_map_metadata_are_run_local(tmp_path: Path) -> None:
     assert not any('named_poses.json' in name for name in artifacts)
 
 
+def test_teleop_binds_layout_terminal_and_explicit_robot_deadzone(tmp_path: Path) -> None:
+    """Alternate robots do not inherit David's old implicit keyboard floor."""
+    prepared = _prepare(tmp_path, 'teleop')
+    tree = yaml.safe_load(dict(prepared.artifacts)['params/rendered/teleop.yaml'])
+    values = tree['chassis_teleop']['ros__parameters']
+    assert values['layout'] == 'wasd'
+    assert values['tty_device'] == '/dev/tty'
+    assert values['linear_deadzone'] == values['angular_deadzone'] == 0.0
+    assert values['linear_speed'] == 0.1
+
+
 @pytest.mark.parametrize('mode', ['chassis', 'teleop'])
 def test_non_navigation_does_not_require_map_or_urdf(tmp_path: Path, mode: str) -> None:
     """Manual chassis tools work with no localization or site map assets."""

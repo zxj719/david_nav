@@ -39,9 +39,12 @@ chassis:
     max_restarts: 0
 teleop:
   layout: wasd
+  tty_device: /dev/tty
   cmd_topic: /demo/safe
   linear_speed: 0.1
   angular_speed: 0.3
+  linear_deadzone: 0.0
+  angular_deadzone: 0.0
   max_linear_x: 0.2
   max_angular_z: 0.5
   publish_hz: 20.0

@@ -20,6 +20,8 @@ _TELEOP_KEYS = {
     'cmd_vel_topic': 'cmd_topic', 'linear_speed': 'linear_speed', 'angular_speed': 'angular_speed',
     'max_linear_x': 'max_linear_x', 'max_angular_z': 'max_angular_z',
     'publish_hz': 'publish_hz', 'key_timeout': 'key_timeout_sec',
+    'linear_deadzone': 'linear_deadzone', 'angular_deadzone': 'angular_deadzone',
+    'layout': 'layout', 'tty_device': 'tty_device',
 }
 _SCAN_KEYS = (
     'transform_tolerance', 'min_height', 'max_height', 'angle_min', 'angle_max',

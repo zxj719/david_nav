@@ -77,9 +77,12 @@ chassis:
 
 teleop:                             # = david_cmd/config/cmd.yaml 的 david_keyboard
   layout: wasd
+  tty_device: /dev/tty
   cmd_topic: cmd_vel_safe
   linear_speed: 0.20
   angular_speed: 0.35
+  linear_deadzone: 0.20
+  angular_deadzone: 0.35
   max_linear_x: 0.20
   max_angular_z: 0.50
   publish_hz: 20.0
