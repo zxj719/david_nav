@@ -1,8 +1,9 @@
 # nav_tasks
 
 Transport-independent navigation domain and pure skills (Python 3.10+).
-This first P6.1 migration does **not** start a task manager or switch a runtime
-entry point. Core ports, registry, ownership, retry and supervision follow next.
+The P6.1 core now provides a fake-testable `TaskManager`/`TaskApi`, ports, registry,
+ownership, retry and supervision. It does **not** start a task manager process or
+switch a runtime entry point; the old core remains active pending integration.
 
 ```python
 from nav_tasks.api import PoseRecord
@@ -35,4 +36,5 @@ Tests cover pure behavior, isolated imports, architecture boundaries, Google
 docstrings and formatting. Existing `david_nav` tests and G1–G16 remain unchanged
 and exercise these implementations through compatibility imports.
 
-See [migration.md](docs/migration.md) for ownership and unfinished work.
+See [architecture.md](docs/architecture.md) for cancellation/preemption contracts
+and [migration.md](docs/migration.md) for package ownership and unfinished work.
