@@ -41,6 +41,7 @@ WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, Stre
   odom_frame_ = get_parameter("odom_frame_id").as_string();
   robot_frame_ = get_parameter("robot_frame_id").as_string();
   gyro_frame_ = get_parameter("gyro_frame_id").as_string();
+  log_tx_frames_ = get_parameter("log_tx_frames").as_bool();
   if (port.empty() || baud <= 0 || baud > std::numeric_limits<uint32_t>::max() ||
     odom_frame_.empty() || robot_frame_.empty() || gyro_frame_.empty())
   {
@@ -79,6 +80,9 @@ WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, Stre
   core_->resetSamplingTime(now().seconds());
   control_timer_ = create_wall_timer(
     std::chrono::milliseconds(10), std::bind(&WheeltecDriverNode::control, this));
+  reported_driver_ = core_->counters();
+  report_timer_ = create_wall_timer(
+    std::chrono::seconds(1), std::bind(&WheeltecDriverNode::reportTransport, this));
 }
 
 WheeltecDriverNode::~WheeltecDriverNode()
@@ -95,6 +99,9 @@ void WheeltecDriverNode::stop()
   shutdown_requested_ = true;
   if (control_timer_) {
     control_timer_->cancel();
+  }
+  if (report_timer_) {
+    report_timer_->cancel();
   }
   if (core_ && core_->shutdown()) {
     RCLCPP_INFO(get_logger(), "driver shutdown: zero frame written; serial close attempted");
@@ -118,16 +125,13 @@ void WheeltecDriverNode::command(const geometry_msgs::msg::Twist::SharedPtr mess
 {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!core_->command(message->linear.x, message->linear.y, message->angular.z, steadySeconds())) {
-    RCLCPP_ERROR(
-      get_logger(), "Unable to send data through serial port: %s",
-      core_->lastError().c_str());
     return;
   }
-  if (std::fabs(message->linear.x) > 1e-4 || std::fabs(message->linear.y) > 1e-4 ||
-    std::fabs(message->angular.z) > 1e-4)
+  if (log_tx_frames_ && (std::fabs(message->linear.x) > 1e-4 ||
+    std::fabs(message->linear.y) > 1e-4 || std::fabs(message->angular.z) > 1e-4))
   {
     const auto frame = encodeCommand(message->linear.x, message->linear.y, message->angular.z);
-    RCLCPP_INFO(
+    RCLCPP_DEBUG(
       get_logger(), "cmd_vel serial write: vx=%.3f vy=%.3f wz=%.3f "
       "bytes=[%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X]",
       message->linear.x, message->linear.y, message->angular.z,
@@ -139,20 +143,8 @@ void WheeltecDriverNode::command(const geometry_msgs::msg::Twist::SharedPtr mess
 void WheeltecDriverNode::control()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  const auto attempts = core_->counters().connection_attempts;
-  const auto errors = core_->receiveCounters().io_errors;
   const auto sample = core_->tick(now().seconds());
   core_->watchdog(steadySeconds());  // Independent of ROS time and incoming status samples.
-  if (core_->counters().connection_attempts != attempts) {
-    if (core_->online()) {
-      RCLCPP_INFO(get_logger(), "wheeltec_robot serial port reconnected");
-    } else {
-      RCLCPP_WARN(get_logger(), "serial port unavailable, retrying...");
-    }
-  }
-  if (core_->receiveCounters().io_errors != errors) {
-    RCLCPP_ERROR(get_logger(), "serial read failed: %s", core_->lastError().c_str());
-  }
   if (!sample) {
     return;
   }
@@ -169,6 +161,27 @@ void WheeltecDriverNode::control()
     voltage.data = sample->sensor.voltage;
     voltage_publisher_->publish(voltage);
   }
+}
+
+void WheeltecDriverNode::reportTransport()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto rx = core_->receiveCounters();
+  const auto tx = core_->counters();
+  const auto checksum = rx.checksum_errors - reported_receive_.checksum_errors;
+  const auto framing = rx.framing_errors - reported_receive_.framing_errors;
+  const auto io = rx.io_errors - reported_receive_.io_errors;
+  const auto writes = tx.transmit_errors - reported_driver_.transmit_errors;
+  const auto rejected = tx.rejected_commands - reported_driver_.rejected_commands;
+  const auto reconnects = tx.connection_attempts - reported_driver_.connection_attempts;
+  if (checksum || framing || io || writes || rejected || reconnects) {
+    RCLCPP_WARN_STREAM(
+      get_logger(), "serial 1s summary: checksum=" << checksum << " framing=" << framing <<
+        " read_errors=" << io << " write_errors=" << writes << " rejected=" << rejected <<
+        " reconnect_attempts=" << reconnects << " online=" << core_->online());
+  }
+  reported_receive_ = rx;
+  reported_driver_ = tx;
 }
 
 }  // namespace wheeltec_driver

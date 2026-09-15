@@ -37,6 +37,7 @@ public:
 private:
   friend class DriverNodeTestAccess;
   void control();
+  void reportTransport();
   void command(const geometry_msgs::msg::Twist::SharedPtr message);
   std::mutex mutex_;
   std::unique_ptr<ByteStream> stream_;
@@ -50,6 +51,10 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr voltage_publisher_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr command_subscription_;
   rclcpp::TimerBase::SharedPtr control_timer_;
+  rclcpp::TimerBase::SharedPtr report_timer_;
+  ReceiveCounters reported_receive_{};
+  DriverCounters reported_driver_{};
+  bool log_tx_frames_{};
   bool shutdown_requested_{};
 };
 

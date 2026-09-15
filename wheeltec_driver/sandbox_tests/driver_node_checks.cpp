@@ -13,6 +13,7 @@
 #include "gtest/gtest.h"
 #include "rclcpp/rclcpp.hpp"
 #include "support/fake_stream.hpp"
+#include "support/log_capture.hpp"
 #include "wheeltec_driver/driver_node.hpp"
 
 namespace wheeltec_driver
@@ -21,8 +22,13 @@ namespace wheeltec_driver
 class DriverNodeTestAccess
 {
 public:
-  static void cancelTimer(WheeltecDriverNode & node) {node.control_timer_->cancel();}
+  static void cancelTimer(WheeltecDriverNode & node)
+  {
+    node.control_timer_->cancel();
+    node.report_timer_->cancel();
+  }
   static void control(WheeltecDriverNode & node) {node.control();}
+  static void report(WheeltecDriverNode & node) {node.reportTransport();}
   static void command(WheeltecDriverNode & node, double angular)
   {
     auto message = std::make_shared<geometry_msgs::msg::Twist>();
@@ -216,6 +222,48 @@ TEST_F(DriverNodeChecks, WatchdogUsesSteadyTimeWithoutClockOrIncomingStatus)
   DriverNodeTestAccess::command(*driver, 0.0);
   DriverNodeTestAccess::control(*driver);
   EXPECT_EQ(trace.writes.size(), 2u);
+}
+
+TEST_F(DriverNodeChecks, FrameLogsAreOffByDefaultAndOptInUsesDebug)
+{
+  for (const bool enabled : {false, true}) {
+    Trace trace;
+    RecordingStream * stream{};
+    rclcpp::NodeOptions options;
+    options.parameter_overrides({{"log_tx_frames", enabled}});
+    auto driver = makeDriver(trace, &stream, options);
+    test::LogCapture capture;
+    DriverNodeTestAccess::command(*driver, 0.55);  // Only an in-memory callback.
+    EXPECT_EQ(capture.count("cmd_vel serial write", RCUTILS_LOG_SEVERITY_DEBUG), enabled ? 1u : 0u);
+    EXPECT_EQ(capture.count("cmd_vel serial write", RCUTILS_LOG_SEVERITY_INFO), 0u);
+  }
+}
+
+TEST_F(DriverNodeChecks, TransportErrorsAreAggregatedOncePerReportInterval)
+{
+  Trace trace;
+  RecordingStream * stream{};
+  auto driver = makeDriver(trace, &stream);
+  test::LogCapture capture;
+  StatusFrame bad{};
+  bad.front() = kFrameHeader;
+  bad.back() = kFrameTail;
+  bad[22] = xorChecksum(bad.data(), 22) ^ 1;
+  for (int count = 0; count < 2; ++count) {
+    stream->incoming.insert(stream->incoming.end(), bad.begin(), bad.end());
+    DriverNodeTestAccess::control(*driver);
+  }
+  stream->fail_available = true;
+  DriverNodeTestAccess::control(*driver);
+  stream->fail_available = false;
+  DriverNodeTestAccess::control(*driver);  // Memory-only reconnect.
+  EXPECT_EQ(capture.count("serial 1s summary", RCUTILS_LOG_SEVERITY_WARN), 0u);
+  DriverNodeTestAccess::report(*driver);
+  EXPECT_EQ(capture.count("checksum=2", RCUTILS_LOG_SEVERITY_WARN), 1u);
+  EXPECT_EQ(capture.count("read_errors=1", RCUTILS_LOG_SEVERITY_WARN), 1u);
+  EXPECT_EQ(capture.count("reconnect_attempts=1", RCUTILS_LOG_SEVERITY_WARN), 1u);
+  DriverNodeTestAccess::report(*driver);
+  EXPECT_EQ(capture.count("serial 1s summary", RCUTILS_LOG_SEVERITY_WARN), 1u);
 }
 
 }  // namespace
