@@ -1,3 +1,6 @@
+// Copyright 2026 David navigation contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #include "nav_plugins/escape_obstacle_action.hpp"
 
 #include <algorithm>
@@ -205,7 +208,8 @@ EscapeObstacleAction::EscapeObstacleAction(
     cmd_vel_topic_,
     rclcpp::QoS(rclcpp::KeepLast(1)).reliable());
 
-  callback_group_executor_thread_ = std::thread([this]() {
+  callback_group_executor_thread_ = std::thread(
+    [this]() {
       callback_group_executor_.spin();
     });
 
@@ -475,7 +479,8 @@ std::vector<EscapeOverlapPoint> EscapeObstacleAction::collect_overlap_points_in_
         continue;
       }
 
-      overlap_points.push_back({
+      overlap_points.push_back(
+        {
           tx + cosine * cell_center_x - sine * cell_center_y,
           ty + sine * cell_center_x + cosine * cell_center_y});
     }
@@ -517,7 +522,8 @@ std::vector<EscapeObstacleAction::Point2D> EscapeObstacleAction::get_footprint_i
   const double ty = transform.transform.translation.y;
 
   for (const auto & point : footprint.polygon.points) {
-    polygon.push_back({
+    polygon.push_back(
+      {
         tx + cosine * point.x - sine * point.y,
         ty + sine * point.x + cosine * point.y});
   }

@@ -1,3 +1,6 @@
+// Copyright 2026 David navigation contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef NAV_PLUGINS__ESCAPE_OBSTACLE_ACTION_HPP_
 #define NAV_PLUGINS__ESCAPE_OBSTACLE_ACTION_HPP_
 

@@ -1,3 +1,6 @@
+// Copyright 2026 David navigation contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #pragma once
 
 #include <mutex>

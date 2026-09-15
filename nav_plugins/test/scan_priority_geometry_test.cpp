@@ -1,8 +1,11 @@
+// Copyright 2026 David navigation contributors
+// SPDX-License-Identifier: Apache-2.0
+
+#include <gtest/gtest.h>
+
 #include <cmath>
 #include <limits>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "nav_plugins/scan_priority_geometry.hpp"
 
@@ -52,8 +55,8 @@ TEST(ScanPriorityGeometryTest, ClassifiesEarlierBeamAsObstacle)
 
   const auto decision = nav_plugins::classify_beam_against_ground(
     sample,
-    /*ground_range_m=*/1.6,
-    /*obstacle_margin_m=*/0.15);
+    /*ground_range_m=*/ 1.6,
+    /*obstacle_margin_m=*/ 0.15);
 
   EXPECT_EQ(decision, BeamDecision::kObstacle);
 }
@@ -66,8 +69,8 @@ TEST(ScanPriorityGeometryTest, ClassifiesNearGroundMatchAsFloorCompatible)
 
   const auto decision = nav_plugins::classify_beam_against_ground(
     sample,
-    /*ground_range_m=*/1.6,
-    /*obstacle_margin_m=*/0.15);
+    /*ground_range_m=*/ 1.6,
+    /*obstacle_margin_m=*/ 0.15);
 
   EXPECT_EQ(decision, BeamDecision::kFloorCompatible);
 }
@@ -80,8 +83,8 @@ TEST(ScanPriorityGeometryTest, TreatsInvalidBeamAsUnknown)
 
   const auto decision = nav_plugins::classify_beam_against_ground(
     sample,
-    /*ground_range_m=*/1.6,
-    /*obstacle_margin_m=*/0.15);
+    /*ground_range_m=*/ 1.6,
+    /*obstacle_margin_m=*/ 0.15);
 
   EXPECT_EQ(decision, BeamDecision::kUnknown);
 }
@@ -97,7 +100,7 @@ TEST(ScanPriorityGeometryTest, SuppressesShortObstacleRunsBelowThreshold)
     BeamDecision::kFloorCompatible,
   };
 
-  const auto runs = nav_plugins::find_obstacle_runs(decisions, /*min_contiguous_beams=*/2);
+  const auto runs = nav_plugins::find_obstacle_runs(decisions, /*min_contiguous_beams=*/ 2);
 
   ASSERT_EQ(runs.size(), 1u);
   EXPECT_EQ(runs[0].start_index, 1u);

@@ -1,7 +1,11 @@
+// Copyright 2026 David navigation contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #ifndef NAV_PLUGINS__ROBOT_EMBEDDED_IN_OBSTACLE_CONDITION_HPP_
 #define NAV_PLUGINS__ROBOT_EMBEDDED_IN_OBSTACLE_CONDITION_HPP_
 
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>

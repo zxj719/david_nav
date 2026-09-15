@@ -1,3 +1,6 @@
+// Copyright 2026 David navigation contributors
+// SPDX-License-Identifier: Apache-2.0
+
 #include "nav_plugins/robot_embedded_in_obstacle_condition.hpp"
 
 #include <algorithm>
@@ -78,7 +81,8 @@ RobotEmbeddedInObstacleCondition::RobotEmbeddedInObstacleCondition(
       std::placeholders::_1),
     footprint_options);
 
-  callback_group_executor_thread_ = std::thread([this]() {
+  callback_group_executor_thread_ = std::thread(
+    [this]() {
       callback_group_executor_.spin();
     });
 
@@ -318,9 +322,10 @@ RobotEmbeddedInObstacleCondition::getFootprintInCostmapFrame(
   const double ty = transform.transform.translation.y;
 
   for (const auto & point : footprint.polygon.points) {
-    polygon.push_back({
-      tx + cosine * point.x - sine * point.y,
-      ty + sine * point.x + cosine * point.y});
+    polygon.push_back(
+      {
+        tx + cosine * point.x - sine * point.y,
+        ty + sine * point.x + cosine * point.y});
   }
 
   return polygon;
@@ -403,5 +408,6 @@ bool RobotEmbeddedInObstacleCondition::hasFreshObservationLocked(
 
 BT_REGISTER_NODES(factory)
 {
-  factory.registerNodeType<nav_plugins::RobotEmbeddedInObstacleCondition>("RobotEmbeddedInObstacle");
+  factory.registerNodeType<nav_plugins::RobotEmbeddedInObstacleCondition>(
+    "RobotEmbeddedInObstacle");
 }
