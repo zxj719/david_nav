@@ -36,5 +36,11 @@ fi
 export SANDBOX_ROS_DOMAIN_ID="${SANDBOX_ROS_DOMAIN_ID:-99}"
 export ROS_DOMAIN_ID="${SANDBOX_ROS_DOMAIN_ID}"
 
+# Every ros2 CLI call and ROS process writes a log file; keep ours out of the
+# user's ~/.ros/log and remove them afterwards.
+ROS_LOG_DIR="$(mktemp -d -t navrun_sandbox_ros_log.XXXXXX)" || exit 2
+export ROS_LOG_DIR
+trap 'rm -rf "${ROS_LOG_DIR}"' EXIT
+
 cd "$(dirname "$0")" || exit 2
-exec python3 -m pytest -p no:cacheprovider "$@" sandbox_recorder_checks.py
+python3 -m pytest -p no:cacheprovider "$@" sandbox_recorder_checks.py
