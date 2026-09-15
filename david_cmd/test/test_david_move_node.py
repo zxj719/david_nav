@@ -1,28 +1,13 @@
 import inspect
-import time
+from types import SimpleNamespace
 
 import pytest
-import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.duration import Duration
-from rclpy.node import Node
-from rclpy.parameter import Parameter
+from rclpy.time import Time
 
 import david_cmd.david_move as david_move
 from david_cmd.david_move import DavidMoveNode
-
-
-@pytest.fixture
-def rclpy_initialized():
-    already_initialized = rclpy.ok()
-    if not already_initialized:
-        rclpy.init()
-
-    try:
-        yield
-    finally:
-        if not already_initialized and rclpy.ok():
-            rclpy.shutdown()
 
 
 def make_bridge(**overrides):
@@ -39,22 +24,18 @@ def make_bridge(**overrides):
         "publish_hz": 100.0,
     }
     parameters.update(overrides)
-    return DavidMoveNode(
-        parameter_overrides=[
-            Parameter(name, Parameter.Type.from_parameter_value(value), value)
-            for name, value in parameters.items()
-        ]
-    )
-
-
-def spin_until(predicate, nodes, timeout_sec=1.0):
-    deadline = time.monotonic() + timeout_sec
-    while time.monotonic() < deadline:
-        for node in nodes:
-            rclpy.spin_once(node, timeout_sec=0.01)
-        if predicate():
-            return True
-    return False
+    node = object.__new__(DavidMoveNode)
+    for name, value in parameters.items():
+        setattr(node, name, value)
+    node.outputs = []
+    node.cmd_publisher = SimpleNamespace(publish=node.outputs.append)
+    node.get_clock = lambda: SimpleNamespace(now=lambda: Time(seconds=100.0))
+    node.get_logger = lambda: SimpleNamespace(warn=lambda _: None)
+    node.latest_twist = Twist()
+    node.last_cmd_time = Time(seconds=0.0)
+    node._stale_stop_sent = True
+    node.destroy_node = lambda: None
+    return node
 
 
 def test_david_move_has_no_unitree_or_multiprocessing_runtime_path():
@@ -65,12 +46,9 @@ def test_david_move_has_no_unitree_or_multiprocessing_runtime_path():
     assert "shared_arr" not in source
 
 
-def test_velocity_input_is_limited_and_forwarded(rclpy_initialized):
+def test_velocity_input_is_limited_and_forwarded():
     bridge = make_bridge()
-    observer = Node("test_david_move_observer")
-    outputs = []
-    observer.create_subscription(Twist, "/test_cmd_vel_out", outputs.append, 10)
-    publisher = observer.create_publisher(Twist, "/test_cmd_vel_safe", 10)
+    outputs = bridge.outputs
 
     try:
         msg = Twist()
@@ -81,16 +59,10 @@ def test_velocity_input_is_limited_and_forwarded(rclpy_initialized):
         msg.angular.y = -0.1
         msg.angular.z = -2.0
 
-        assert spin_until(
-            lambda: publisher.get_subscription_count() > 0,
-            [observer, bridge],
-        )
-        publisher.publish(msg)
+        bridge.velocity_callback(msg)
+        bridge.publish_current_command()
 
-        assert spin_until(
-            lambda: any(abs(output.linear.x) > 0.0 for output in outputs),
-            [observer, bridge],
-        )
+        assert any(abs(output.linear.x) > 0.0 for output in outputs)
         output = next(
             output for output in reversed(outputs) if abs(output.linear.x) > 0.0
         )
@@ -102,11 +74,10 @@ def test_velocity_input_is_limited_and_forwarded(rclpy_initialized):
         assert output.angular.y == 0.0
         assert output.angular.z == pytest.approx(-0.50)
     finally:
-        observer.destroy_node()
         bridge.destroy_node()
 
 
-def test_small_nonzero_velocity_is_lifted_above_deadzone(rclpy_initialized):
+def test_small_nonzero_velocity_is_lifted_above_deadzone():
     bridge = make_bridge(max_linear_x=0.40)
 
     try:
@@ -122,7 +93,7 @@ def test_small_nonzero_velocity_is_lifted_above_deadzone(rclpy_initialized):
         bridge.destroy_node()
 
 
-def test_stationary_nav2_yaw_is_lifted_to_turning_deadzone(rclpy_initialized):
+def test_stationary_nav2_yaw_is_lifted_to_turning_deadzone():
     bridge = make_bridge()
 
     try:
@@ -137,7 +108,7 @@ def test_stationary_nav2_yaw_is_lifted_to_turning_deadzone(rclpy_initialized):
         bridge.destroy_node()
 
 
-def test_moving_yaw_uses_lower_arc_deadzone(rclpy_initialized):
+def test_moving_yaw_uses_lower_arc_deadzone():
     """Arc motion lifts small angular commands when min_angular_z is set.
 
     Legacy behaviour: documents that the deadzone-lift code path still works
@@ -158,7 +129,7 @@ def test_moving_yaw_uses_lower_arc_deadzone(rclpy_initialized):
         bridge.destroy_node()
 
 
-def test_arc_motion_passes_small_angular_through_by_default(rclpy_initialized):
+def test_arc_motion_passes_small_angular_through_by_default():
     """Small angular corrections pass through unchanged by default.
 
     Default-config regression: with DEFAULT_MIN_ANGULAR_Z=0.0, DWB's small
@@ -181,7 +152,7 @@ def test_arc_motion_passes_small_angular_through_by_default(rclpy_initialized):
         bridge.destroy_node()
 
 
-def test_stationary_yaw_still_lifts_after_arc_default_change(rclpy_initialized):
+def test_stationary_yaw_still_lifts_after_arc_default_change():
     """Stationary in-place rotation is still lifted with the new arc default.
 
     Regression: even with MIN_ANGULAR_Z=0.0 for arcs, a stationary rotation
@@ -202,7 +173,7 @@ def test_stationary_yaw_still_lifts_after_arc_default_change(rclpy_initialized):
         bridge.destroy_node()
 
 
-def test_tiny_stationary_yaw_uses_normal_deadzone(rclpy_initialized):
+def test_tiny_stationary_yaw_uses_normal_deadzone():
     bridge = make_bridge()
 
     try:
@@ -216,7 +187,7 @@ def test_tiny_stationary_yaw_uses_normal_deadzone(rclpy_initialized):
         bridge.destroy_node()
 
 
-def test_zero_velocity_stays_zero(rclpy_initialized):
+def test_zero_velocity_stays_zero():
     bridge = make_bridge()
 
     try:
@@ -228,11 +199,9 @@ def test_zero_velocity_stays_zero(rclpy_initialized):
         bridge.destroy_node()
 
 
-def test_stale_command_times_out_to_zero(rclpy_initialized):
+def test_stale_command_times_out_to_zero():
     bridge = make_bridge()
-    observer = Node("test_david_move_timeout_observer")
-    outputs = []
-    observer.create_subscription(Twist, "/test_cmd_vel_out", outputs.append, 10)
+    outputs = bridge.outputs
 
     try:
         msg = Twist()
@@ -242,32 +211,48 @@ def test_stale_command_times_out_to_zero(rclpy_initialized):
         bridge.last_cmd_time = bridge.get_clock().now() - Duration(seconds=3.0)
         bridge.publish_current_command()
 
-        assert spin_until(lambda: bool(outputs), [observer, bridge])
+        assert outputs
         output = outputs[-1]
 
         assert output.linear.x == 0.0
         assert output.linear.y == 0.0
         assert output.angular.z == 0.0
     finally:
-        observer.destroy_node()
         bridge.destroy_node()
 
 
-def test_publish_stop_burst_sends_zero_command(rclpy_initialized):
+def test_publish_stop_burst_sends_zero_command():
     bridge = make_bridge()
-    observer = Node("test_david_move_stop_observer")
-    outputs = []
-    observer.create_subscription(Twist, "/test_cmd_vel_out", outputs.append, 10)
+    outputs = bridge.outputs
 
     try:
         bridge.publish_stop_burst(repetitions=1, period_sec=0.0)
 
-        assert spin_until(lambda: bool(outputs), [observer, bridge])
+        assert outputs
         output = outputs[-1]
-
         assert output.linear.x == 0.0
         assert output.linear.y == 0.0
         assert output.angular.z == 0.0
     finally:
-        observer.destroy_node()
         bridge.destroy_node()
+
+
+def test_stale_transition_emits_only_one_stop_and_then_releases_output():
+    """Initial silence and one-shot stale stop are checked without a DDS publisher."""
+    bridge = make_bridge()
+    bridge.publish_current_command()
+    assert bridge.outputs == []
+    bridge.velocity_callback(Twist())
+    bridge.last_cmd_time = Time(seconds=90.0)
+    bridge.publish_current_command()
+    bridge.publish_current_command()
+    assert len(bridge.outputs) == 1
+    assert bridge.outputs[0].linear.x == 0.0
+
+
+def test_ros_initialization_is_guarded():
+    """The ordinary suite cannot silently regain a graph-facing test path."""
+    import rclpy
+
+    with pytest.raises(pytest.fail.Exception, match="ordinary tests"):
+        rclpy.init()
