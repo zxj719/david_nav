@@ -15,7 +15,12 @@ P3.8 / D2 传输层：`ByteStream` 可注入内存假串口；`SerialStream` 连
 `config/wheeltec_driver.yaml`，可用普通 ROS 参数覆盖；话题可 remap。
 当前可执行文件仍叫 `wheeltec_robot_node`，节点名仍是 `wheeltec_robot`，后续 D9 独立改名。
 构造节点会连接配置的串口，故自动测试禁止运行该硬件入口。析构执行一次尽力零速并关闭；
-看门狗、显式 shutdown 回调、诊断和发布开关尚属后续 D3/D4/D7/D8，不在此步宣称完成。
+显式 shutdown 回调、诊断和发布开关尚属后续 D4/D7/D8，不在此步宣称完成。
+
+D3：`cmd_timeout_sec` 默认 `0.0`（关闭），保持现有行为。显式设为正值后，启动或最后一次
+成功下发有效指令超过该时间，按 20 Hz 尽力发送零速直到新有效指令成功写出；非法指令不续租。
+使用 steady clock，不受 ROS / 仿真时钟暂停影响，也不依赖状态帧到来。写失败不忙重试、
+executor 延迟后不补发突发帧、串口断开时不由看门狗开设备。默认改为 0.5 s 留待独立现场审核。
 
 `sandbox_tests/run_sandbox_checks.sh` 是单独显式运行的 ROS 集成检查，不注册进 CTest。
 检查现场无运行中的用户栈后，加载正式 DDS 白名单并限定 domain 99；节点注入内存串口，

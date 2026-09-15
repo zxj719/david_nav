@@ -201,6 +201,82 @@ TEST(DriverCore, ReadErrorClosesAndReconnectionKeepsIntegratedPose)
   EXPECT_EQ(sample->pose[0], 0.2f);
 }
 
+TEST(DriverCore, WatchdogIsDisabledByDefault)
+{
+  test::FakeStream stream;
+  DriverCore core(stream, {1, 1, 1, 1}, 0.0);
+  ASSERT_TRUE(core.command(0.1, 0.0, 0.0, 1.0));
+  EXPECT_FALSE(core.watchdog(1000.0));
+  EXPECT_EQ(stream.writes.size(), 1u);
+}
+
+TEST(DriverCore, WatchdogStopsAtTimeoutThenTwentyHertzUntilNewCommand)
+{
+  test::FakeStream stream;
+  DriverCore core(stream, {1, 1, 1, 1}, 0.0, 0.5, 10.0);
+  EXPECT_FALSE(core.watchdog(10.499));
+  EXPECT_TRUE(core.watchdog(10.5));  // Also covers no command since startup.
+  EXPECT_FALSE(core.watchdog(10.51));
+  EXPECT_TRUE(core.watchdog(10.551));
+  ASSERT_EQ(stream.writes.size(), 2u);
+  EXPECT_EQ(stream.writes[0], zeroFrame());
+  EXPECT_EQ(stream.writes[1], zeroFrame());
+  EXPECT_TRUE(core.command(0.1, 0.0, 0.0, 10.56));
+  EXPECT_FALSE(core.watchdog(10.7));
+  EXPECT_FALSE(core.watchdog(11.059));
+  EXPECT_TRUE(core.watchdog(11.061));
+  EXPECT_EQ(core.counters().watchdog_stops, 3u);
+}
+
+TEST(DriverCore, RejectedCommandsDoNotRenewWatchdogLease)
+{
+  test::FakeStream stream;
+  DriverCore core(stream, {1, 1, 1, 1}, 0.0, 0.5, 0.0);
+  ASSERT_TRUE(core.command(0.1, 0.0, 0.0, 0.0));
+  EXPECT_FALSE(core.command(std::numeric_limits<double>::infinity(), 0.0, 0.0, 0.49));
+  EXPECT_TRUE(core.watchdog(0.5));
+  EXPECT_EQ(stream.writes.back(), zeroFrame());
+}
+
+TEST(DriverCore, FailedWatchdogWritesAreRateLimitedWithoutCatchUpBursts)
+{
+  test::FakeStream stream;
+  DriverCore core(stream, {1, 1, 1, 1}, 0.0, 0.5, 0.0);
+  stream.fail_write = true;
+  EXPECT_FALSE(core.watchdog(0.5));
+  EXPECT_FALSE(core.watchdog(0.51));
+  EXPECT_EQ(core.counters().transmit_errors, 1u);
+  stream.fail_write = false;
+  EXPECT_TRUE(core.watchdog(8.0));
+  EXPECT_FALSE(core.watchdog(8.0));
+  EXPECT_EQ(stream.writes.size(), 1u);
+}
+
+TEST(DriverCore, WatchdogDoesNotOpenPortAndCannotWriteAfterShutdown)
+{
+  test::FakeStream stream;
+  DriverCore core(stream, {1, 1, 1, 1}, 0.0, 0.5, 0.0);
+  stream.connected = false;
+  EXPECT_FALSE(core.watchdog(1.0));
+  EXPECT_EQ(stream.opens, 0u);
+  stream.connected = true;
+  EXPECT_TRUE(core.watchdog(1.01));
+  EXPECT_TRUE(core.shutdown());
+  EXPECT_FALSE(core.watchdog(2.0));
+  EXPECT_EQ(stream.writes.size(), 2u);
+}
+
+TEST(DriverCore, InvalidWatchdogConfigurationFailsBeforeIo)
+{
+  test::FakeStream stream;
+  const auto nan = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(DriverCore(stream, {1, 1, 1, 1}, 0.0, -1.0), std::invalid_argument);
+  EXPECT_THROW(DriverCore(stream, {1, 1, 1, 1}, 0.0, nan), std::invalid_argument);
+  EXPECT_THROW(DriverCore(stream, {1, 1, 1, 1}, 0.0, 0.5, nan), std::invalid_argument);
+  EXPECT_TRUE(stream.writes.empty());
+  EXPECT_EQ(stream.opens, 0u);
+}
+
 TEST(DriverCore, InvalidCalibrationAndTimeFailWithoutOpeningDevice)
 {
   test::FakeStream stream;

@@ -16,6 +16,16 @@
 
 namespace wheeltec_driver
 {
+namespace
+{
+
+double steadySeconds()
+{
+  return std::chrono::duration<double>(
+    std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+}  // namespace
 
 WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, StreamFactory factory)
 : Node("wheeltec_robot", options)
@@ -50,7 +60,9 @@ WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, Stre
   if (!stream_) {
     throw std::invalid_argument("driver stream factory returned null");
   }
-  core_ = std::make_unique<DriverCore>(*stream_, scales, now().seconds());
+  core_ = std::make_unique<DriverCore>(
+    *stream_, scales, now().seconds(), get_parameter("cmd_timeout_sec").as_double(),
+    steadySeconds());
   voltage_publisher_ = create_publisher<std_msgs::msg::Float32>("PowerVoltage", 10);
   odom_publisher_ = create_publisher<nav_msgs::msg::Odometry>("odom", 50);
   imu_publisher_ = create_publisher<sensor_msgs::msg::Imu>("imu", 20);
@@ -72,7 +84,7 @@ WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, Stre
 void WheeltecDriverNode::command(const geometry_msgs::msg::Twist::SharedPtr message)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!core_->command(message->linear.x, message->linear.y, message->angular.z)) {
+  if (!core_->command(message->linear.x, message->linear.y, message->angular.z, steadySeconds())) {
     RCLCPP_ERROR(
       get_logger(), "Unable to send data through serial port: %s",
       core_->lastError().c_str());
@@ -97,6 +109,7 @@ void WheeltecDriverNode::control()
   const auto attempts = core_->counters().connection_attempts;
   const auto errors = core_->receiveCounters().io_errors;
   const auto sample = core_->tick(now().seconds());
+  core_->watchdog(steadySeconds());  // Independent of ROS time and incoming status samples.
   if (core_->counters().connection_attempts != attempts) {
     if (core_->online()) {
       RCLCPP_INFO(get_logger(), "wheeltec_robot serial port reconnected");

@@ -31,6 +31,7 @@ struct DriverCounters
   uint64_t transmitted_frames{};
   uint64_t transmit_errors{};
   uint64_t rejected_commands{};
+  uint64_t watchdog_stops{};
 };
 
 /// Serial control and odometry, with all time and byte transport supplied by callers.
@@ -41,7 +42,9 @@ public:
   /// Save calibration and start time without opening a device.
   /// Scales are x/y/positive-yaw/negative-yaw, each rounded to legacy float precision.
   /// @throws std::invalid_argument if calibration or initial time is nonfinite.
-  DriverCore(ByteStream & stream, const std::array<float, 4> & scales, double initial_time);
+  DriverCore(
+    ByteStream & stream, const std::array<float, 4> & scales, double initial_time,
+    double cmd_timeout_sec = 0.0, double initial_steady_time = 0.0);
   /// Best-effort zero command followed by close, as in the old node destructor.
   ~DriverCore();
   DriverCore(const DriverCore &) = delete;
@@ -56,7 +59,10 @@ public:
   /// @throws std::invalid_argument if time is nonfinite.
   std::optional<DriverSample> tick(double now);
   /// Send one command; reject invalid values and attempt one zero frame instead.
-  bool command(double vx, double vy, double wz);
+  bool command(double vx, double vy, double wz, double steady_time = 0.0);
+  /// Using monotonic seconds, send zero at most every 50 ms after command expiry.
+  /// Zero timeout disables this feature. Never opens a disconnected stream.
+  bool watchdog(double steady_time);
   /// Attempt zero then close once. Later ticks/commands cannot reconnect or write.
   bool shutdown();
   /// Return last accepted sample, absent until a complete valid frame was read.
@@ -83,6 +89,9 @@ private:
   uint64_t reconnect_divider_{};
   unsigned int voltage_divider_{};
   bool stopped_{};
+  double cmd_timeout_sec_{};
+  double last_command_time_{};
+  double next_watchdog_write_{};
 };
 
 }  // namespace wheeltec_driver

@@ -12,13 +12,20 @@ namespace wheeltec_driver
 {
 
 DriverCore::DriverCore(
-  ByteStream & stream, const std::array<float, 4> & scales, double initial_time)
-: stream_(stream), scales_(scales), last_time_(initial_time)
+  ByteStream & stream, const std::array<float, 4> & scales, double initial_time,
+  double cmd_timeout_sec, double initial_steady_time)
+: stream_(stream), scales_(scales), last_time_(initial_time),
+  cmd_timeout_sec_(cmd_timeout_sec), last_command_time_(initial_steady_time)
 {
   if (!std::isfinite(initial_time) ||
     !std::all_of(scales.begin(), scales.end(), [](float value) {return std::isfinite(value);}))
   {
     throw std::invalid_argument("driver calibration and initial time must be finite");
+  }
+  if (!std::isfinite(cmd_timeout_sec) || cmd_timeout_sec < 0.0 ||
+    !std::isfinite(initial_steady_time))
+  {
+    throw std::invalid_argument("watchdog timeout must be finite/nonnegative and time finite");
   }
 }
 
@@ -107,19 +114,47 @@ std::optional<DriverSample> DriverCore::tick(double now)
   return sample;
 }
 
-bool DriverCore::command(double vx, double vy, double wz)
+bool DriverCore::command(double vx, double vy, double wz, double steady_time)
 {
   if (stopped_) {
     return false;
   }
   try {
-    return writeFrame(encodeCommand(vx, vy, wz));
+    if (!std::isfinite(steady_time)) {
+      throw std::invalid_argument("command steady time must be finite");
+    }
+    if (!writeFrame(encodeCommand(vx, vy, wz))) {
+      return false;
+    }
+    last_command_time_ = steady_time;
+    next_watchdog_write_ = steady_time;
+    return true;
   } catch (const std::invalid_argument & error) {
     ++counters_.rejected_commands;
     last_error_ = error.what();
     writeFrame(encodeCommand(0.0, 0.0, 0.0));
     return false;
   }
+}
+
+bool DriverCore::watchdog(double steady_time)
+{
+  if (!std::isfinite(steady_time)) {
+    throw std::invalid_argument("watchdog steady time must be finite");
+  }
+  if (stopped_ || cmd_timeout_sec_ == 0.0 || !stream_.isOpen() ||
+    steady_time - last_command_time_ < cmd_timeout_sec_ ||
+    steady_time < next_watchdog_write_)
+  {
+    return false;
+  }
+  // Schedule from now, not a stale deadline: no bursts after a blocked executor.
+  next_watchdog_write_ = steady_time + 0.05;
+  if (!writeFrame(encodeCommand(0.0, 0.0, 0.0))) {
+    return false;
+  }
+  ++counters_.watchdog_stops;
+  return true;
 }
 
 bool DriverCore::writeFrame(const CommandFrame & frame)

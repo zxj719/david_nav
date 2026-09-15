@@ -197,5 +197,26 @@ TEST_F(DriverNodeChecks, InvalidConfigurationIsRejectedBeforeFactoryCanOpenAnyth
   EXPECT_FALSE(factory_called);
 }
 
+TEST_F(DriverNodeChecks, WatchdogUsesSteadyTimeWithoutClockOrIncomingStatus)
+{
+  Trace trace;
+  RecordingStream * stream{};
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({{"cmd_timeout_sec", 0.02}, {"use_sim_time", true}});
+  auto driver = makeDriver(trace, &stream, options);
+  ASSERT_EQ(driver->now().nanoseconds(), 0);
+  ASSERT_TRUE(trace.writes.empty());
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  DriverNodeTestAccess::control(*driver);
+  ASSERT_EQ(trace.writes.size(), 1u);
+  const auto stop = encodeCommand(0.0, 0.0, 0.0);
+  EXPECT_EQ(trace.writes.back(), std::vector<uint8_t>(stop.begin(), stop.end()));
+  DriverNodeTestAccess::control(*driver);
+  EXPECT_EQ(trace.writes.size(), 1u);
+  DriverNodeTestAccess::command(*driver, 0.0);
+  DriverNodeTestAccess::control(*driver);
+  EXPECT_EQ(trace.writes.size(), 2u);
+}
+
 }  // namespace
 }  // namespace wheeltec_driver
