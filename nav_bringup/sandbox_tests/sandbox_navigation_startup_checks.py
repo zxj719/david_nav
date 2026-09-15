@@ -30,18 +30,22 @@ def _flatten(values, parts=()):
     return result
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise'])
-def test_recorded_navigation_wait_launch_check_dump_and_shutdown(tmp_path, mode):
+@pytest.mark.parametrize('mode,experiment', [
+    ('tour', None), ('precise', None), ('tour', 'l2_l3'), ('precise', 'l2_l3')])
+def test_recorded_navigation_wait_launch_check_dump_and_shutdown(tmp_path, mode, experiment):
     """The real stack consumes frozen example inputs and exits without touching providers."""
     require_sandbox()
     root = tmp_path / 'private_run'
     log = tmp_path / 'wrapper.log'
     provider_log = tmp_path / 'provider.log'
     owner = provider = None
+    source = Path(__file__).resolve().parents[2]
+    overlay = source / 'david_config/modes/experiments' / f'{mode}_{experiment}.yaml'
     try:
         owner = OwnedProcess([
             sys.executable, str(Path(__file__).with_name('recorded_navigation_fixture.py')),
-            '--root', str(root), '--mode', mode], os.environ, log)
+            '--root', str(root), '--mode', mode,
+            *(['--mode-file', str(overlay)] if experiment else [])], os.environ, log)
         deadline = time.monotonic() + 25
         run = None
         while owner.poll() is None and time.monotonic() < deadline:
@@ -79,6 +83,14 @@ def test_recorded_navigation_wait_launch_check_dump_and_shutdown(tmp_path, mode)
         assert not report['duplicates'], report
         spec, _ = load_live_spec(run)
         assert set(spec.parameters).issubset(report['dumped']), report
+        if experiment:
+            assert '/velocity_smoother' not in report['dumped']
+            assert '/cmd_vel_nav' not in {rule.topic for rule in spec.topics}
+            assert (run / 'params/inputs/mode.yaml').read_bytes() == overlay.read_bytes()
+            adapter = spec.parameters['/chassis_adapter']
+            assert adapter['publish_hz'] == 20.0 and adapter['cmd_vel_timeout'] == 1.0
+            assert adapter['max_angular_z'] == 0.6
+            assert spec.parameters['/behavior_server']['max_rotational_vel'] == 0.5
         missing, mismatched = [], []
         for node, expected in spec.parameters.items():
             document = yaml.safe_load(
@@ -107,7 +119,7 @@ def test_recorded_navigation_wait_launch_check_dump_and_shutdown(tmp_path, mode)
                                             if event.event_type == 'parameter_mismatch')
         assert not mismatched, 'declared rendered values must match the actual Nav2 dump'
         print('parameter comparison:', json.dumps({
-            'mode': mode, 'nodes': len(spec.parameters),
+            'mode': mode, 'experiment': experiment, 'nodes': len(spec.parameters),
             'declared_matches': sum(map(len, spec.parameters.values())) - len(missing),
             'undeclared_reported': len(missing)}))
         os.kill(owner.pid, signal.SIGINT)

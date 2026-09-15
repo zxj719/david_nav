@@ -124,7 +124,8 @@ def load_live_spec(run_dir: Path) -> Tuple[LiveSpec, Tuple[Finding, ...]]:
         topic(options.chassis_command_topic), 1, 1, 'geometry_msgs/msg/Twist')}
     for name, message_type in (
             (options.chassis_odom_topic, 'nav_msgs/msg/Odometry'),
-            (options.nav_command_topic, 'geometry_msgs/msg/Twist'),
+            (options.nav_command_topic if options.velocity_smoother else
+             options.smooth_command_topic, 'geometry_msgs/msg/Twist'),
             (options.smooth_command_topic, 'geometry_msgs/msg/Twist'),
             (value('localization.odom_topic'), 'nav_msgs/msg/Odometry'),
             (value('nav2.odom_topic'), 'nav_msgs/msg/Odometry'),

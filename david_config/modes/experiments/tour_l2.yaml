@@ -1,0 +1,14 @@
+# Explicit experiment only; never selected by the default five mode names.
+schema_version: 1
+mode: tour
+description: L2 opt-in experiment; requires hardware A/B before deployment
+profile:
+  nav2:
+    velocity_smoother:
+      enabled: false
+  chassis:
+    adapter:
+      cmd_timeout_sec: 1.0
+      hard_max_angular_z: 0.60
+nav2_overrides:
+  behavior_server/ros__parameters/max_rotational_vel: 0.5

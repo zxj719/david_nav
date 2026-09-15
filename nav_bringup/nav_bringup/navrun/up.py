@@ -59,7 +59,8 @@ def preview(args: argparse.Namespace) -> Dict[str, Any]:
 def _plan(args, run_dir):
     request = UpRequest(args.mode, args.robot, args.site, run_dir,
                         args.chassis, args.record, args.no_executor,
-                        TeleopOptions(args.layout, args.linear_speed, args.angular_speed))
+                        TeleopOptions(args.layout, args.linear_speed, args.angular_speed),
+                        getattr(args, 'mode_file', None))
 
     def share(package: str) -> Path:
         if args.source_root is not None:

@@ -45,6 +45,39 @@ launch consumes prepared run-local files. Production launch files still load
 
 ## Startup and recording data
 
+### Optional L2/L3 experiments (P5.2)
+
+The five default mode files are unchanged. Complete alternative mode overlays
+are installed under `modes/experiments/{tour,precise}_{l2,l3,l2_l3}.yaml`.
+They still declare `mode: tour` or `mode: precise`; precise retains its goal
+tolerances and RotateToGoal critic. Select one explicitly, initially read-only:
+
+```bash
+navrun up --mode precise --robot david --site daolan --no-executor --dry-run \
+  --mode-file /absolute/share/david_config/modes/experiments/precise_l2_l3.yaml
+```
+
+`--mode-file` replaces the default mode overlay, not the robot profile. Its
+identity must match `--mode`; its exact bytes and source hash enter the run.
+`navcfg render/validate --mode` also accepts these files. Do not enable an
+experiment in production before the P5.U1 motion/stop/resource A/B review.
+
+| Option | Explicit delta |
+|---|---|
+| L2 | Omit velocity_smoother process and lifecycle entry; route Nav2 directly to the unchanged adapter input; behavior max_rotational_vel 0.8 → 0.5; adapter timeout 2.0 → 1.0 s; angular hard limit remains 0.60, stationary floor remains 0.55 |
+| L3 | Adapter publish_hz 50 → 20; no other command-processing change |
+| L2+L3 | Both sets of changes |
+
+The old smoother parameter section is retained as inactive provenance. Defaults,
+odom wiring, dock/U2 behavior and localization are unchanged. In-memory tests
+compare steady differential commands (y=0, within declared upstream limits) and
+Spin after the new cap, plus exact parameter deltas, timer periods and one-shot
+stale zeros. They do **not** prove identical inter-message timing or behavior for
+out-of-contract mixed/lateral commands: removing a resampling/clamping hop and
+reducing timer rate can change both. Bag comparison of Spin/BackUp/navigation,
+physical braking/startup, and CPU savings remain P5.U1; no nonzero command is
+published by the automated tests.
+
 The refactor startup planner now binds the WS server and POI paths from site.yaml.
 `pois.dock_poi_ids: [POI_017]` applies only to precise mode; it does not change tour
 routing. Both modes retain a 120-second Nav2 readiness deadline and a 3-second WS

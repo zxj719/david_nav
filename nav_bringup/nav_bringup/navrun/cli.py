@@ -43,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     up_parser.add_argument('--mode', required=True, choices=(
         'tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'))
     up_parser.add_argument('--robot', default='david')
+    up_parser.add_argument('--mode-file', type=Path,
+                           help='explicit complete mode overlay; identity must match --mode')
     up_parser.add_argument('--site', default='daolan')
     up_parser.add_argument('--record', choices=('light', 'full', 'off'), default='light')
     up_parser.add_argument('--chassis', choices=('auto', 'on', 'off'), default='auto')

@@ -1,0 +1,8 @@
+# Explicit experiment only; never selected by the default five mode names.
+schema_version: 1
+mode: tour
+description: L3 opt-in experiment; requires hardware A/B before deployment
+profile:
+  chassis:
+    adapter:
+      publish_hz: 20.0

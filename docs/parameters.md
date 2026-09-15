@@ -57,6 +57,7 @@ This file lists every robot-profile key declared by package schemas.
 | `nav2.map_topic` | `string` | — | **required** | — | 代价图静态层订阅的栅格地图话题（启动文件可能改写，见 PROGRESS P2.4） | — |
 | `nav2.odom_topic` | `string` | — | **required** | — | Nav2 BT 与控制器订阅的里程计话题 | — |
 | `nav2.scan_topic` | `string` | — | **required** | — | 代价图障碍物层订阅的激光话题 | — |
+| `nav2.velocity_smoother.enabled` | `bool` | — | default: `true` | — | 保留速度平滑器；L2 实验显式关闭后 Nav2 直连适配层输入，须同时迁移恢复限速与超时 | — |
 | `platform.command_timeout_sec` | `float` | s | default: `30.0` | range: `0.001 .. inf` | 每条平台命令的等待期限；无密码、无交互，失败后停止后续平台步骤 | — |
 | `platform.jetson` | `bool` | — | default: `false` | — | 主机是 NVIDIA Jetson；为 true 时 navrun up 才处理功耗模式与 jetson_clocks | — |
 | `platform.jetson_clocks` | `bool` | — | default: `false` | — | 启动前运行 jetson_clocks 固定 CPU/GPU 频率；需要 platform.jetson 为 true | — |

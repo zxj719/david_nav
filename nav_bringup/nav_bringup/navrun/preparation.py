@@ -142,6 +142,8 @@ def _profile_options(options: GraphOptions, profile: Mapping[str, Any]) -> Graph
         chassis_delay_sec=driver.get('startup_delay_sec', 0.0),
         chassis_command_topic=_identity(profile, 'chassis.cmd_topic'),
         chassis_odom_topic=_identity(profile, 'chassis.odom_topic'),
+        velocity_smoother=profile.get('nav2', {}).get(
+            'velocity_smoother', {}).get('enabled', True),
         map_server=options.map_server and options.mode != 'bench_slamgt')
     resolved = replace(resolved, smooth_command_topic=_identity(
         profile, 'chassis.adapter.input_topic'))

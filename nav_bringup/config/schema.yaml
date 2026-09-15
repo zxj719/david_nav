@@ -6,6 +6,10 @@
 schema_version: 1
 package: nav_bringup
 parameters:
+  nav2.velocity_smoother.enabled:
+    type: bool
+    default: true
+    description: 保留速度平滑器；L2 实验显式关闭后 Nav2 直连适配层输入，须同时迁移恢复限速与超时
   startup.nav_ready_timeout_sec:
     type: float
     default: 120.0

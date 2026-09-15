@@ -42,8 +42,8 @@ class GraphOptions:
         rviz_delay_sec: Delay after navigation launch before RViz startup.
         driver_package: Package selected by the robot profile.
         driver_executable: Driver entry point selected by the profile.
-        nav_command_topic: Controller and behavior command output.
-        smooth_command_topic: Smoother output consumed by the adapter.
+        nav_command_topic: Controller and behavior output when the smoother is enabled.
+        smooth_command_topic: Adapter input, fed by the smoother or directly by Nav2.
         chassis_command_topic: Adapter output consumed by the driver.
         chassis_odom_topic: Wheel odometry published by the driver.
         cloud_topic: Optional preprocessing input.
@@ -52,6 +52,7 @@ class GraphOptions:
         ready_timeout_sec: Maximum wall-clock wait before refusing to start the executor.
         ready_action: Navigation action server checked without submitting any goal.
         supervisor_keyboard: Teleop keyboard is owned directly by navrun, not launch.
+        velocity_smoother: Keep the legacy smoothing hop unless explicitly disabled.
     """
 
     mode: str
@@ -77,6 +78,7 @@ class GraphOptions:
     ready_timeout_sec: float = 90.0
     ready_action: str = '/navigate_to_pose'
     supervisor_keyboard: bool = False
+    velocity_smoother: bool = True
 
 
 @dataclass(frozen=True)
@@ -137,7 +139,7 @@ def _validate(options: GraphOptions) -> None:
     if not PurePath(options.run_dir).is_absolute() or '..' in PurePath(options.run_dir).parts:
         raise ValueError('run_dir must be an absolute normalized run directory')
     for name in ('start_chassis', 'start_executor', 'map_server', 'scan_bridge',
-                 'robot_state', 'rviz', 'supervisor_keyboard'):
+                 'robot_state', 'rviz', 'supervisor_keyboard', 'velocity_smoother'):
         if not isinstance(getattr(options, name), bool):
             raise ValueError(f'{name} must be a resolved boolean')
     for delay in (options.chassis_delay_sec, options.rviz_delay_sec):
@@ -211,10 +213,13 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
             'map_server', 'nav2_map_server', 'map_server', params('map_server'),
             tf, delay_sec=delay))
     for package, executable in CORE_NODES:
+        if executable == 'velocity_smoother' and not options.velocity_smoother:
+            continue
         lifecycle.append(executable)
         remappings = tf
         if executable != 'planner_server':
-            remappings += (('cmd_vel', options.nav_command_topic),)
+            remappings += (('cmd_vel', options.nav_command_topic if options.velocity_smoother
+                            else options.smooth_command_topic),)
         if executable == 'velocity_smoother':
             remappings += (('cmd_vel_smoothed', options.smooth_command_topic),)
         processes.append(ProcessSpec(

@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import re
-from typing import Any, Callable, Dict, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import yaml
 
@@ -37,6 +37,7 @@ class UpRequest:
         record: Requested light, full or off recording policy.
         no_executor: Explicitly omit the legacy WS executor.
         teleop_options: Explicit layout/gears, frozen separately from source files.
+        mode_file: Optional complete mode overlay path; never changes the mode identity.
     """
 
     mode: str
@@ -47,6 +48,7 @@ class UpRequest:
     record: str = 'light'
     no_executor: bool = False
     teleop_options: TeleopOptions = TeleopOptions()
+    mode_file: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,8 @@ def _validate(request: UpRequest) -> None:
         raise ValueError('record must be light, full or off')
     if type(request.no_executor) is not bool:
         raise ValueError('no_executor must be boolean')
+    if request.mode_file is not None and not isinstance(request.mode_file, Path):
+        raise ValueError('mode_file must be a path')
     if (not isinstance(request.run_dir, Path) or not request.run_dir.is_absolute()
             or '..' in request.run_dir.parts or request.run_dir == Path('/')):
         raise ValueError('run_dir must be an absolute normalized run directory')
@@ -117,7 +121,8 @@ def discover_inputs(
     plugins = Path(package_share('nav_plugins')) if navigation else robot
     return BundleInputs(
         robot / 'robot' / (request.robot + '.yaml'),
-        robot / 'modes' / (request.mode + '.yaml'),
+        request.mode_file.expanduser().resolve(strict=True) if request.mode_file is not None
+        else robot / 'modes' / (request.mode + '.yaml'),
         bringup / 'config/nav2_base.yaml', bringup / 'config/nav2_bindings.yaml',
         plugins / 'behavior_trees', plugins / 'config/bt_bindings.yaml',
         site=robot / 'sites' / request.site / 'site.yaml' if navigation else None,
@@ -154,6 +159,8 @@ def plan_up(
     if not isinstance(profile, dict):
         raise ValueError('robot profile must be a mapping')
     mode = render.parse_mode(yaml.safe_load(initial_mode), inputs.mode)
+    if mode.name != request.mode:
+        raise ValueError('mode overlay does not match requested mode')
     effective = apply_options(render.deep_merge(profile, mode.profile),
                               request.mode, request.teleop_options)
     preflight = plan_preflight(effective, processes, own_pid, chassis=request.chassis)

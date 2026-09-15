@@ -27,7 +27,7 @@ setup(
         ('share/' + PACKAGE_NAME + '/robot', glob('robot/*.yaml')),
         ('share/' + PACKAGE_NAME + '/modes', glob('modes/*.yaml')),
         ('share/' + PACKAGE_NAME + '/urdf', glob('urdf/*.urdf')),
-    ] + _tree('sites'),
+    ] + _tree('sites') + _tree('modes/experiments'),
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='zhangxingjian',

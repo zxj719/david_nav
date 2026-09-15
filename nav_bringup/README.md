@@ -109,6 +109,15 @@ Nav2 server; they never run the physical driver or submit a goal.
 
 ### Offline bundle preparation (P4.2)
 
+`navrun up --mode-file /absolute/overlay.yaml` explicitly selects a complete mode
+overlay instead of `<robot>_config/modes/<mode>.yaml`. The declared mode must
+still match `--mode`; dry-run and startup freeze/check the same source bytes.
+David's optional L2/L3 files are documented in `david_config/README.md`; no
+experiment is selected by default. `nav2.velocity_smoother.enabled: false`
+omits that process and lifecycle entry and connects controller/behavior output
+directly to `chassis.adapter.input_topic`. Live checks follow the selected graph,
+not the now-unused pre-smoother topic. No launch-time tuning override is added.
+
 `navrun.preparation.prepare_bundle(GraphOptions, BundleInputs, catalog)` renders
 all five modes without creating directories, importing ROS clients, discovering
 processes or opening devices. Its explicit paths work with source or installed
