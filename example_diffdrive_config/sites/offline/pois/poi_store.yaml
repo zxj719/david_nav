@@ -1,0 +1,6 @@
+pois:
+  - id: demo_poi
+    name: 离线导航点
+    map_pose: {frame_id: demo_world, x: 2.0, y: 2.0, z: 0.0, yaw: 0.0}
+    odom_pose: {frame_id: demo_encoder, x: 2.0, y: 2.0, z: 0.0, yaw: 0.0}
+    slam_session_id: offline

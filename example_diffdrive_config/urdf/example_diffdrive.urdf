@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<robot name="example_diffdrive">
+  <link name="demo_body"/>
+  <link name="demo_axle"/>
+  <joint name="body_to_axle" type="fixed">
+    <parent link="demo_body"/>
+    <child link="demo_axle"/>
+    <origin xyz="0.04 0 -0.15" rpy="0 0 0"/>
+  </joint>
+  <link name="demo_sensor"/>
+  <joint name="body_to_sensor" type="fixed">
+    <parent link="demo_body"/>
+    <child link="demo_sensor"/>
+    <origin xyz="0.1 0 0.1" rpy="0 0 0"/>
+  </joint>
+</robot>

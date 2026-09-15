@@ -1,0 +1,89 @@
+# Fictional robot: intentionally uses no David frame, topic, hardware or site path.
+schema_version: 1
+robot: {name: example_diffdrive, description: 离线移植验收用虚构小型差速机器人}
+kinematics: {type: diff_drive}
+frames:
+  map: demo_world
+  odom: demo_encoder
+  body: demo_body
+  nav_base: demo_axle
+  poi_capture: demo_body
+  slam_base: demo_sensor
+  scan_target: demo_axle
+footprint: [[0.25, 0.2], [0.25, -0.2], [-0.25, -0.2], [-0.25, 0.2]]
+limits: {max_vel_x: 0.1, max_vel_theta: 0.4, max_reverse_vel: 0.1}
+goal: {xy_tolerance: 0.2, yaw_tolerance: 6.2832}
+chassis:
+  cmd_topic: /demo/command
+  odom_topic: /demo/wheel_odom
+  adapter:
+    input_topic: /demo/smoothed
+    hard_max_linear_x: 0.2
+    hard_max_angular_z: 0.6
+    min_linear_x: 0.0
+    min_angular_z: 0.0
+    min_stationary_angular_z: 0.2
+    stationary_angular_threshold: 0.02
+    cmd_timeout_sec: 1.0
+    publish_hz: 20.0
+  driver:
+    package: nav_sim
+    parameters:
+      cmd_topic: /demo/command
+      odom_topic: /demo/wheel_odom
+      odom_frame: demo_encoder
+      body_frame: demo_body
+    detect_patterns: []
+    startup_delay_sec: 0.0
+    max_restarts: 0
+teleop:
+  layout: wasd
+  cmd_topic: /demo/safe
+  linear_speed: 0.1
+  angular_speed: 0.3
+  max_linear_x: 0.2
+  max_angular_z: 0.5
+  publish_hz: 20.0
+  key_timeout_sec: 0.4
+localization:
+  provider: fake
+  odom_topic: /demo/localized_odom
+  aligned_cloud_topic: /demo/cloud
+nav2:
+  odom_topic: /demo/localized_odom
+  scan_topic: /demo/scan
+  map_topic: /demo/map
+sensors:
+  scan_from_cloud:
+    enabled: false
+    cloud_topic: /demo/cloud
+    scan_topic: /demo/scan
+    transform_tolerance: 0.1
+    min_height: 0.05
+    max_height: 0.8
+    angle_min: -1.57
+    angle_max: 1.57
+    angle_increment: 0.01
+    scan_time: 0.1
+    range_min: 0.2
+    range_max: 8.0
+    use_inf: true
+reactive:
+  escape: {longitudinal_speed: 0.1, lateral_speed: 0.0}
+  embedded_backup: {distance: 0.2, speed: 0.1}
+  recovery:
+    backup_distance: 0.2
+    backup_speed: 0.1
+    spin_distance: 1.0
+    passed_goal_radius: 0.4
+platform: {jetson: false, maxn: false, jetson_clocks: false}
+preflight:
+  kill_patterns: []
+  kill_foreign_stacks: false
+  kill_stale_robot_state_publishers: false
+simulation:
+  cmd_topic: /demo/command
+  odom_topic: /demo/wheel_odom
+  output_odom_topic: /demo/localized_odom
+  dt: 0.02
+  agent_port: 18101

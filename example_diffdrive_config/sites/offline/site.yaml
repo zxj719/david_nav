@@ -1,0 +1,9 @@
+schema_version: 1
+site: {name: offline, description: 自包含离线示例；不是实验室地图}
+map:
+  nav_yaml: maps/room.yaml
+pois:
+  named_poses_file: pois/named_poses.json
+  store_file: pois/poi_store.yaml
+agent_server:
+  uri: ws://127.0.0.1:18101
