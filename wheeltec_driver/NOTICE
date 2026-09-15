@@ -1,0 +1,11 @@
+This package currently contains a newly written implementation of the Wheeltec
+wire format and regression tests. Its new source files are Apache-2.0 licensed.
+
+Behavioral reference: the immutable local snapshot in
+third_party/wheeltec_original, captured from the David board on 2026-09-14.
+That vendor package declares its license only as TODO. Nothing in this package
+relicenses the vendor snapshot. Confirm upstream licensing before distributing
+vendor-derived node or IMU-attitude implementations in a later migration step.
+
+Recorded controller frames remain in third_party/wheeltec_original/golden.
+They were captured read-only on 2026-09-14; tests never access a serial device.

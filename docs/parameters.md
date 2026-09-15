@@ -77,3 +77,7 @@ This file lists every robot-profile key declared by package schemas.
 | `simulation.dt` | `float` | s | default: `0.02` | range: `0.0 .. inf` | 假底盘固定积分步长，必须大于零；保留旧脚本 Euler 积分语义 | — |
 | `simulation.odom_topic` | `string` | — | default: `"/odom"` | — | 假底盘输出 Odometry，假定位从此订阅；节点 odom_topic 参数 | — |
 | `simulation.output_odom_topic` | `string` | — | default: `""` | — | 假定位可选镜像里程计话题；空值或与输入相同则不再发布 | — |
+
+## `wheeltec_driver`
+
+No parameters declared.

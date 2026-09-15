@@ -1,0 +1,5 @@
+# Protocol constants are a frozen wire contract, not tunable robot parameters.
+# Driver-node parameters will be introduced with P3.8.
+schema_version: 1
+package: wheeltec_driver
+parameters: {}

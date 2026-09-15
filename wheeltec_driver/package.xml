@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>wheeltec_driver</name>
+  <version>0.1.0</version>
+  <description>Pure Wheeltec wire protocol; isolated driver migration in progress.</description>
+  <maintainer email="xingjian.zhang@amicro.com.cn">zhangxingjian</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_cmake_cpplint</test_depend>
+  <test_depend>ament_cmake_uncrustify</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
