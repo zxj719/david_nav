@@ -1,0 +1,123 @@
+# David robot profile (refactor plan §12.2).
+#
+# Every value equals what production runs today. test/test_robot_profile.py
+# compares them with the effective parameters dumped from the pre-refactor
+# bringup (david_nav/test/golden/params), the david_move and keyboard defaults,
+# the bringup launch and the wheeltec driver launch. Mode differences belong in
+# modes/*.yaml and site data in sites/<site>/ (PROGRESS P2.2b).
+schema_version: 1
+
+robot:
+  name: david
+  description: 70 kg 差速底盘 + 从动脚轮，双臂人形
+
+kinematics:
+  type: diff_drive
+
+frames:
+  map: map
+  odom: odom
+  # base_link 与 base_footprint 是不同的帧，禁止合并（位置关系见 URDF）
+  nav_base: base_footprint          # Nav2 / 入位 / 代价图 / BT
+  body: base_link                   # 机身本体帧（lightning 发布）
+  slam_base: base                   # SLAM 内部帧，导航禁用
+  poi_capture: base_link            # 采点帧；与 nav_base 不同时 validate 告警
+  scan_target: base_footprint
+
+footprint: [[0.255, 0.30], [0.255, -0.30], [-0.465, -0.30], [-0.465, 0.30]]
+
+limits:
+  max_vel_x: 0.15
+  max_vel_theta: 0.50
+  max_reverse_vel: 0.20             # TODO-E1 新脱困策略使用
+
+chassis:
+  cmd_topic: /cmd_vel
+  odom_topic: /odom
+  adapter:                          # = 导航时 david_move 的生效参数
+    input_topic: cmd_vel_smoothed
+    hard_max_linear_x: 0.20
+    hard_max_angular_z: 0.60
+    min_linear_x: 0.0
+    min_stationary_angular_z: 0.55
+    stationary_angular_threshold: 0.025
+    cmd_timeout_sec: 2.0            # L2 后 1.0
+    publish_hz: 50.0                # L3 后 20
+  driver:
+    package: wheeltec_driver
+    parameters:
+      usart_port_name: /dev/wheeltec_controller
+      serial_baud_rate: 115200
+      odom_frame_id: odom_combined
+      robot_frame_id: base_footprint
+      gyro_frame_id: gyro_link
+      odom_x_scale: 1.0
+      odom_y_scale: 1.0
+      odom_z_scale_positive: 1.0
+      odom_z_scale_negative: 1.0
+      cmd_timeout_sec: 0.0          # D3：实机冒烟后改 0.5
+      log_tx_frames: false
+    detect_patterns:
+      - wheeltec_robot_node
+      - wheeltec_driver_node
+      - twist_transform
+      - launch turn_on_wheeltec_robot
+    startup_delay_sec: 3.0
+    max_restarts: 1
+
+teleop:                             # = david_cmd/config/cmd.yaml 的 david_keyboard
+  layout: wasd
+  cmd_topic: cmd_vel_safe
+  linear_speed: 0.20
+  angular_speed: 0.35
+  max_linear_x: 0.20
+  max_angular_z: 0.50
+  publish_hz: 20.0
+  key_timeout_sec: 0.40
+
+localization:
+  provider: lightning
+  odom_topic: /lightning/loc/odometry          # alias 3 实际发布
+  aligned_cloud_topic: /lightning/loc/aligned_scan
+  process_name: run_loc_online
+  config_flags: ['--config']
+  log_globs:
+    - '~/.ros/log/run_loc_online_{pid}_*.log'
+    - '/home/agx/lightning_ws_new/src/embodied_intelligence/log/david001_loc_launch/*.out'
+
+nav2:
+  odom_topic: /lightning/odometry   # Nav2 现接线（alias 3 不发布该话题）；等值渲染保留，是否切换见 TODO-O1
+
+localization_health:
+  max_tf_age_sec: 0.5
+  max_divergence_m: 1.0
+  divergence_window_sec: 2.0
+  action: warn
+
+sensors:
+  scan_from_cloud:
+    enabled: false
+    cloud_topic: /lightning/loc/aligned_scan
+    scan_topic: /scan
+    min_height: 0.10
+    max_height: 1.0
+    angle_min: -1.5708
+    angle_max: 1.5708
+    range_min: 0.3
+    range_max: 12.0
+
+platform:
+  jetson: true
+  maxn: true
+  jetson_clocks: true
+
+preflight:
+  kill_patterns: [navigation_executor.py]
+  kill_foreign_stacks: false
+  kill_stale_robot_state_publishers: true
+
+record:
+  light_topics: []
+  monitor_topics: [/cmd_vel, /cmd_vel_smoothed, /odom, /lightning/loc/odometry]
+  monitor_period_sec: 5.0
+  storage: sqlite3
