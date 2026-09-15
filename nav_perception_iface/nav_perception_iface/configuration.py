@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from copy import deepcopy
 import math
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
@@ -138,3 +139,43 @@ def load_scan_configuration(
     return ScanConfiguration(
         config.enabled if enabled_override is None else enabled_override,
         config.cloud_topic, config.scan_topic, config.parameters)
+
+
+def load_contract_profile(profile_path: Path, mode_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Read frozen configuration inputs for the independent interface checker.
+
+    Args:
+        profile_path: Explicit robot profile or already merged profile file.
+        mode_path: Optional version-one mode overlay, as frozen by the supervisor.
+
+    Returns:
+        New mode-merged profile; source files are never written or implicitly selected.
+
+    Raises:
+        ValueError: A document is not a version-one mapping or its overlay is invalid.
+        OSError: An explicit input is unavailable.
+    """
+    def read(path):
+        try:
+            data = yaml.safe_load(path.read_bytes())
+        except yaml.YAMLError as error:
+            raise ValueError(f'invalid contract configuration: {path}') from error
+        if (not isinstance(data, dict) or type(data.get('schema_version')) is not int
+                or data['schema_version'] != 1):
+            raise ValueError(f'contract configuration requires schema_version: 1: {path}')
+        return data
+
+    def merge(original, overlay):
+        result = deepcopy(original)
+        for key, value in overlay.items():
+            result[key] = (merge(result[key], value) if isinstance(value, dict)
+                           and isinstance(result.get(key), dict) else deepcopy(value))
+        return result
+
+    profile = read(profile_path)
+    if mode_path is None:
+        return profile
+    mode = read(mode_path)
+    if not isinstance(mode.get('mode'), str) or not isinstance(mode.get('profile'), dict):
+        raise ValueError('contract mode requires a mode name and profile mapping')
+    return merge(profile, mode['profile'])

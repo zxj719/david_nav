@@ -15,7 +15,7 @@ class InterfaceSnapshot:
     Attributes:
         transforms: 已确认可查询的 (target, source) 坐标变换。
         publishers: 话题发布者数量。
-        subscribers: 话题订阅者数量。
+        subscribers: 符合底盘命令 Twist 类型契约的话题订阅者数量。
         samples: 采样窗口内实际收到消息的话题。
         types: 话题实际公布的消息类型集合。
         cloud_frame: 最新输入点云的 header.frame_id，未收到则为 None。

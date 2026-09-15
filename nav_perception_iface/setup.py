@@ -19,4 +19,7 @@ setup(
     maintainer='zhangxingjian', maintainer_email='xingjian.zhang@amicro.com.cn',
     description='Localization and perception contracts for robot navigation.',
     license='Apache-2.0', tests_require=['pytest'],
+    entry_points={'console_scripts': [
+        'nav_interface_check = nav_perception_iface.contract_cli:main',
+    ]},
 )
