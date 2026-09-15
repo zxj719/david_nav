@@ -33,3 +33,7 @@ echo "ROS sandbox logs: ${ROS_LOG_DIR}"
 # the hardware driver entry point, open a device, or publish a nonzero Twist.
 setsid timeout --signal=INT --kill-after=5s 45s \
   "${REFACTOR_WS}/build/wheeltec_driver/driver_node_checks" "$@"
+for signal in INT TERM; do
+  setsid timeout --signal=INT --kill-after=5s 10s \
+    "${REFACTOR_WS}/build/wheeltec_driver/driver_signal_checks" "$signal"
+done

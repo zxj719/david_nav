@@ -81,6 +81,39 @@ WheeltecDriverNode::WheeltecDriverNode(const rclcpp::NodeOptions & options, Stre
     std::chrono::milliseconds(10), std::bind(&WheeltecDriverNode::control, this));
 }
 
+WheeltecDriverNode::~WheeltecDriverNode()
+{
+  stop();
+}
+
+void WheeltecDriverNode::stop()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (shutdown_requested_) {
+    return;
+  }
+  shutdown_requested_ = true;
+  if (control_timer_) {
+    control_timer_->cancel();
+  }
+  if (core_ && core_->shutdown()) {
+    RCLCPP_INFO(get_logger(), "driver shutdown: zero frame written; serial close attempted");
+  } else {
+    RCLCPP_WARN(get_logger(), "driver shutdown: zero frame not confirmed; serial close attempted");
+  }
+}
+
+void registerShutdownHook(const std::shared_ptr<WheeltecDriverNode> & node)
+{
+  const std::weak_ptr<WheeltecDriverNode> weak = node;
+  node->get_node_base_interface()->get_context()->add_pre_shutdown_callback(
+    [weak]() {
+      if (const auto locked = weak.lock()) {
+        locked->stop();
+      }
+    });
+}
+
 void WheeltecDriverNode::command(const geometry_msgs::msg::Twist::SharedPtr message)
 {
   std::lock_guard<std::mutex> lock(mutex_);

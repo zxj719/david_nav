@@ -30,6 +30,9 @@ public:
   /// Tests must supply a memory-only factory; the default factory accesses configured hardware.
   explicit WheeltecDriverNode(
     const rclcpp::NodeOptions & options = rclcpp::NodeOptions(), StreamFactory factory = {});
+  ~WheeltecDriverNode() override;
+  /// Stop/close once under the same lock as callbacks, with an observable result.
+  void stop();
 
 private:
   friend class DriverNodeTestAccess;
@@ -47,7 +50,11 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr voltage_publisher_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr command_subscription_;
   rclcpp::TimerBase::SharedPtr control_timer_;
+  bool shutdown_requested_{};
 };
+
+/// Register a weak, context-bound callback after shared node construction.
+void registerShutdownHook(const std::shared_ptr<WheeltecDriverNode> & node);
 
 }  // namespace wheeltec_driver
 

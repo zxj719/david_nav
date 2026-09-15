@@ -71,6 +71,9 @@ if(BUILD_TESTING)
   ament_add_gtest_executable(driver_node_checks sandbox_tests/driver_node_checks.cpp)
   target_include_directories(driver_node_checks PRIVATE test)
   target_link_libraries(driver_node_checks wheeltec_node)
+  add_executable(driver_signal_checks sandbox_tests/driver_signal_checks.cpp)
+  target_include_directories(driver_signal_checks PRIVATE test)
+  target_link_libraries(driver_signal_checks wheeltec_node)
   include(cmake/imu_reference.cmake)
   # Instrument both the new implementation and the sanitized vendor reference.
   # No ROS context or hardware is created by this pure numerical test.

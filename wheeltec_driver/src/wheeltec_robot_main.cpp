@@ -13,6 +13,7 @@ int main(int argc, char ** argv)
   int status = 0;
   try {
     auto node = std::make_shared<wheeltec_driver::WheeltecDriverNode>();
+    wheeltec_driver::registerShutdownHook(node);
     rclcpp::spin(node);
   } catch (const std::exception & error) {
     RCLCPP_FATAL(rclcpp::get_logger("wheeltec_robot"), "driver failed: %s", error.what());
