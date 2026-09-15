@@ -16,7 +16,7 @@
 set -o pipefail
 
 readonly WS="${REFACTOR_WS:-$HOME/ros2_ws_refactor}"
-readonly LIVE_PATTERN='run_loc_online|controller_server|bt_navigator|wheeltec_robot_node|navigation_executor|dock_navigator|rviz2'
+readonly LIVE_PATTERN='run_loc_online|controller_server|bt_navigator|wheeltec_robot_node|wheeltec_driver_node|navigation_executor|dock_navigator|rviz2'
 
 # pgrep -f matches whole command lines, so the shells that started this script
 # (for example `ssh host "... <process name> ..."`) would match; ignore them.

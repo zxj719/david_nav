@@ -15,7 +15,7 @@ from typing import IO, List, Optional, Sequence, Set, Tuple
 import pytest
 
 LIVE_PATTERN = (
-    'run_loc_online|controller_server|bt_navigator|wheeltec_robot_node|'
+    'run_loc_online|controller_server|bt_navigator|wheeltec_robot_node|wheeltec_driver_node|'
     'navigation_executor|dock_navigator|rviz2')
 
 
