@@ -27,10 +27,10 @@ APPROACH_DIST = 0.5
 AGENT_PORT = 18101
 
 
-def _fake_nav2(log_path, delay_sec):
+def _fake_nav2(log_path, delay_sec, map_mode='free'):
     return ['python3', str(HERE / 'fake_nav2_servers.py'), '--log', str(log_path),
             '--delay', str(delay_sec), '--x', str(GOAL[0]), '--y', str(GOAL[1]),
-            '--yaw', str(GOAL[2])]
+            '--yaw', str(GOAL[2]), '--map-mode', map_mode]
 
 
 def _dock_navigator():
@@ -64,6 +64,8 @@ def _spin_for(node, seconds):
 
 
 def _stage_goals(log_path):
+    if not log_path.exists():
+        return []
     return [tuple(float(value) for value in line.split()[1:])
             for line in log_path.read_text(encoding='utf-8').splitlines()
             if line.startswith('goal')]
@@ -82,6 +84,8 @@ def ros_node():
 def _send_dock_goal(node, feedback):
     client = ActionClient(node, NavigateToPose, 'dock_to_pose')
     assert client.wait_for_server(timeout_sec=30.0), 'dock_to_pose not available'
+    # Let the fixed TF and transient-local map reach the separate dock process.
+    _spin_for(node, 1.0)
     sent = client.send_goal_async(
         _goal(), feedback_callback=lambda msg: feedback.append(msg.feedback.distance_remaining))
     assert _spin_until(node, sent, 10.0)
@@ -109,6 +113,21 @@ def test_dock_action_runs_both_stages_and_succeeds(sessions, ros_node, tmp_path)
     assert goals[1] == pytest.approx(GOAL[:2], abs=0.002)
     assert feedback
     assert max(feedback) == pytest.approx(1.0 + APPROACH_DIST, abs=0.01)
+    client.destroy()
+
+
+@pytest.mark.parametrize('map_mode', ['occupied_approach', 'none'])
+def test_dock_rejects_an_occupied_or_unverified_approach(sessions, ros_node, tmp_path, map_mode):
+    """An occupied footprint corner or missing map aborts without any Nav2 stage goal."""
+    log = tmp_path / 'nav2.log'
+    sessions.start('fake_nav2', _fake_nav2(log, 0.5, map_mode))
+    sessions.start('dock_navigator', _dock_navigator())
+    client, handle = _send_dock_goal(ros_node, [])
+    assert handle.accepted
+    result = handle.get_result_async()
+    assert _spin_until(ros_node, result, 15.0)
+    assert result.result().status == GoalStatus.STATUS_ABORTED
+    assert _stage_goals(log) == []
     client.destroy()
 
 

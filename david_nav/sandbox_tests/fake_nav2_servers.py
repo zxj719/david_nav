@@ -13,11 +13,13 @@ import time
 
 from geometry_msgs.msg import TransformStamped
 from nav2_msgs.action import NavigateToPose, Spin
+from nav_msgs.msg import OccupancyGrid
 import rclpy
 from rclpy.action import ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from tf2_ros import TransformBroadcaster
 
 
@@ -44,6 +46,35 @@ class FakeNav2Servers(Node):
             self, Spin, 'spin', execute_callback=self.execute_spin, callback_group=group)
         self.pose_broadcaster = TransformBroadcaster(self)
         self.create_timer(0.05, self.publish_pose)
+        if options.map_mode != 'none':
+            qos = QoSProfile(
+                depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                reliability=ReliabilityPolicy.RELIABLE)
+            self.static_map_publisher = self.create_publisher(OccupancyGrid, '/map', qos)
+            self.static_map = OccupancyGrid()
+            self.static_map.header.frame_id = 'map'
+            self.static_map.info.resolution = 0.1
+            self.static_map.info.width = 200
+            self.static_map.info.height = 200
+            self.static_map.info.origin.position.x = -10.0
+            self.static_map.info.origin.position.y = -10.0
+            self.static_map.info.origin.orientation.w = 1.0
+            cells = [0] * 40000
+            if options.map_mode == 'occupied_approach':
+                # Occupy a body corner, not the approach point's center cell.
+                c, s = math.cos(options.yaw), math.sin(options.yaw)
+                x = options.x - 0.5 * c + 0.20 * c - 0.20 * s
+                y = options.y - 0.5 * s + 0.20 * s + 0.20 * c
+                col, row = int((x + 10.0) / 0.1), int((y + 10.0) / 0.1)
+                cells[row * 200 + col] = 100
+            self.static_map.data = cells
+            self.publish_static_map()
+            self.create_timer(0.2, self.publish_static_map)
+
+    def publish_static_map(self):
+        """Publish a latched free map or an occupied approach-footprint corner."""
+        self.static_map.header.stamp = self.get_clock().now().to_msg()
+        self.static_map_publisher.publish(self.static_map)
 
     def record(self, line):
         """Append one action-server event to the sandbox log.
@@ -112,6 +143,8 @@ def main():
     parser.add_argument('--x', type=float, required=True)
     parser.add_argument('--y', type=float, required=True)
     parser.add_argument('--yaw', type=float, required=True)
+    parser.add_argument(
+        '--map-mode', choices=['free', 'occupied_approach', 'none'], default='free')
     options = parser.parse_args()
     rclpy.init()
     node = FakeNav2Servers(options)

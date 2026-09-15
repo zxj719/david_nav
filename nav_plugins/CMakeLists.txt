@@ -64,6 +64,12 @@ if(BUILD_TESTING)
   ament_add_gtest(robot_base_frame_test test/robot_base_frame_test.cpp)
   target_compile_features(robot_base_frame_test PUBLIC cxx_std_17)
   target_include_directories(robot_base_frame_test PUBLIC include)
+  ament_add_gtest(recovery_resume_test test/recovery_resume_test.cpp)
+  target_compile_features(recovery_resume_test PUBLIC cxx_std_17)
+  ament_target_dependencies(recovery_resume_test behaviortree_cpp_v3)
+  target_compile_definitions(recovery_resume_test PRIVATE
+    LEGACY_BT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../david_nav/behavior_trees"
+    TEMPLATE_BT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/behavior_trees")
   # Deliberately not a CTest: node creation is allowed only via the guarded
   # sandbox launcher when no user stack is running (RUNBOOK S7).
   ament_add_gtest_executable(scan_priority_layer_checks
