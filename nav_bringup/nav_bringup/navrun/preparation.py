@@ -22,6 +22,7 @@ from nav_bringup.launching.graph import build_graph, GraphOptions, NAVIGATION_MO
 from nav_bringup.navcfg import behavior_trees, render, schema, validation
 from nav_bringup.navrun import prepared_parameters
 from nav_bringup.navrun.executor_binding import bind_executor
+from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
 
 
 @dataclass(frozen=True)
@@ -201,6 +202,7 @@ def _navigation(
 
 def prepare_bundle(
     options: GraphOptions, inputs: BundleInputs, catalog: schema.ParameterCatalog,
+    teleop_options: TeleopOptions = TeleopOptions(),
 ) -> PreparedBundle:
     """Read, bind and validate configuration entirely offline and without writes.
 
@@ -212,6 +214,7 @@ def prepare_bundle(
         options: Desired graph switches and final absolute run directory.
         inputs: Explicit configuration source paths.
         catalog: Aggregated package schemas used by offline validation.
+        teleop_options: Explicit keyboard overrides; never modify source snapshots.
 
     Returns:
         Immutable file contents and resolved options, suitable for dry-run inspection.
@@ -221,6 +224,7 @@ def prepare_bundle(
         OSError: If a required input cannot be read.
     """
     build_graph(options)
+    overrides = teleop_options.values(options.mode)
     reader = _Reader()
     profile = reader.mapping('robot', inputs.profile, 'params/inputs/robot.yaml')
     _version(profile, 'robot')
@@ -228,7 +232,10 @@ def prepare_bundle(
         reader.mapping('mode', inputs.mode, 'params/inputs/mode.yaml'), inputs.mode)
     if mode.name != options.mode:
         raise ValueError('mode overlay does not match the requested launch mode')
-    effective = render.deep_merge(profile, mode.profile)
+    effective = apply_options(render.deep_merge(profile, mode.profile),
+                              options.mode, teleop_options)
+    if overrides:
+        reader.artifacts['params/inputs/teleop_options.yaml'] = _yaml(overrides)
     options = _profile_options(options, effective)
     site = (reader.mapping('site', inputs.site, 'params/inputs/site.yaml')
             if inputs.site is not None else {})

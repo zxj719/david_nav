@@ -13,6 +13,7 @@ from nav_bringup.launching.executables import resolve_executable
 from nav_bringup.launching.graph import NAVIGATION_MODES
 from nav_bringup.navcfg import render
 from nav_bringup.navrun.startup_lifecycle import StartupCommands, StartupGate
+from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
 from nav_bringup.navrun.up_planning import UpPlan
 
 
@@ -34,7 +35,12 @@ def effective_profile(plan: UpPlan) -> Dict[str, Any]:
                              Path(plan.bundle.options.run_dir) / 'params/inputs/mode.yaml')
     if mode.name != plan.bundle.options.mode:
         raise ValueError('prepared mode does not match startup identity')
-    return render.deep_merge(robot, mode.profile)
+    overrides = yaml.safe_load(artifacts.get('params/inputs/teleop_options.yaml', b'{}'))
+    if not isinstance(overrides, dict) or set(overrides) - {
+            'layout', 'linear_speed', 'angular_speed'}:
+        raise ValueError('invalid frozen teleop overrides')
+    return apply_options(render.deep_merge(robot, mode.profile), mode.name,
+                         TeleopOptions(**overrides))
 
 
 def bind_commands(

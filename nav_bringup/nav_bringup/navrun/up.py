@@ -17,6 +17,7 @@ from nav_bringup.navrun.locking import DEFAULT_LOCK_PATH
 from nav_bringup.navrun.recorded_startup import run_recorded_startup, StartupOptions
 from nav_bringup.navrun.runtime_commands import bind_commands
 from nav_bringup.navrun.runtime_host import bind_host_steps
+from nav_bringup.navrun.teleop_options import TeleopOptions
 from nav_bringup.navrun.up_planning import discover_inputs, plan_up, report_plan, UpRequest
 from nav_bringup.recorder.run_dir import default_runs_root
 
@@ -57,7 +58,8 @@ def preview(args: argparse.Namespace) -> Dict[str, Any]:
 
 def _plan(args, run_dir):
     request = UpRequest(args.mode, args.robot, args.site, run_dir,
-                        args.chassis, args.record, args.no_executor)
+                        args.chassis, args.record, args.no_executor,
+                        TeleopOptions(args.layout, args.linear_speed, args.angular_speed))
 
     def share(package: str) -> Path:
         if args.source_root is not None:

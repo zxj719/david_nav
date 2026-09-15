@@ -1,10 +1,46 @@
-# chassis_teleop (P4.4 in progress)
+# chassis_teleop
 
 The package provides a keyboard state machine, owned TTY reader and standalone
 `chassis_teleop` executable. `navrun up --mode teleop` now provides recorded combined
 startup with driver, adapter and a separately supervised keyboard. The convenience
-`keyboard_teleop.launch.py` entry and its parameter overrides remain pending.
+`keyboard_teleop.launch.py` delegates to that same recorded owner, not three nodes
+started concurrently. It does not bypass the lock, publisher guard or TTY backup.
 This is not yet an operator-accepted replacement for alias 5k.
+
+After loading Humble, the refactor overlay and the shared ROS/DDS environment,
+operators can preview the entry without starting ROS or touching hardware:
+
+```bash
+ros2 launch chassis_teleop keyboard_teleop.launch.py robot:=david dry_run:=true
+```
+
+`robot` defaults to `david`; `start_driver` accepts auto/on/off (default auto).
+`layout` defaults to wasd and also accepts uiojkl. Empty `linear_speed` (m/s) and
+`angular_speed` (rad/s) retain profile gears. Optional `record` (light/full/off),
+`repo`, `runs_root` and `source_root` map directly to navrun's selectors. A runtime
+launch is an active host operation, not a diagnostic; production deployment and
+physical motion acceptance remain manual tasks.
+
+Direct `navrun up --mode teleop` accepts `--layout`, `--linear-speed` and
+`--angular-speed`; unlike the convenience launch it retains profile layout when
+omitted. Overrides are teleop-only. Explicit gears must be finite, nonnegative
+and no higher than either the keyboard ceiling or adapter hard limit. They do
+not raise ceilings or disable deadzone lifting: David's nonzero gears below the
+profile floor are still raised to that floor. Zero stays zero. Source profile and
+mode snapshots remain byte-for-byte intact; provided selectors are separately
+frozen in `params/inputs/teleop_options.yaml`, and rendered parameters/runtime
+bindings use those same frozen values. Hardware device paths, topics, deadzones
+and safety ceilings cannot be overridden through these keyboard selectors.
+
+The outer launch exits after navrun finalization. Normal q returns zero; navrun
+failures raise a launch error (outer exit 1), with the exact status in the run
+manifest. Ctrl-C similarly preserves navrun's 130 in the record. Shutdown also
+explicitly forwards SIGINT to the owned navrun action: it does not rely on
+Humble's interactive assumption that a terminal signal already reached children.
+Both private-terminal Ctrl-C and a signal sent only to launch are tested. Launch allows
+60 seconds before SIGTERM escalation and another 60 before SIGKILL to accommodate
+owned-group cleanup and finalization. Forced termination of the supervisor still
+cannot guarantee hardware stopping; no software-only test makes that claim.
 
 Standalone startup acquires the navrun lock, opens the configured TTY and observes
 all configured command topics (including its own output) for `discovery_sec` before
@@ -73,6 +109,9 @@ Ordinary tests compare old methods via AST and use fake ROS infrastructure and
 test-created PTY pairs. They do not initialize ROS or read a user's terminal.
 Explicit sandbox checks use domain 99 and private locks/PTYs, send only stop/quit
 keys or signals to owned children, and assert that every observed Twist is zero.
+The installed convenience entry is also exercised through real LaunchService,
+using a private controlling PTY and fake-profile/host fixtures; normal quit,
+interruption, publisher conflict and missing TTY are checked without motion.
 Actual SSH/launch controlling-terminal behavior remains P4.U2 operator acceptance.
 The installed `teleop_twist_keyboard` package is an emergency operator alternative;
 its speed/topic wiring still requires an explicit safety review before use.

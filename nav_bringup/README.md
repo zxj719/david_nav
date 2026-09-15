@@ -193,8 +193,15 @@ The parent holds terminal recovery state and the navigation lease through all
 child cleanup retries. A killed keyboard fails the run but cannot leave cbreak
 mode behind while the parent remains alive. Normal q exits with status zero;
 signals and abnormal keyboard exits retain their recorded statuses.
-The `keyboard_teleop.launch.py` convenience entry and its layout/speed override
-selectors remain P4.4 work; this does not authorize switching production 5k.
+The `chassis_teleop/keyboard_teleop.launch.py` convenience entry delegates to this
+same recorded owner and propagates child failures. Its selectors are documented
+in chassis_teleop's README; this does not authorize switching production 5k.
+Direct up accepts teleop-only `--layout`, `--linear-speed` and `--angular-speed`.
+Omitted values preserve the profile. Explicit gears reject nonfinite, negative or
+over-ceiling requests; profile deadzone lifting remains unchanged. Source robot
+and mode bytes/hashes are unchanged. The separate frozen
+`params/inputs/teleop_options.yaml` records supplied choices and feeds rendering
+and runtime bindings, so replay does not depend on mutable CLI objects or sources.
 
 ### Executor and recording preparation (P4.2)
 

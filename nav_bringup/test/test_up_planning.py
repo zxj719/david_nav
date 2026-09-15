@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from nav_bringup.navcfg import schema
 from nav_bringup.navrun.preflight import ProcessInfo
@@ -130,3 +131,61 @@ def test_robot_identity_mismatch_fails(tmp_path):
     catalog = schema.load_catalog(schema.find_source_schemas(SOURCE))
     with pytest.raises(ValueError, match='identity'):
         up_planning.plan_up(request, inputs, catalog, (SELF,), SELF.pid, lambda *_: '/fake')
+
+
+def test_teleop_overrides_are_frozen_without_changing_sources(tmp_path):
+    """Explicit gears reach rendered parameters and runtime from immutable artifacts."""
+    from nav_bringup.navrun.runtime_commands import effective_profile
+    from nav_bringup.navrun.teleop_options import TeleopOptions
+
+    options = TeleopOptions(layout='uiojkl', linear_speed=0.1, angular_speed=0.2)
+    plan = _plan(_request(tmp_path, mode='teleop', teleop_options=options))
+    artifacts = dict(plan.bundle.artifacts)
+    robot = SOURCE / 'example_diffdrive_config/robot/example_diffdrive.yaml'
+    mode = SOURCE / 'example_diffdrive_config/modes/teleop.yaml'
+    assert artifacts['params/inputs/robot.yaml'] == robot.read_bytes()
+    assert artifacts['params/inputs/mode.yaml'] == mode.read_bytes()
+    assert yaml.safe_load(artifacts['params/inputs/teleop_options.yaml']) == {
+        'layout': 'uiojkl', 'linear_speed': 0.1, 'angular_speed': 0.2}
+    assert up_planning.report_plan(plan)['teleop_overrides'] == vars(options)
+    rendered = yaml.safe_load(artifacts['params/rendered/teleop.yaml'])
+    params = rendered['chassis_teleop']['ros__parameters']
+    for key, value in vars(options).items():
+        assert params[key] == value
+        assert effective_profile(plan)['teleop'][key] == value
+    changed = replace(plan, request=replace(plan.request, teleop_options=TeleopOptions()))
+    assert effective_profile(changed) == effective_profile(plan)
+    assert not plan.request.run_dir.exists()
+
+
+@pytest.mark.parametrize('value', [0.0, 0.2])
+def test_teleop_override_zero_and_ceiling_are_accepted(tmp_path, value):
+    """Stopping and exact maximum gears remain valid, without publishing commands."""
+    from nav_bringup.navrun.runtime_commands import effective_profile
+    from nav_bringup.navrun.teleop_options import TeleopOptions
+
+    plan = _plan(_request(tmp_path, mode='teleop',
+                          teleop_options=TeleopOptions(linear_speed=value)))
+    assert effective_profile(plan)['teleop']['linear_speed'] == value
+
+
+@pytest.mark.parametrize('values', [
+    {'layout': 'other'}, {'linear_speed': -0.1}, {'angular_speed': float('nan')},
+    {'linear_speed': float('inf')}, {'linear_speed': True},
+    {'linear_speed': 9.0}, {'angular_speed': 9.0},
+])
+def test_unsafe_teleop_overrides_fail_before_startup(tmp_path, values):
+    """CLI gears must be finite, nonnegative and within profile-owned ceilings."""
+    from nav_bringup.navrun.teleop_options import TeleopOptions
+
+    with pytest.raises(ValueError):
+        _plan(_request(tmp_path, mode='teleop', teleop_options=TeleopOptions(**values)))
+
+
+def test_nonteleop_override_fails_before_resource_lookup(tmp_path):
+    """Keyboard options cannot silently affect a navigation or chassis-only run."""
+    from nav_bringup.navrun.teleop_options import TeleopOptions
+
+    request = _request(tmp_path, teleop_options=TeleopOptions(layout='wasd'))
+    with pytest.raises(ValueError, match='teleop'):
+        up_planning.discover_inputs(request, lambda _: pytest.fail('resource lookup'))

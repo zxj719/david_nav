@@ -19,6 +19,15 @@ def test_up_parser_defaults():
     args = cli.build_parser().parse_args(['up', '--mode', 'precise', '--dry-run'])
     assert (args.robot, args.site, args.record, args.chassis) == (
         'david', 'daolan', 'light', 'auto')
+    assert (args.layout, args.linear_speed, args.angular_speed) == (None, None, None)
+
+
+def test_up_parser_keyboard_overrides():
+    """Convenience launch and direct up share exactly the same override selectors."""
+    args = cli.build_parser().parse_args([
+        'up', '--mode', 'teleop', '--layout', 'uiojkl',
+        '--linear-speed', '0.1', '--angular-speed', '0.2'])
+    assert (args.layout, args.linear_speed, args.angular_speed) == ('uiojkl', 0.1, 0.2)
 
 
 def test_live_cli_dispatches_without_using_preview(monkeypatch):

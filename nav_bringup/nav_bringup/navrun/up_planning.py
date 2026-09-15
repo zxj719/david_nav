@@ -21,6 +21,7 @@ from nav_bringup.navrun.platform import plan_platform, PlatformStep
 from nav_bringup.navrun.preflight import plan_preflight, PreflightPlan, ProcessInfo
 from nav_bringup.navrun.preparation import BundleInputs, PreparedBundle, prepare_bundle
 from nav_bringup.navrun.recording import plan_recording, RecordingPlan
+from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class UpRequest:
         chassis: auto, on or off; resolved by a read-only process snapshot.
         record: Requested light, full or off recording policy.
         no_executor: Explicitly omit the legacy WS executor.
+        teleop_options: Explicit layout/gears, frozen separately from source files.
     """
 
     mode: str
@@ -44,6 +46,7 @@ class UpRequest:
     chassis: str = 'auto'
     record: str = 'light'
     no_executor: bool = False
+    teleop_options: TeleopOptions = TeleopOptions()
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,7 @@ class UpPlan:
 
 
 def _validate(request: UpRequest) -> None:
+    request.teleop_options.values(request.mode)
     if request.mode not in MODES:
         raise ValueError('unknown mode')
     for name in ('robot', 'site'):
@@ -150,7 +154,8 @@ def plan_up(
     if not isinstance(profile, dict):
         raise ValueError('robot profile must be a mapping')
     mode = render.parse_mode(yaml.safe_load(initial_mode), inputs.mode)
-    effective = render.deep_merge(profile, mode.profile)
+    effective = apply_options(render.deep_merge(profile, mode.profile),
+                              request.mode, request.teleop_options)
     preflight = plan_preflight(effective, processes, own_pid, chassis=request.chassis)
     navigation = request.mode in NAVIGATION_MODES
     executor = request.mode in ('tour', 'precise') and not request.no_executor
@@ -159,7 +164,7 @@ def plan_up(
         request.mode, str(request.run_dir), start_chassis=preflight.start_chassis,
         start_executor=executor, scan_bridge=scan if navigation else False,
         supervisor_keyboard=request.mode == 'teleop')
-    bundle = prepare_bundle(options, inputs, catalog)
+    bundle = prepare_bundle(options, inputs, catalog, request.teleop_options)
     artifacts = dict(bundle.artifacts)
     if (artifacts['params/inputs/robot.yaml'] != initial_profile
             or artifacts['params/inputs/mode.yaml'] != initial_mode):
@@ -202,6 +207,8 @@ def report_plan(plan: UpPlan) -> Dict[str, Any]:
         'dry_run': True, 'runtime_enabled': True,
         'robot': plan.bundle.robot, 'site': plan.bundle.site, 'mode': options.mode,
         'run_dir': options.run_dir, 'record': plan.request.record,
+        'teleop_overrides': yaml.safe_load(dict(plan.bundle.artifacts).get(
+            'params/inputs/teleop_options.yaml', b'{}')),
         'recording': asdict(plan.recording),
         'launch': ['ros2', 'launch', 'nav_bringup', 'nav.launch.py',
                    'run_dir:=' + options.run_dir, 'robot:=' + plan.bundle.robot,
