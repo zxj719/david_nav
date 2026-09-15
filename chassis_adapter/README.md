@@ -1,6 +1,6 @@
 # chassis_adapter
 
-Python migration of `david_cmd.david_move` (Apache-2.0), keeping the command
+Python and opt-in C++ migration of `david_cmd.david_move` (Apache-2.0), keeping the command
 algorithm and valid-profile behavior unchanged. It owns neither a serial port
 nor localization, IMU, odometry or TF. The old executable remains available.
 
@@ -41,3 +41,37 @@ Transport failure is warned, not presented as proof that hardware stopped.
 Ordinary tests use in-memory publishers and never initialize ROS. Parameter and
 zero-only runtime checks belong in the guarded domain-99 sandbox. Nothing here
 changes production launch files or authorizes motion testing.
+
+## C++ component (P5.3)
+
+This is now an `ament_cmake`/`ament_cmake_python` mixed package. CMake installs
+the unchanged Python package and its `chassis_adapter` executable; the former
+setuptools build metadata is retired. The default remains Python. A mode overlay
+can set `profile.chassis.adapter.implementation: cpp` to select the standalone
+`chassis_adapter_cpp` executable with exactly the same node name and parameter
+file. No backend is inferred from dependency availability, and unknown values
+are rejected before startup. Both implementations remain available for A/B.
+
+The component plugin is `chassis_adapter::AdapterNode` in package
+`chassis_adapter`. It uses ROS-clock timers (not wall timers) for command and
+diagnostic cadence, with monotonic elapsed time for diagnostic input rate.
+Integer numeric overrides are preserved as integer ROS parameters; all numeric
+settings are validated before command endpoints are constructed. Startup
+parameter changes still require restart, matching the Python implementation.
+
+For component unload, the destructor cancels timers and sends five zeros. For
+container or standalone INT/TERM, a context **pre-shutdown** callback sends the
+burst before middleware shutdown. A shared, mutex-protected runtime is captured
+weakly, never a raw node pointer; stop is idempotent and prevents later receive/
+timer callbacks from resuming output. Diagnostic values carry the same keys and
+numeric meanings, though decimal string formatting is not a wire-protocol promise.
+Delivery and physical stopping still require hardware validation.
+
+`adapter_core` has no ROS dependency. The test-only `adapter_core_oracle` reads
+in-memory command/time sequences over stdin; Python drives it against the real
+Python state machine, including mixed lateral input, thresholds, clock rewinds,
+disabled timeout and one-shot stale transitions. It never publishes a command.
+Its signed-int64 clock representation rejects an initial timestamp too close to
+INT64_MIN to represent the legacy one-hour stale offset (outside valid ROS time).
+Real endpoint/component checks live in the guarded navigation sandbox and use
+only zero commands. Production selection and performance/stop A/B remain P5.U1.

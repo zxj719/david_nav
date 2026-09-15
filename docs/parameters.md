@@ -11,6 +11,7 @@ This file lists every robot-profile key declared by package schemas.
 | `chassis.adapter.cmd_timeout_sec` | `float` | s | default: `2.0` | — | 输入静默超过该 ROS 时间后只发一次零速并静默；非正值关闭超时；节点 cmd_vel_timeout | — |
 | `chassis.adapter.hard_max_angular_z` | `float` | rad/s | default: `0.5` | range: `0.0 .. inf` | 适配层角速度幅值上限；节点 max_angular_z | — |
 | `chassis.adapter.hard_max_linear_x` | `float` | m/s | default: `0.2` | range: `0.0 .. inf` | 适配层线速度幅值上限；节点 max_linear_x | — |
+| `chassis.adapter.implementation` | `string` | — | default: `"python"` | choices: `"python"`, `"cpp"` | 适配层实现选择；C++ 组件兼容相同参数与节点名，实机 A/B 前保留 Python 默认 | — |
 | `chassis.adapter.input_topic` | `string` | — | default: `"cmd_vel_safe"` | — | 模式选择的适配层输入；节点 input_cmd_vel_topic | — |
 | `chassis.adapter.min_angular_z` | `float` | rad/s | default: `0.0` | range: `0.0 .. inf` | 弧形运动或小于原地转向门槛时的非零角速度地板 | — |
 | `chassis.adapter.min_linear_x` | `float` | m/s | default: `0.2` | range: `0.0 .. inf` | 非零线速度地板，先钳位再抬升，地板不超过最大值 | — |

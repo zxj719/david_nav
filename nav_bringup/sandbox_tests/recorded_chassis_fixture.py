@@ -62,13 +62,15 @@ def main() -> int:
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--mode', choices=('chassis', 'teleop'), default='chassis')
     parser.add_argument('--tty', default='')
+    parser.add_argument('--mode-file', type=Path)
     args = parser.parse_args()
     configure(args.root, args.tty if args.mode == 'teleop' else '')
     source = Path(__file__).resolve().parents[2]
     return cli.main([
         'up', '--mode', args.mode, '--robot', 'example_diffdrive', '--site', 'offline',
         '--record', 'off', '--no-executor', '--source-root', str(source), '--repo', str(source),
-        '--runs-root', str(args.root / 'runs')])
+        '--runs-root', str(args.root / 'runs'),
+        *(['--mode-file', str(args.mode_file)] if args.mode_file else [])])
 
 
 if __name__ == '__main__':

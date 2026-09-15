@@ -1,0 +1,8 @@
+# Explicit C++ adapter experiment; Python remains the default.
+schema_version: 1
+mode: tour
+description: C++ adapter opt-in; hardware A/B required before production selection
+profile:
+  chassis:
+    adapter:
+      implementation: cpp

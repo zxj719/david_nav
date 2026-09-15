@@ -53,6 +53,7 @@ class GraphOptions:
         ready_action: Navigation action server checked without submitting any goal.
         supervisor_keyboard: Teleop keyboard is owned directly by navrun, not launch.
         velocity_smoother: Keep the legacy smoothing hop unless explicitly disabled.
+        adapter_implementation: Explicit python/cpp backend; Python remains the default.
     """
 
     mode: str
@@ -79,6 +80,7 @@ class GraphOptions:
     ready_action: str = '/navigate_to_pose'
     supervisor_keyboard: bool = False
     velocity_smoother: bool = True
+    adapter_implementation: str = 'python'
 
 
 @dataclass(frozen=True)
@@ -134,6 +136,8 @@ class LaunchGraph:
 
 
 def _validate(options: GraphOptions) -> None:
+    if options.adapter_implementation not in ('python', 'cpp'):
+        raise ValueError('adapter implementation must be python or cpp')
     if options.mode not in MODES:
         raise ValueError(f'unknown launch mode: {options.mode!r}')
     if not PurePath(options.run_dir).is_absolute() or '..' in PurePath(options.run_dir).parts:
@@ -193,7 +197,9 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
             restart_limit=options.driver_restarts))
     delay = options.chassis_delay_sec if options.start_chassis else 0.0
     processes.append(ProcessSpec(
-        'chassis_adapter', 'chassis_adapter', 'chassis_adapter', params('adapter'),
+        'chassis_adapter', 'chassis_adapter',
+        'chassis_adapter_cpp' if options.adapter_implementation == 'cpp' else 'chassis_adapter',
+        params('adapter'),
         delay_sec=delay))
     if options.mode == 'chassis':
         return LaunchGraph(options.mode, tuple(processes), ())

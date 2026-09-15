@@ -91,6 +91,11 @@ do not deploy new aliases or start recordings in the production environment.
 
 ## How the values are guarded
 
+`modes/experiments/{tour,precise}_cpp.yaml` selects the C++ adapter explicitly
+through the same `--mode-file` interface. Numerical settings and the original
+smoother remain unchanged; default modes still use Python. The component and
+equivalence/zero-only validation are documented in `chassis_adapter/README.md`.
+
 `test/test_robot_profile.py` compares the profile with the effective parameters
 dumped from the pre-refactor bringup (`david_nav/test/golden/params`, PROGRESS
 P0.7), the `david_move` and keyboard defaults, the point-cloud-to-scan settings

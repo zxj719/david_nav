@@ -1,6 +1,11 @@
 schema_version: 1
 package: chassis_adapter
 parameters:
+  chassis.adapter.implementation:
+    type: string
+    default: python
+    choices: [python, cpp]
+    description: 适配层实现选择；C++ 组件兼容相同参数与节点名，实机 A/B 前保留 Python 默认
   chassis.cmd_topic:
     type: string
     default: /cmd_vel
