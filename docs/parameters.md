@@ -67,3 +67,13 @@ This file lists every robot-profile key declared by package schemas.
 | `reactive.recovery.backup_speed` | `float` | m/s | **required** | range: `0.0 .. inf` | 普通恢复分支后退速度 | — |
 | `reactive.recovery.passed_goal_radius` | `float` | m | **required** | range: `0.0 .. inf` | 多目标导航移除已通过目标的距离阈值 | — |
 | `reactive.recovery.spin_distance` | `float` | rad | **required** | range: `0.0 .. inf` | 普通恢复分支旋转角度 | — |
+
+## `nav_sim`
+
+| Key | Type | Unit | Required / default | Constraints | Description | Tuning |
+|---|---|---|---|---|---|---|
+| `simulation.agent_port` | `int` | — | default: `18101` | range: `1 .. 65535` | 假 agent WebSocket 端口，仅绑定 127.0.0.1，不复用生产端口 | — |
+| `simulation.cmd_topic` | `string` | — | default: `"/cmd_vel"` | — | 假底盘输入 Twist，仅订阅不发布；节点 cmd_topic 参数 | — |
+| `simulation.dt` | `float` | s | default: `0.02` | range: `0.0 .. inf` | 假底盘固定积分步长，必须大于零；保留旧脚本 Euler 积分语义 | — |
+| `simulation.odom_topic` | `string` | — | default: `"/odom"` | — | 假底盘输出 Odometry，假定位从此订阅；节点 odom_topic 参数 | — |
+| `simulation.output_odom_topic` | `string` | — | default: `""` | — | 假定位可选镜像里程计话题；空值或与输入相同则不再发布 | — |

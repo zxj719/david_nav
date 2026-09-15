@@ -1,0 +1,26 @@
+schema_version: 1
+package: nav_sim
+parameters:
+  simulation.dt:
+    type: float
+    default: 0.02
+    unit: s
+    range: [0.0, null]
+    description: 假底盘固定积分步长，必须大于零；保留旧脚本 Euler 积分语义
+  simulation.cmd_topic:
+    type: string
+    default: /cmd_vel
+    description: 假底盘输入 Twist，仅订阅不发布；节点 cmd_topic 参数
+  simulation.odom_topic:
+    type: string
+    default: /odom
+    description: 假底盘输出 Odometry，假定位从此订阅；节点 odom_topic 参数
+  simulation.output_odom_topic:
+    type: string
+    default: ''
+    description: 假定位可选镜像里程计话题；空值或与输入相同则不再发布
+  simulation.agent_port:
+    type: int
+    default: 18101
+    range: [1, 65535]
+    description: 假 agent WebSocket 端口，仅绑定 127.0.0.1，不复用生产端口
