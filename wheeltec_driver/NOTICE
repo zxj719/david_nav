@@ -7,7 +7,8 @@ Behavioral reference: the immutable local snapshot in
 third_party/wheeltec_original, captured from the David board on 2026-09-14.
 That vendor package declares its license only as TODO. Nothing in this package
 relicenses the vendor snapshot or vendor-derived implementations. Confirm
-upstream licensing before distributing the IMU attitude implementation.
+upstream licensing before distributing the IMU attitude implementation or
+the legacy-derived node/message-mapping code, which retains this provenance.
 
 Recorded controller frames remain in third_party/wheeltec_original/golden.
 They were captured read-only on 2026-09-14; tests never access a serial device.

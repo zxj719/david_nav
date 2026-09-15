@@ -1,0 +1,13 @@
+# Frozen standalone Wheeltec defaults from the P0.10 vendor snapshot.
+# Robot-specific overrides are supplied by the robot configuration package.
+wheeltec_robot:
+  ros__parameters:
+    usart_port_name: /dev/wheeltec_controller
+    serial_baud_rate: 115200
+    odom_frame_id: odom_combined
+    robot_frame_id: base_footprint
+    gyro_frame_id: gyro_link
+    odom_x_scale: 1.0
+    odom_y_scale: 1.0
+    odom_z_scale_positive: 1.0
+    odom_z_scale_negative: 1.0

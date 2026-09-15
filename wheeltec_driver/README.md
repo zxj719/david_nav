@@ -1,13 +1,25 @@
 # wheeltec_driver
 
-P3.7 / PLAN §8.3 D1：独立的纯 C++ 协议库 `wheeltec_protocol`。当前尚无串口节点或 launch，
-不改生产驱动；后续 ByteStream/节点迁移归 P3.8。
+P3.7 / PLAN §8.3 D1：独立的纯 C++ 协议库 `wheeltec_protocol`。
+P3.8 / D2 已增加驱动核心与独立节点；未切换生产驱动、未修改正式启动入口。
 
 P3.8 / D2 传输层：`ByteStream` 可注入内存假串口；`SerialStream` 连接仓内 vendored serial，
 构造时不打开设备，必须显式调用 open。`StatusReader` 保持旧驱动分包/丢帧规则，一次排空
 进入函数时已缓冲的字节、返回最后一帧有效数据。短读保留半帧；I/O 异常丢弃半帧并关闭端口；
 若有效帧后发生 I/O 异常，本次不返回样本，与旧实现一致。实例间不共享旧 static 半帧状态。
 统计量是累计值，供后续 diagnostics 使用；本层不改变重连时序、写帧或停车策略。
+
+`DriverCore` 保留旧 float 位姿积分、100 次断连 tick 重试、每 12 个有效样本发送电压；
+节点的 odom/imu/PowerVoltage 深度分别是 50/20/10，并非频率。消息保留旧 covariance
+及 `position.z = yaw`，后者的修正仍需人工审核。9 个旧参数默认值在
+`config/wheeltec_driver.yaml`，可用普通 ROS 参数覆盖；话题可 remap。
+当前可执行文件仍叫 `wheeltec_robot_node`，节点名仍是 `wheeltec_robot`，后续 D9 独立改名。
+构造节点会连接配置的串口，故自动测试禁止运行该硬件入口。析构执行一次尽力零速并关闭；
+看门狗、显式 shutdown 回调、诊断和发布开关尚属后续 D3/D4/D7/D8，不在此步宣称完成。
+
+`sandbox_tests/run_sandbox_checks.sh` 是单独显式运行的 ROS 集成检查，不注册进 CTest。
+检查现场无运行中的用户栈后，加载正式 DDS 白名单并限定 domain 99；节点注入内存串口，
+只发布零 Twist，非零协议金样仅直接调用内存回调。无需 IMU/定位启动，不访问真实设备。
 
 `ImuAttitude` 提取原 20 Hz 姿态算法，并修复 Jetson 上已复现的 long/float 越界读取；
 数值参考仅修正旧函数的内存访问，详细范围与 sanitizer 验证见 `docs/imu_safety.md`。
