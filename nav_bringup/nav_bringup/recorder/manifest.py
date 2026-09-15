@@ -215,6 +215,7 @@ def build_manifest(
     robot: Optional[str] = None,
     site: Optional[str] = None,
     alias: Optional[str] = None,
+    linked: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Assemble the manifest of a run that is starting.
 
@@ -230,6 +231,9 @@ def build_manifest(
         robot: Robot profile name, if known.
         site: Site profile name, if known.
         alias: Shell alias that started the run, if known.
+        linked: State of separately started processes linked to the run, by
+            name (see :mod:`nav_bringup.recorder.linked_process`); left out of
+            the manifest when empty.
 
     Returns:
         A manifest ready for :func:`write_manifest`. ``ended_at``,
@@ -240,7 +244,7 @@ def build_manifest(
         name: {'path': str(path), 'sha256': sha256_file(path)}
         for name, path in (files or {}).items()
     }
-    return {
+    record = {
         'schema_version': MANIFEST_SCHEMA_VERSION,
         'run_id': run_id,
         'mode': mode,
@@ -259,6 +263,9 @@ def build_manifest(
         'environment': dict(environment),
         'files': fingerprints,
     }
+    if linked:
+        record['linked'] = dict(linked)
+    return record
 
 
 def finalize_manifest(

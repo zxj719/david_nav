@@ -19,6 +19,7 @@ from typing import Dict, Optional, Sequence
 from nav_bringup.doctor import checks
 from nav_bringup.navrun import wrap
 from nav_bringup.recorder import events
+from nav_bringup.recorder import linked_process
 from nav_bringup.recorder import monitor
 from nav_bringup.recorder import param_dump
 from nav_bringup.recorder import run_dir
@@ -72,6 +73,18 @@ def build_parser() -> argparse.ArgumentParser:
     wrap_parser.add_argument(
         '--no-dump-params', action='store_true',
         help='do not dump effective parameters when the ready action is up')
+    wrap_parser.add_argument(
+        '--loc-process', default=None, metavar='EXECUTABLE',
+        help='executable of the separately started localization to link to the run '
+        '(robot profile localization.process_name)')
+    wrap_parser.add_argument(
+        '--loc-config-flag', action='append', default=None, metavar='FLAG',
+        help='name of a localization flag whose value is a config file to hash, e.g. '
+        'config for --config; repeatable (default: config)')
+    wrap_parser.add_argument(
+        '--loc-log', action='append', default=[], metavar='GLOB',
+        help='localization log files to excerpt into logs/loc; {pid} is replaced with the '
+        'process id; repeatable')
     wrap_parser.add_argument(
         'command', nargs=argparse.REMAINDER, help='command to run, placed after --')
 
@@ -181,6 +194,10 @@ def _run_directory(explicit: Optional[Path]) -> Optional[run_dir.RunDirectory]:
     return run_dir.RunDirectory(directory.parent, directory.name)
 
 
+def _as_flag(name: str) -> str:
+    return name if name.startswith('-') else f'--{name}'
+
+
 def _doctor(args: argparse.Namespace) -> int:
     results = checks.run_checks(checks.default_context(os.environ))
     if args.json:
@@ -253,6 +270,15 @@ def _wrap(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             ready_action=args.ready_action,
             dump_params=not args.no_dump_params,
         )
+    linked = ()
+    if args.loc_process:
+        flags = tuple(_as_flag(flag) for flag in (args.loc_config_flag or ['config']))
+        try:
+            linked = (linked_process.LinkSpec(
+                name='loc', executable=args.loc_process, config_flags=flags,
+                log_globs=tuple(args.loc_log)),)
+        except ValueError as error:
+            parser.error(str(error))
     options = wrap.WrapOptions(
         command=command,
         mode=args.mode,
@@ -265,6 +291,7 @@ def _wrap(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         sample_interval_sec=args.sample_interval,
         gc=not args.no_gc,
         monitor_command=monitor_command,
+        linked=linked,
     )
     try:
         result = wrap.run_wrapped(options)

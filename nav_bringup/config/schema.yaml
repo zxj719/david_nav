@@ -29,6 +29,20 @@ parameters:
     type: bool
     default: false
     description: 启动前结束残留的 robot_state_publisher，避免 TF 分裂成两棵树
+  localization.process_name:
+    type: string
+    default: null
+    description: 单独启动的定位进程的可执行文件名；设置后运行记录会关联它（pid、启动时间、命令行、配置 sha256、日志摘录）
+  localization.config_flags:
+    type: list
+    items: string
+    default: ['--config']
+    description: 定位命令行中值为配置文件路径的参数，用于记录配置 sha256
+  localization.log_globs:
+    type: list
+    items: string
+    default: []
+    description: 定位日志文件通配符（{pid} 替换为进程号，~ 展开）；运行结束时把本次运行期间新增的内容摘录到 logs/loc/
   record.light_topics:
     type: list
     items: string

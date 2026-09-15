@@ -31,6 +31,7 @@ import sys
 import threading
 from typing import Any, Callable, Dict, IO, List, Mapping, Optional, Sequence, Tuple
 
+from nav_bringup.recorder import linked_process
 from nav_bringup.recorder import manifest as manifest_lib
 from nav_bringup.recorder import retention
 from nav_bringup.recorder import run_dir as run_dir_lib
@@ -72,6 +73,8 @@ class WrapOptions:
         retention_policy: Limits used when ``gc`` is enabled.
         monitor_command: ``navrun monitor`` command to run next to the
             command, or ``None``; see :func:`monitor_command`.
+        linked: Separately started processes, such as localization, whose
+            state is recorded at start and whose logs are excerpted at the end.
     """
 
     command: Sequence[str]
@@ -87,6 +90,7 @@ class WrapOptions:
     retention_policy: retention.RetentionPolicy = field(
         default_factory=retention.RetentionPolicy)
     monitor_command: Optional[Sequence[str]] = None
+    linked: Sequence[linked_process.LinkSpec] = ()
 
 
 @dataclass(frozen=True)
@@ -169,6 +173,7 @@ def run_wrapped(
     run = run_dir_lib.create_run_directory(options.runs_root, run_id)
     if git.dirty:
         manifest_lib.write_code_diff(options.repo_dir, run.code_diff, runner)
+    linked = {spec.name: linked_process.snapshot(spec) for spec in options.linked}
     record = manifest_lib.build_manifest(
         run_id=run_id,
         mode=options.mode,
@@ -181,11 +186,15 @@ def run_wrapped(
         robot=options.robot,
         site=options.site,
         alias=options.alias or env.get('NAVRUN_ALIAS'),
+        linked={name: state.to_dict() if state else None for name, state in linked.items()},
     )
     manifest_lib.write_manifest(run.manifest, record)
 
     events = EventLog(run.events)
     events.append(EVENT_SOURCE, 'run_started', data={'command': list(options.command)})
+    for name, state in linked.items():
+        events.append(EVENT_SOURCE, 'linked_process', 'info' if state else 'warn', {
+            'name': name, 'found': state is not None, 'pid': state.pid if state else None})
     if options.gc:
         _collect_garbage(options, run, _naive_local(started), events)
 
@@ -206,6 +215,15 @@ def run_wrapped(
     if relay.received:
         events.append(EVENT_SOURCE, 'signal_received', 'warn', {
             'signals': [signal.Signals(signum).name for signum in relay.received]})
+    for spec in options.linked:
+        copies = linked_process.collect_logs(
+            spec, linked[spec.name], run.logs / spec.name, since=_naive_local(started).timestamp())
+        events.append(EVENT_SOURCE, 'linked_logs_collected', data={
+            'name': spec.name,
+            'files': [item.destination for item in copies],
+            'bytes': sum(item.copied_bytes for item in copies),
+            'truncated': [item.source for item in copies if item.truncated],
+        })
     events.append(EVENT_SOURCE, 'run_stopped', data={
         'exit_code': exit_code, 'exit_reason': exit_reason})
 

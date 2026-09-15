@@ -328,8 +328,61 @@ def test_cli_wrap_builds_monitor_command(tmp_path, monkeypatch):
     assert cli.main(['wrap', '--mode', 'tour', '--runs-root', str(tmp_path), '--', 'true']) == 0
 
     command = captured[0].monitor_command
+    assert captured[0].linked == ()
     assert command[3:6] == ['monitor', '--base-frame', 'robot_base']
     assert command[command.index('--topic'):command.index('--topic') + 2] == [
         '--topic', '/cmd_vel']
     assert '--dump-params-on-ready' not in command
     assert captured[1].monitor_command is None
+
+
+def test_linked_process_is_recorded_and_logs_are_excerpted(tmp_path):
+    """The manifest names the linked process; its log growth lands in logs/<name>."""
+    proc = tmp_path / 'proc'
+    (proc / '4242').mkdir(parents=True)
+    (proc / 'stat').write_text('btime 1000000\n', encoding='utf-8')
+    config = tmp_path / 'loc.yaml'
+    config.write_text('map: site\n', encoding='utf-8')
+    (proc / '4242' / 'cmdline').write_bytes(
+        b'/opt/loc/fake_loc\0--config\0' + str(config).encode() + b'\0')
+    (proc / '4242' / 'stat').write_text(
+        '4242 (fake_loc) S ' + ' '.join(['0'] * 18) + ' 500 0\n', encoding='utf-8')
+    log = tmp_path / 'fake_loc_4242.log'
+    log.write_text('before the run\n', encoding='utf-8')
+    spec = wrap.linked_process.LinkSpec(
+        'loc', 'fake_loc', log_globs=(str(tmp_path / 'fake_loc_{pid}.log'),), proc_dir=proc)
+    command = _python(f'open({str(log)!r}, "a").write("during the run" + chr(10))')
+
+    result = wrap.run_wrapped(
+        _options(tmp_path, command, linked=(spec,)),
+        now=_clock(), runner=_no_git, terminal=io.BytesIO())
+
+    record = manifest.read_manifest(result.run.manifest)
+    assert record['linked']['loc']['pid'] == 4242
+    assert record['linked']['loc']['configs'] == {str(config): manifest.sha256_file(config)}
+    copied = result.run.logs / 'loc' / 'fake_loc_4242.log'
+    assert copied.read_text(encoding='utf-8') == 'during the run\n'
+    assert _event_types(result.run)[:2] == ['run_started', 'linked_process']
+    assert 'linked_logs_collected' in _event_types(result.run)
+
+
+def test_cli_wrap_links_localization(tmp_path, monkeypatch):
+    """--loc-process builds the link specification for the localization process."""
+    captured = []
+
+    def fake_run_wrapped(options):
+        captured.append(options)
+        return wrap.WrapResult(
+            run_dir.RunDirectory(tmp_path, '20260915_031500_tour_nogit'), 0, 'completed')
+
+    monkeypatch.setattr(wrap, 'run_wrapped', fake_run_wrapped)
+
+    assert cli.main([
+        'wrap', '--mode', 'tour', '--runs-root', str(tmp_path), '--no-gc',
+        '--loc-process', 'fake_loc', '--loc-config-flag', 'cfg',
+        '--loc-log', '/logs/fake_loc_{pid}.log', '--', 'true',
+    ]) == 0
+
+    spec = captured[0].linked[0]
+    assert (spec.name, spec.executable, spec.config_flags, spec.log_globs) == (
+        'loc', 'fake_loc', ('--cfg',), ('/logs/fake_loc_{pid}.log',))
