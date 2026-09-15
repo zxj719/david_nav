@@ -41,6 +41,12 @@ active object. Feedback is accepted only for that active object, before terminal
 completion and before internal cancellation begins. Old feedback cannot modify a
 new task even if both external IDs are identical.
 
+`TaskContext.check_cancelled()` provides an explicit cancellation fence as well
+as asyncio cancellation. Sequential skills check it before and after backend
+attempts: even a backend that wrongly swallows CancelledError must not cause a
+retry or an anchor segment after cancellation. Backends are still required to
+propagate cancellation and clean up their actual goal.
+
 ## Events and compatibility
 
 Events are immutable domain values, not serialized WS frames. A subscriber queue
@@ -51,7 +57,8 @@ navigation skill. A slow subscriber can accumulate events; no bounded-buffer or
 durability claim is made by this in-process API.
 
 Normal success/failure clears ownership. External `CANCELED` emits paused
-progress and retains the active task in `NAVIGATING`, matching characterized G12
+progress with remaining distance **0.0** and retains the active task in `NAVIGATING`,
+matching the legacy bridge and characterized G12
 and review item C-2. Internal abort emits one paused event after cleanup; preempt
 and close suppress the old task's cancellation/terminal events. A programming
 exception reports failure and retains `ERROR` ownership until explicit cleanup;
@@ -74,6 +81,42 @@ nonzero quaternions are normalized scale-safely, and wrapped angles use [-pi, pi
 does not carry frame names. No robot-specific default is inferred. Existing
 legacy geometry callers are not switched by this addition.
 
+## POI navigation and administrative operations
+
+`core/handlers/navigate_to.py` contains the sequential `NavigateToPoi` skill.
+Its decoder resolves a target ID to an immutable POI snapshot before admission.
+Its handler resolves the actual goal after admission, navigates to it, and only
+after successful snap rechecks the anchor. An anchor that remains inaccessible
+means snap success; an anchor that becomes admissible is a second segment, whose
+arrival alone completes the task. A new segment reports STARTING, preserving the
+existing status boundary without emitting an intermediate arrival. Each segment
+receives a fresh retry budget.
+Dock POIs must be routed to the Dock skill, not to this snap/retry path.
+
+Feedback reporting preserves the previous per-attempt one-second throttle,
+including its initial monotonic reference of zero. Each attempt has an additional
+feedback fence, because retries and segments reuse the same task generation.
+Callbacks from completed attempts cannot alter current progress.
+
+`core/goal_resolution.py` extracts the existing ring search and a snapshot-fed
+`GridGoalResolver`. It has no ROS subscriptions. Differential tests compare full
+POI resolutions, candidate order and admissibility with the untouched legacy
+implementation across 160 seeded map/configuration cases. Missing maps remain
+permissive, missing robot pose disables distance sorting only, and only cost zero
+is free. No origin-rotation support or new map-safety policy is claimed here.
+Dock static-footprint admission is a separate check, not this point-snap policy.
+
+`PoiCommands` handles marks and semantic-directory renames without a motion
+backend or TaskManager reference. Capture errors and stale-pose text are retained;
+the exact freshness boundary and future-timestamp behavior are unchanged. Storage
+errors propagate, and actual atomic persistence remains the storage adapter's
+responsibility. Ingress remains responsible for wire ACK/error/success encoding.
+
+Compatibility boundary requiring integration review: unknown POIs decoded before
+admission do not discard the old owner. The legacy unknown-POI branch cleared its
+state without canceling the old backend; the new API does not reproduce that
+unsafe ownership loss. This is not yet a change to a running legacy entry point.
+
 ## Extension and remaining integration
 
 Adding a motion action requires a decoder, handler and `registry.register` call,
@@ -82,7 +125,7 @@ not another branch inside the manager. Wire actions remain owned by
 `dock_to` wire command would additionally need a message definition and protocol
 documentation; this change does not add that command.
 
-Still pending: NavigateToPoi/snap and administrative handlers, adapters for the
-ports, shared Nav2 client, event-to-wire mapping and the replacement G1–G16 suite.
+Still pending: adapters for the ports, shared Nav2 client, event-to-wire mapping
+and the replacement G1–G16 suite.
 Only then can the old core be replaced. ROS task events, timeout/health integration
 and the WS assembly root follow their separately tracked plan tasks.

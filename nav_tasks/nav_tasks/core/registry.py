@@ -1,5 +1,6 @@
 """Extensible motion-action decoding and handling without wire-format imports."""
 
+import asyncio
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Mapping
 
@@ -10,12 +11,32 @@ from nav_tasks.domain.tasks import NavOutcome
 
 @dataclass(frozen=True)
 class TaskContext:
-    """Skill correlation and generation-fenced loop-thread feedback callback."""
+    """Skill correlation and generation-fenced loop-thread callbacks.
+
+    Attributes:
+        task_id: External request identity.
+        sub_id: External subtask identity.
+        generation: Internal admission identity, distinct even for reused task IDs.
+        feedback: Callback accepting remaining distance for the current task only.
+        cancel_requested: Whether the manager has begun explicit cancellation.
+        start_segment: Mark a new segment STARTING without emitting an arrival event.
+    """
 
     task_id: str
     sub_id: int
     generation: int
     feedback: FeedbackCallback
+    cancel_requested: Callable[[], bool] = lambda: False
+    start_segment: Callable[[], None] = lambda: None
+
+    def check_cancelled(self) -> None:
+        """Fence new segments and retries after explicit task cancellation.
+
+        Raises:
+            asyncio.CancelledError: The owning manager requested cancellation.
+        """
+        if self.cancel_requested():
+            raise asyncio.CancelledError
 
 
 Decoder = Callable[[Mapping[str, object]], object]

@@ -4,6 +4,8 @@ Transport-independent navigation domain and pure skills (Python 3.10+).
 The P6.1 core now provides a fake-testable `TaskManager`/`TaskApi`, ports, registry,
 ownership, retry and supervision. It does **not** start a task manager process or
 switch a runtime entry point; the old core remains active pending integration.
+Sequential POI navigation, pure snap search and administrative POI handlers are
+implemented against fake-testable ports, with no subscriptions or storage I/O.
 
 ```python
 from nav_tasks.api import PoseRecord
@@ -18,6 +20,9 @@ assert is_settled([(0.0, 0.0), (0.4, 0.0)], SettleSpec())
 `domain/grid.py` retains the legacy axis-aligned grid conversion and occupancy
 rules; this relocation does not add origin rotation or new input validation.
 `skills/docking/{settle,finish}.py` retain the complete existing pure algorithms.
+`core/handlers/navigate_to.py` sequences snap/anchor goals with per-segment retries;
+`core/handlers/poi_commands.py` marks/renames POIs without taking motion ownership.
+`core/goal_resolution.py` preserves the legacy snap search under differential tests.
 No ROS, WebSocket, YAML or filesystem implementation is imported by these layers.
 
 The default settling threshold remains **0.05 rad/s**, continuously satisfied for

@@ -191,7 +191,8 @@ class TaskManager:
     async def _run(self, active: _Active, handler: Handler, payload: object) -> None:
         context = TaskContext(
             active.request.task_id, active.request.sub_id, active.generation,
-            lambda remaining: self._feedback(active, remaining))
+            lambda remaining: self._feedback(active, remaining),
+            lambda: active.cancel_requested, lambda: self._starting(active))
         try:
             outcome = await handler(context, payload)
             if not isinstance(outcome, NavOutcome) or not isinstance(outcome.status, NavStatus):
@@ -225,6 +226,11 @@ class TaskManager:
 
     def _is_current(self, active: _Active) -> bool:
         return self._active is active and not active.cancel_requested
+
+    def _starting(self, active: _Active) -> None:
+        self._check_loop()
+        if self._is_current(active) and active.accept_feedback:
+            self._state = TaskState.STARTING
 
     def _feedback(self, active: _Active, remaining: float) -> None:
         self._check_loop()

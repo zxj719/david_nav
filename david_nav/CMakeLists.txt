@@ -294,6 +294,11 @@ if(BUILD_TESTING)
     test/test_pure_contract_migration.py
   )
 
+  ament_add_pytest_test(
+    goal_resolution_migration_test
+    test/test_goal_resolution_migration.py
+  )
+
 endif()
 
 ament_package()
