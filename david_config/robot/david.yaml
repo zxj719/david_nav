@@ -95,7 +95,7 @@ localization:
 nav2:
   odom_topic: /lightning/odometry   # Nav2 现接线（alias 3 不发布该话题）；等值渲染保留，是否切换见 TODO-O1
   scan_topic: /scan                 # 代价图障碍物层订阅；默认无发布者（sensors.scan_from_cloud.enabled 为 false）
-  map_topic: /lightning/grid_map    # 代价图静态层订阅；这是参数文件取值，2d_david_nav2_bringup 用 launch 参数 map_topic（默认 /map）改写，文件值已停用；P2.4 改为生效值
+  map_topic: /map                   # 代价图静态层实际订阅；2d_david_nav2_bringup 的默认 map_topic 改写值
 
 localization_health:
   max_tf_age_sec: 0.5

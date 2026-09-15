@@ -321,7 +321,9 @@ local_costmap:
         obstacle_margin_m: 0.12
         min_contiguous_beams: 3
         debug_markers_enabled: False
-        require_live_scan: True
+        # Production tour/precise launch with enable_scan_bridge:=false rewrites
+        # this to false. Keep the rendered file equal to the effective value.
+        require_live_scan: False
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
@@ -638,21 +640,23 @@ waypoint_follower:
 velocity_smoother:
   ros__parameters:
     use_sim_time: false
-    smoothing_frequency: 10.0
+    # Production tour/precise runs cmd_shaping:=false: OPEN_LOOP pass-through
+    # at 20 Hz with acceleration limits disabled. The bench overlay restores
+    # the legacy CLOSED_LOOP shaping values.
+    smoothing_frequency: 20.0
     scale_velocities: False
-    # CLOSED_LOOP since 2026-05-18: enabled after the wheeltec_robot_node
-    # serial parser was fixed (Get_Sensor_Data_New drain-all-available),
-    # lifting /odom from ~4Hz to ~22Hz and removing cross-run sign reversals
-    # on angular commands. See docs/report/2026-05-18-velocity-repeatability.md §10.
-    feedback: "CLOSED_LOOP"
+    # The bench overlay retains CLOSED_LOOP, enabled after the 2026-05-18
+    # wheeltec_robot_node serial parser fix lifted /odom from ~4 Hz to ~22 Hz.
+    # See docs/report/2026-05-18-velocity-repeatability.md §10.
+    feedback: "OPEN_LOOP"
     # feedback: "OPEN_LOOP"
     # smoother 线速度上限必须与 DWB max_vel_x 一致，否则会截断 DWB 端点。
     # 2026-06-08: 线 0.50 → 0.20（换电机/轮 + 修正轮速计后，0.2 已是上身晃动物理上限）。
     # 角速度保持 0.5。
     max_velocity: [0.20, 0.0, 0.5]
     min_velocity: [-0.20, 0.0, -0.5]
-    max_accel: [2.5, 0.0, 5.0]
-    max_decel: [-2.5, 0.0, -5.0]
+    max_accel: [99.0, 0.0, 99.0]
+    max_decel: [-99.0, 0.0, -99.0]
     # Use the wheeltec wheel-encoder odom (was /lightning/odometry — that
     # topic only exists when the Unitree Go2 SLAM stack is running; the
     # current Wheeltec C50C base publishes encoder-derived twist on /odom).

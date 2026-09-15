@@ -23,6 +23,16 @@ FOOTPRINT_PATHS = (
     'local_costmap/local_costmap/ros__parameters/footprint',
     'global_costmap/global_costmap/ros__parameters/footprint',
 )
+PRODUCTION_LAUNCH_OVERRIDES = {
+    'local_costmap/local_costmap/ros__parameters/scan_priority_layer/require_live_scan':
+        False,
+    'local_costmap/local_costmap/ros__parameters/static_layer/map_topic': '/map',
+    'global_costmap/global_costmap/ros__parameters/static_layer/map_topic': '/map',
+    'velocity_smoother/ros__parameters/feedback': 'OPEN_LOOP',
+    'velocity_smoother/ros__parameters/smoothing_frequency': 20.0,
+    'velocity_smoother/ros__parameters/max_accel': [99.0, 0.0, 99.0],
+    'velocity_smoother/ros__parameters/max_decel': [-99.0, 0.0, -99.0],
+}
 
 
 def _load(path):
@@ -41,6 +51,14 @@ def _with_parsed_footprints(tree):
     return tree
 
 
+def _production_parameters(mode):
+    tree = _load(SOURCE_DIR / 'david_nav' / 'config' / PRODUCTION_FILES[mode])
+    if mode in ('tour', 'precise'):
+        for path, value in PRODUCTION_LAUNCH_OVERRIDES.items():
+            render.set_path(tree, path, value)
+    return tree
+
+
 @pytest.mark.parametrize('mode', sorted(PRODUCTION_FILES))
 def test_rendered_parameters_equal_the_production_file(mode):
     """Rendering the profile with a mode gives the Nav2 parameter file of that mode.
@@ -48,7 +66,7 @@ def test_rendered_parameters_equal_the_production_file(mode):
     Footprints are compared as polygons because the rendered string spells the
     numbers without trailing zeros.
     """
-    production = _load(SOURCE_DIR / 'david_nav' / 'config' / PRODUCTION_FILES[mode])
+    production = _production_parameters(mode)
 
     rendered = _render(mode)
 
