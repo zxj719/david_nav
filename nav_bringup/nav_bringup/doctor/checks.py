@@ -19,14 +19,14 @@ import enum
 import os
 from pathlib import Path
 import re
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import yaml
 
+from nav_bringup.navrun.dds_hygiene import snapshot_mappings
 from nav_bringup.recorder.manifest import sha256_file
 
 _SHM_PREFIX = 'fastrtps_'
-_SHM_NAME_RE = re.compile(r'fastrtps_[0-9A-Za-z_]+')
 _INSTALL_PROGRAMS_RE = re.compile(
     r'install\(\s*PROGRAMS\s+(?P<source>\S+)\s+DESTINATION\s+lib/\$\{PROJECT_NAME\}'
     r'(?:\s+RENAME\s+(?P<name>\S+))?\s*\)',
@@ -191,22 +191,32 @@ def check_dds_shared_memory(context: DoctorContext) -> CheckResult:
         context: Machine facts.
 
     Returns:
-        ``WARN`` when orphans reach the threshold, ``SKIP`` without the shared
-        memory directory, otherwise ``OK``.
+        ``WARN`` when orphans reach the threshold or observations are incomplete,
+        ``SKIP`` without the shared memory directory, otherwise ``OK``.
     """
     name = 'dds_shared_memory'
     if not context.shm_dir.is_dir():
         return CheckResult(name, Status.SKIP, f'{context.shm_dir} 不存在')
-    segments = sorted(
-        entry.name for entry in context.shm_dir.iterdir() if entry.name.startswith(_SHM_PREFIX))
-    in_use = _mapped_shm_names(context.proc_dir)
+    try:
+        segments = sorted(
+            entry.name for entry in context.shm_dir.iterdir()
+            if entry.name.startswith(_SHM_PREFIX))
+    except OSError:
+        return CheckResult(name, Status.WARN, '无法读取 Fast DDS 共享内存目录，无法判定孤儿段')
+    view = snapshot_mappings(context.proc_dir)
+    if segments and not view.complete:
+        return CheckResult(
+            name, Status.WARN,
+            f'Fast DDS 共享内存段 {len(segments)} 个；进程映射观察不完整，无法判定孤儿段',
+            '保留现有段；先核对进程可见性和映射读取权限，不停止定位或删除在用段')
+    in_use = {_segment_base(segment) for segment in view.names}
     orphans = [segment for segment in segments if _segment_base(segment) not in in_use]
-    message = f'Fast DDS 共享内存段 {len(segments)} 个，其中没有进程映射的孤儿段 {len(orphans)} 个'
+    message = f'Fast DDS 共享内存段 {len(segments)} 个，本次观察未映射的候选孤儿段 {len(orphans)} 个'
     if len(orphans) >= context.shm_orphan_warn_threshold:
         return CheckResult(
             name, Status.WARN, message,
-            '孤儿段积压会让同机节点互相发现不了。可重启机器，或运行一次 alias 4 '
-            '（start_navigation_headless.sh 启动前只清理没有进程映射的段）')
+            '孤儿段积压会影响同机发现。请在人工安排的维护窗口复查；'
+            '不要为清理而启动整套导航，不停止定位或删除在用段')
     return CheckResult(name, Status.OK, message)
 
 
@@ -488,21 +498,6 @@ def find_processes(proc_dir: Path, needle: str) -> List[Tuple[int, str]]:
         if needle in command_line:
             found.append((int(entry.name), command_line))
     return sorted(found)
-
-
-def _mapped_shm_names(proc_dir: Path) -> Set[str]:
-    names: Set[str] = set()
-    if not proc_dir.is_dir():
-        return names
-    for entry in proc_dir.iterdir():
-        if not entry.name.isdigit():
-            continue
-        try:
-            text = (entry / 'maps').read_text(errors='ignore')
-        except OSError:
-            continue
-        names.update(_SHM_NAME_RE.findall(text))
-    return names
 
 
 def _segment_base(name: str) -> str:

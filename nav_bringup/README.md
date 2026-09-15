@@ -134,6 +134,24 @@ publishing a launchable bundle; it does not overwrite or delete existing records
 
 ### Unit tests
 
+`navrun.dds_hygiene` separates read-only mapping observation and candidate planning
+from explicit removal. Segment and `_el` companion are one retention group: either
+mapped name, an unsafe file/owner, incomplete proc maps, or changing process-directory
+identities preserves the group. Initial file metadata is frozen; new files and
+replacements cannot enter the cleanup generation. Each unlink refreshes mapping
+and group evidence, checks the directory/file identity, and reports partial or
+failed removal. Dry-run does not refresh maps or invoke removal. Tests only use
+private temporary directories and fake proc maps, never actual `/dev/shm`.
+
+The planner and cleanup require an explicit directory; there is no default
+destructive CLI and no daemon stop, privilege escalation, or DDS XML modification.
+Proc snapshots are not an atomic barrier against independently starting DDS
+participants. Production acceptance therefore still requires a controlled startup
+window and adequate mapping visibility; incomplete evidence retains files with a
+warning. `navrun doctor` now shares this observation logic, reports unknown orphan
+status on incomplete maps, and recognizes mapped companions consistently. It no
+longer suggests starting a whole navigation stack just to clean shared memory.
+
 `navrun.preflight.plan_preflight` consumes process snapshots and resolves chassis
 auto/on/off. Residual and foreign patterns live in the robot profile; foreign
 stacks are warn-only by default. Matching uses the executable/script or ROS launch

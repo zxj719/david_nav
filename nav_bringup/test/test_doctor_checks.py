@@ -96,6 +96,31 @@ def test_dds_shared_memory_skips_without_directory(tmp_path):
     assert checks.check_dds_shared_memory(_context(tmp_path)).status is checks.Status.SKIP
 
 
+def test_dds_incomplete_maps_cannot_claim_orphan_count(tmp_path):
+    """An unreadable process view warns about uncertainty, not a proven orphan count."""
+    shm = tmp_path / 'shm'
+    shm.mkdir()
+    (shm / 'fastrtps_aaa').write_bytes(b'')
+    _process(tmp_path / 'proc', 10, ['fake'])
+    (tmp_path / 'proc/10/maps').unlink()
+    result = checks.check_dds_shared_memory(_context(tmp_path, shm_orphan_warn_threshold=1))
+    assert result.status is checks.Status.WARN
+    assert '无法判定' in result.message
+    assert '孤儿段 1 个' not in result.message
+
+
+def test_dds_mapped_companion_protects_both_names(tmp_path):
+    """Doctor and cleanup planning agree that a mapped companion protects its segment."""
+    shm = tmp_path / 'shm'
+    shm.mkdir()
+    for name in ('fastrtps_aaa', 'fastrtps_aaa_el'):
+        (shm / name).write_bytes(b'')
+    _process(tmp_path / 'proc', 10, ['fake'], maps='/dev/shm/fastrtps_aaa_el\n')
+    result = checks.check_dds_shared_memory(_context(tmp_path, shm_orphan_warn_threshold=1))
+    assert result.status is checks.Status.OK
+    assert '孤儿段 0 个' in result.message
+
+
 def test_map_yaml_modes(tmp_path):
     """Trinary or unspecified modes pass; scale fails; unreadable files warn."""
     trinary = tmp_path / 'nav.yaml'
