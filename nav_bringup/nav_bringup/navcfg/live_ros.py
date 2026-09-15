@@ -1,4 +1,4 @@
-"""Read TF, graph discovery and GetParameters through one disposable ROS context."""
+"""Read TF, graph discovery and parameter services through one disposable ROS context."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import math
 import time
 from typing import Any, Callable, Dict, Optional, Type
 
-from rcl_interfaces.srv import GetParameters
+from rcl_interfaces.srv import GetParameters, ListParameters
 import rclpy
 from rclpy.context import Context
 from rclpy.executors import SingleThreadedExecutor
@@ -118,7 +118,11 @@ class RosProbe:
                             for name, namespace in self.node.get_node_names_and_namespaces()))
 
     def snapshot(self, stopped: Callable[[], bool], timeout_sec: float = 5.0) -> LiveSnapshot:
-        """Query all selected parameter services concurrently within one global deadline.
+        """Discover TF/declarations and query selected values within one global deadline.
+
+        C++ services can reject an entire GetParameters batch containing one
+        undeclared key. ListParameters first preserves the known values while
+        keeping absent keys explicit; neither service writes parameters.
 
         Args:
             stopped: Caller-owned interrupt flag.
@@ -133,24 +137,42 @@ class RosProbe:
         """
         if not math.isfinite(timeout_sec) or timeout_sec <= 0:
             raise ValueError('parameter timeout must be finite and positive')
-        counts = self._counts()
-        clients, pending, parameters = {}, {}, {}
+        clients, pending, parameters, selected = {}, {}, {}, {}
         deadline = time.monotonic() + timeout_sec
         try:
-            for name in self.spec.parameters:
-                if counts.get(name, 0) == 1:
-                    clients[name] = self.node.create_client(
-                        GetParameters, name + '/get_parameters')
-            remaining = set(clients)
-            while remaining and not stopped() and time.monotonic() < deadline:
+            # DDS participant/node discovery can lag action-server discovery.
+            # Missing nodes consume the same global budget, not an immediate failure.
+            remaining = set(self.spec.parameters)
+            while (not stopped() and time.monotonic() < deadline
+                   and (remaining or self._age() is None)):
+                counts = self._counts()
                 for name in tuple(remaining):
+                    if counts.get(name, 0) != 1:
+                        continue
+                    reading = name in selected
+                    key = (name, reading)
+                    if key not in clients:
+                        service, suffix = ((GetParameters, '/get_parameters') if reading
+                                           else (ListParameters, '/list_parameters'))
+                        clients[key] = self.node.create_client(service, name + suffix)
                     try:
-                        if name not in pending and clients[name].service_is_ready():
-                            request = GetParameters.Request(names=list(self.spec.parameters[name]))
-                            pending[name] = clients[name].call_async(request)
+                        if name not in pending and clients[key].service_is_ready():
+                            request = (GetParameters.Request(names=selected[name]) if reading
+                                       else ListParameters.Request(
+                                           prefixes=[], depth=0))
+                            pending[name] = clients[key].call_async(request)
                         if name in pending and pending[name].done():
-                            values = pending[name].result().values
-                            names = list(self.spec.parameters[name])
+                            response = pending.pop(name).result()
+                            if not reading:
+                                declared = set(response.result.names)
+                                selected[name] = [key for key in self.spec.parameters[name]
+                                                  if key in declared]
+                                if not selected[name]:
+                                    parameters[name] = {}
+                                    remaining.remove(name)
+                                continue
+                            values = response.values
+                            names = selected[name]
                             if len(names) == len(values):
                                 converted = [parameter_value_to_python(value) for value in values]
                                 parameters[name] = {
@@ -159,7 +181,7 @@ class RosProbe:
                             remaining.remove(name)
                     except Exception:
                         remaining.remove(name)
-                if remaining:
+                if remaining or self._age() is None:
                     self.spin(max(0.0, min(0.05, deadline - time.monotonic())))
         finally:
             for future in pending.values():

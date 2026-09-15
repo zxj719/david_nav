@@ -247,8 +247,13 @@ provide `--events /owned/run/events.jsonl` to append waiting/ready/check events;
 without that option no run record is written.
 
 After localization, `--sample-sec` (default 1) allows graph discovery, then a single
-global `--parameter-timeout` (default 5 seconds) bounds concurrent GetParameters
-requests. Checks cover publisher counts and message types, navigation TF age,
+global `--parameter-timeout` (default 5 seconds) bounds node/TF discovery and concurrent
+ListParameters/GetParameters requests. Late-discovered nodes use the remaining budget,
+not an immediate absence verdict, even if TF arrives after the parameter replies.
+Only declared requested names enter each value batch:
+Humble C++ services otherwise reject the entire batch when one name is undeclared.
+Undeclared requested names remain explicit errors, not exemptions. Checks cover
+publisher counts and message types, navigation TF age,
 duplicate node names and every flattened rendered parameter selected for that
 node's actual parameter file. Costmap child namespaces are preserved. Dormant
 selectors are warnings; an undeclared parameter on a selected node is an error,
@@ -276,8 +281,21 @@ Navigation-mode `navrun up` first invokes `--wait-localization-only` **before la
 This mode returns 0 only for TF readiness, not a successful full configuration check.
 Manual localization waiting therefore consumes no Nav2/executor readiness budget.
 After launch and readiness, the complete live check runs, with stop-on-strict-failure.
-Chassis/teleop retain no localization prerequisite. Full combined Nav2 startup and
-effective-parameter acceptance remain pending; synthetic tests do not prove them.
+Chassis/teleop retain no localization prerequisite. Domain-99 integration checks run
+the real tour/precise Nav2 graph with the example robot, fake driver and stationary
+synthetic localization, without goals or a WS executor. They compare every declared
+rendered value with complete effective dumps, require missing-key findings to match
+those dumps, and verify strict rejection, provider independence and shutdown ownership.
+These are startup/configuration checks, not driving or localization-quality acceptance.
+Executor ordering and localization loss during startup remain separate integration work.
+
+### Run-local logs and frame trace noise (P5.1)
+
+Recorded startup sets `ROS_LOG_DIR` to the owned run's `logs/ros` for all children;
+console and per-process logs remain in the same run record. The refactored Wheeltec
+driver and David navigation profile default `log_tx_frames` to false. Explicitly
+enabling it still emits frame traces only at DEBUG, never INFO. Memory-transport
+tests cover both settings; this does not change the production driver or alias 3.
 
 ### Unit tests
 
