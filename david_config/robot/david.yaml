@@ -108,12 +108,16 @@ sensors:
     enabled: false
     cloud_topic: /lightning/loc/aligned_scan
     scan_topic: /scan
+    transform_tolerance: 0.1
     min_height: 0.10
     max_height: 1.0
     angle_min: -1.5708
     angle_max: 1.5708
+    angle_increment: 0.0087
+    scan_time: 0.1
     range_min: 0.3
     range_max: 12.0
+    use_inf: true
 
 reactive:
   # Existing behavior, including lateral escape and the 0.25 m/s recovery

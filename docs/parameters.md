@@ -34,6 +34,27 @@ This file lists every robot-profile key declared by package schemas.
 | `record.monitor_topics` | `list[string]` | — | default: `[]` | — | navrun monitor 统计频率与发布者数的话题；只选轻量话题（大点云等仍有传输开销） | — |
 | `record.storage` | `string` | — | default: `"sqlite3"` | choices: `"sqlite3"` | rosbag2 存储插件；mcap 插件未安装（TODO） | — |
 
+## `nav_perception_iface`
+
+| Key | Type | Unit | Required / default | Constraints | Description | Tuning |
+|---|---|---|---|---|---|---|
+| `frames.body` | `string` | — | **required** | — | 定位输出的机身本体帧；与导航旋转中心分别配置 | — |
+| `frames.scan_target` | `string` | — | **required** | — | 点云转扫描的目标坐标系，应与配置的高度过滤基准一致 | — |
+| `localization.odom_topic` | `string` | — | **required** | — | 定位完成后实际发布的里程计话题；与 Nav2 现接线 nav2.odom_topic 独立 | — |
+| `sensors.scan_from_cloud.angle_increment` | `float` | rad | **required** | range: `0.0 .. inf` | 扫描角分辨率，必须严格大于零 | — |
+| `sensors.scan_from_cloud.angle_max` | `float` | rad | **required** | — | 扫描结束角，必须大于 angle_min | — |
+| `sensors.scan_from_cloud.angle_min` | `float` | rad | **required** | — | 扫描起始角 | — |
+| `sensors.scan_from_cloud.cloud_topic` | `string` | — | **required** | — | 输入 PointCloud2 话题 | — |
+| `sensors.scan_from_cloud.enabled` | `bool` | — | default: `false` | — | 是否启动点云转扫描预处理，默认不增加节点 | — |
+| `sensors.scan_from_cloud.max_height` | `float` | m | **required** | — | 目标坐标系下参与投影的最高高度，必须大于 min_height | — |
+| `sensors.scan_from_cloud.min_height` | `float` | m | **required** | — | 目标坐标系下参与投影的最低高度 | — |
+| `sensors.scan_from_cloud.range_max` | `float` | m | **required** | range: `0.0 .. inf` | 有效最长量程，必须大于 range_min | — |
+| `sensors.scan_from_cloud.range_min` | `float` | m | **required** | range: `0.0 .. inf` | 有效最短量程 | — |
+| `sensors.scan_from_cloud.scan_time` | `float` | s | **required** | range: `0.0 .. inf` | 一帧扫描对应的时间，必须严格大于零 | — |
+| `sensors.scan_from_cloud.scan_topic` | `string` | — | **required** | — | 输出 LaserScan 话题 | — |
+| `sensors.scan_from_cloud.transform_tolerance` | `float` | s | **required** | range: `0.0 .. inf` | 输入点云到目标帧的变换时间容差 | — |
+| `sensors.scan_from_cloud.use_inf` | `bool` | — | **required** | — | 无有效点的方向输出 inf，保留原预处理设置 | — |
+
 ## `nav_plugins`
 
 | Key | Type | Unit | Required / default | Constraints | Description | Tuning |

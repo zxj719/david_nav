@@ -149,15 +149,20 @@ def test_limits_stay_within_the_adapter(profile):
 
 
 def test_scan_from_cloud_matches_the_bringup_launch(profile):
-    """Point cloud to scan settings equal the navigation bringup launch."""
+    """Point cloud settings equal the frozen pre-migration launch values."""
     launch = (SOURCE_DIR / 'david_nav' / 'launch' / '2d_david_nav2_bringup.launch.py').read_text(
         encoding='utf-8')
     scan = profile['sensors']['scan_from_cloud']
 
-    for key in ('min_height', 'max_height', 'angle_min', 'angle_max', 'range_min', 'range_max'):
-        assert _launch_number(launch, key) == scan[key]
-    assert f"('cloud_in', '{scan['cloud_topic']}')" in launch
-    assert f"'target_frame': '{profile['frames']['scan_target']}'" in launch
+    golden = _load(
+        SOURCE_DIR / 'nav_perception_iface' / 'test' / 'golden' / 'pointcloud_to_scan.yaml')
+    for key, value in golden['parameters'].items():
+        actual = profile['frames']['scan_target'] if key == 'target_frame' else scan[key]
+        assert actual == value
+    assert scan['enabled'] == golden['enabled']
+    assert golden['remappings'] == [
+        ['cloud_in', scan['cloud_topic']], ['scan', scan['scan_topic']]]
+    assert "get_package_share_directory('nav_perception_iface')" in launch
 
 
 def test_driver_parameters_match_the_wheeltec_launch(profile):

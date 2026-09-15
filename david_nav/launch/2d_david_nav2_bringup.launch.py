@@ -224,37 +224,17 @@ def generate_launch_description():
     # 抢同一条边(恒等 vs -90deg)→ base_link 朝向闪烁/裂树。base_link 的父
     # 现在唯一由 SLAM 提供。URDF(RSP)只发 base_link 的子帧。
 
-    pointcloud_to_scan_node = Node(
-        package='pointcloud_to_laserscan',
-        executable='pointcloud_to_laserscan_node',
-        name='pointcloud_to_laserscan',
-        output='screen',
-        remappings=[
-            ('cloud_in', '/lightning/loc/aligned_scan'),
-            ('scan', '/scan'),
-        ],
-        parameters=[{
-            # target_frame = base_footprint。2026-06-18 起 base_link 已被 SLAM
-            # 转成正向帧(与 base_footprint 同朝向),但仍用 base_footprint:它在
-            # 地面 z=0,配合下面 min_height=0.10 滤地面;base_link 高于地面。
-            # ±π/2 角度过滤在 base_footprint 系下精确对应机身正前方半圆。
-            'target_frame': 'base_footprint',
-            'transform_tolerance': 0.1,
-            # 2026-05-18: min_height 抬到 0.10m。base_footprint 在地面 (z=0)，
-            # 改完后只看 ≥10cm 高的点 ⇒ 滤掉地面反射、机身底部自影、低洼小物。
-            # 副作用：高度 < 10cm 的障碍（线缆、小台阶、矮挡板）会被忽略。
-            'min_height': 0.10,
-            'max_height': 1.0,
-            # 前向 180° (-π/2 .. +π/2)，在 base_footprint 系下精确对应机身正前方半圆。
-            'angle_min': -1.5708,
-            'angle_max': 1.5708,
-            'angle_increment': 0.0087,
-            'scan_time': 0.1,
-            'range_min': 0.3,
-            'range_max': 12.0,
-            'use_inf': True,
-        }],
-        condition=IfCondition(enable_scan_bridge),
+    # P3.3: preprocessing owns the node; robot constants live in david_config.
+    # The legacy enable_scan_bridge switch still overrides the profile default.
+    pointcloud_to_scan_node = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(
+            get_package_share_directory('nav_perception_iface'),
+            'launch', 'pointcloud_to_scan.launch.py')),
+        launch_arguments={
+            'profile_file': os.path.join(
+                get_package_share_directory('david_config'), 'robot', 'david.yaml'),
+            'enabled': enable_scan_bridge,
+        }.items(),
     )
 
     map_warmup_spin_node = Node(
