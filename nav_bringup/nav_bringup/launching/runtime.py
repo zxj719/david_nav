@@ -15,11 +15,12 @@ from nav_bringup.launching.graph import ProcessSpec
 from nav_bringup.launching.supervision import managed_actions
 
 
-def launch_actions(graph: LaunchGraph) -> List[Action]:
+def launch_actions(graph: LaunchGraph, phase: str = 'all') -> List[Action]:
     """Resolve every selected executable before constructing owned launch actions.
 
     Args:
         graph: Validated graph whose run-local parameters were checked by the loader.
+        phase: Entire graph, core only, or the deferred launch-managed executor.
 
     Returns:
         Managed ROS nodes and plain executor processes; no process starts here.
@@ -27,6 +28,14 @@ def launch_actions(graph: LaunchGraph) -> List[Action]:
     Raises:
         ValueError: If an executable is invalid, missing or not executable.
     """
+    if phase not in ('all', 'core', 'executor'):
+        raise ValueError('launch phase must be all, core or executor')
+    if phase != 'all':
+        processes = tuple(spec for spec in graph.processes
+                          if (spec.name == 'navigation_executor') == (phase == 'executor'))
+        if not processes:
+            raise ValueError('selected launch phase has no processes')
+        graph = replace(graph, processes=processes)
     if graph.mode == 'teleop':
         if not graph.supervisor_keyboard:
             raise ValueError('teleop requires navrun supervisor-owned keyboard startup')

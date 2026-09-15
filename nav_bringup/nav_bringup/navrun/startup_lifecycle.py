@@ -52,6 +52,7 @@ class StartupCommands:
         keyboard: Optional directly supervised keyboard, never a launch child.
         tty_device: Profile-selected terminal, captured by the outer recorded owner.
         prelaunch_gates: Checks completed before any launch or executor timers begin.
+        executor_launch: Optional launch-managed WS phase, started only after all gates.
     """
 
     launch: Tuple[str, ...]
@@ -63,6 +64,7 @@ class StartupCommands:
     keyboard: Tuple[str, ...] = ()
     tty_device: str = ''
     prelaunch_gates: Tuple[StartupGate, ...] = ()
+    executor_launch: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -139,7 +141,7 @@ class _Supervisor:
                 raise _Finished(0, 'keyboard_quit')
             raise _Finished(code if code > 0 else 128 - code if code < 0 else 1,
                             'keyboard_exited')
-        for name in ('launch', 'record'):
+        for name in ('launch', 'executor_launch', 'record'):
             child = self.children.get(name)
             code = child.poll() if child is not None else None
             if code is not None:
@@ -211,6 +213,9 @@ class _Supervisor:
         for gate in self.commands.gates:
             self.gate(gate)
         self.check()
+        if self.commands.executor_launch:
+            self.start('executor_launch', self.commands.executor_launch)
+        self.check()
         if self.commands.parameter_dump:
             try:
                 self.start('parameter_dump', self.commands.parameter_dump)
@@ -273,6 +278,7 @@ class _Supervisor:
         self.close('keyboard')
         for gate in self.commands.prelaunch_gates + self.commands.gates:
             self.close(gate.name)
+        self.close('executor_launch')
         if self.launched:
             self.close('launch')
             # An external driver survives launch. Try again after navigation
@@ -356,7 +362,7 @@ def validate_commands(
     if not run_dir.is_absolute() or not (run_dir / 'logs').is_dir():
         raise ValueError('expected an absolute existing run directory with logs')
     _timeout(stop_timeout)
-    reserved = {'launch', 'record', 'monitor', 'parameter_dump', 'keyboard',
+    reserved = {'launch', 'executor_launch', 'record', 'monitor', 'parameter_dump', 'keyboard',
                 'zero_before', 'zero_after', 'ros'}
     argv_list = [commands.launch, commands.zero]
     for gate in commands.prelaunch_gates + commands.gates:
@@ -367,7 +373,8 @@ def validate_commands(
             _timeout(gate.timeout_sec)
         argv_list.append(gate.argv)
     argv_list.extend(argv for argv in (
-        commands.record, commands.monitor, commands.parameter_dump, commands.keyboard) if argv)
+        commands.record, commands.monitor, commands.parameter_dump, commands.keyboard,
+        commands.executor_launch) if argv)
     if bool(commands.keyboard) != bool(commands.tty_device):
         raise ValueError('keyboard and terminal must be selected together')
     if commands.tty_device and (

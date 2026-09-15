@@ -11,7 +11,7 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.parameter import Parameter
 from rclpy.signals import SignalHandlerOptions
 from rosidl_runtime_py.utilities import get_message
-from tf2_ros import StaticTransformBroadcaster
+from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 
 from nav_bringup.navcfg.live_inputs import load_live_spec
 from nav_perception_iface.configuration import load_contract_profile
@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument('--bad-parameter', action='store_true')
     parser.add_argument('--no-localization', action='store_true')
     parser.add_argument('--silent-odom', action='store_true')
+    parser.add_argument('--tf-control', type=Path)
     args = parser.parse_args()
     spec, _ = load_live_spec(args.run_dir)
     profile = load_contract_profile(args.run_dir / 'params/inputs/robot.yaml',
@@ -61,6 +62,7 @@ def main() -> None:
                     args.silent_odom and rule.topic == profile['localization']['odom_topic']):
                 odometry.append(publisher)
         observer.create_subscription(Twist, profile['chassis']['cmd_topic'], lambda _: None, 10)
+        broadcaster, transforms = None, []
 
         def publish_odometry():
             message = Odometry()
@@ -68,11 +70,16 @@ def main() -> None:
             message.header.frame_id = spec.odom_frame
             for publisher in odometry:
                 publisher.publish(message)
+            if broadcaster is not None and args.tf_control is not None and (
+                    args.tf_control.read_text() == 'on'):
+                for transform in transforms:
+                    transform.header.stamp = message.header.stamp
+                broadcaster.sendTransform(transforms)
 
         observer.create_timer(0.05, publish_odometry)
         if not args.no_localization:
-            broadcaster = StaticTransformBroadcaster(observer)
-            transforms = []
+            broadcaster = (TransformBroadcaster(observer) if args.tf_control is not None
+                           else StaticTransformBroadcaster(observer))
             for parent, child in ((spec.map_frame, spec.odom_frame),
                                   (spec.odom_frame, profile['frames']['body']),
                                   (profile['frames']['body'], spec.nav_frame)):
@@ -84,7 +91,8 @@ def main() -> None:
                 transform.child_frame_id = child
                 transform.transform.rotation.w = 1.0
                 transforms.append(transform)
-            broadcaster.sendTransform(transforms)
+            if args.tf_control is None:
+                broadcaster.sendTransform(transforms)
         print('live fixture ready', flush=True)
         while rclpy.ok() and not stopped[0]:
             executor.spin_once(timeout_sec=0.05)

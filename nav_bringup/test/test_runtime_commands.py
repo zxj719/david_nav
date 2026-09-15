@@ -17,8 +17,10 @@ from nav_bringup.navrun.up_planning import discover_inputs, plan_up, UpRequest
 SOURCE = Path(__file__).resolve().parents[2]
 
 
-def _plan(tmp_path, robot='example_diffdrive', site='offline', mode='tour', record='off'):
-    request = UpRequest(mode, robot, site, tmp_path / 'run', record=record, no_executor=True)
+def _plan(tmp_path, robot='example_diffdrive', site='offline', mode='tour', record='off',
+          no_executor=True):
+    request = UpRequest(mode, robot, site, tmp_path / 'run', record=record,
+                        no_executor=no_executor)
     own = ProcessInfo(100, 1, 1.0, ('navrun',), 1000)
     inputs = discover_inputs(request, lambda package: SOURCE / package)
     if not inputs.mode.exists():
@@ -74,6 +76,19 @@ def test_navigation_uses_installed_check_cli_and_independent_dump(tmp_path, mode
     assert selected.zero[-2:] == ('--topic', '/demo/command')
     assert '--map-frame' in selected.monitor and 'demo_world' in selected.monitor
     assert selected.record == ()
+    assert selected.launch[-1] == 'phase:=core'
+    assert selected.executor_launch == ()
+
+
+@pytest.mark.parametrize('mode', ['tour', 'precise'])
+def test_executor_is_separate_launch_using_identical_frozen_bundle(tmp_path, mode):
+    """WS stays launch-managed but is absent from the initial core command."""
+    plan = _plan(tmp_path, robot='david', site='daolan', mode=mode, no_executor=False)
+    selected = _bind(plan, strict=True)
+    assert plan.bundle.options.start_executor
+    assert selected.launch[-1] == 'phase:=core'
+    assert selected.executor_launch == selected.launch[:-1] + ('phase:=executor',)
+    assert selected.gates[-1].argv[-1] == '--strict'
 
 
 def test_chassis_skips_nav2_and_localization_gates(tmp_path):

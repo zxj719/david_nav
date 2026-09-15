@@ -79,3 +79,30 @@ def test_executor_has_readiness_gate_and_no_ros_argument_injection(monkeypatch) 
         '/unexecuted/nav_ready_exec', '--timeout', '90.0', '--action', '/navigate_to_pose',
         '--', '/unexecuted/navigation_executor.py',
         '--pose-file', '/a b.json']
+
+
+@pytest.mark.parametrize('phase', ['core', 'executor'])
+def test_launch_phases_partition_without_changing_executor_contract(monkeypatch, phase):
+    """Deferred WS is still launch-owned and never shares core startup timers."""
+    selected = []
+    monkeypatch.setattr(runtime, '_resolve', lambda package, name: '/unused/' + name)
+    monkeypatch.setattr(runtime, 'managed_actions',
+                        lambda graph, factory: selected.extend(graph.processes) or [])
+    options = GraphOptions('precise', '/run/test', start_executor=True,
+                           executor_arguments=('--pose-file', '/a b.json'))
+    full = build_graph(options)
+    runtime.launch_actions(full, phase)
+    assert selected == [spec for spec in full.processes
+                        if (spec.name == 'navigation_executor') == (phase == 'executor')]
+    if phase == 'executor':
+        assert len(selected) == 1
+        assert selected[0].wait_for_navigation
+        assert selected[0].arguments == options.executor_arguments
+
+
+@pytest.mark.parametrize('phase', ['invalid', 'executor'])
+def test_invalid_or_unselected_executor_phase_rejects_before_resolution(monkeypatch, phase):
+    """A disabled WS cannot be enabled by the launch phase selector."""
+    monkeypatch.setattr(runtime, '_resolve', lambda *_: pytest.fail('must reject first'))
+    with pytest.raises(ValueError, match='phase'):
+        runtime.launch_actions(build_graph(GraphOptions('tour', '/run/test')), phase)

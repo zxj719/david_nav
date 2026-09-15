@@ -81,6 +81,8 @@ def bind_commands(
     run_dir = options.run_dir
     launch = (ros2, 'launch', 'nav_bringup', 'nav.launch.py', 'run_dir:=' + run_dir,
               'robot:=' + plan.bundle.robot, 'site:=' + plan.bundle.site, 'mode:=' + options.mode)
+    executor_launch = launch + ('phase:=executor',) if options.start_executor else ()
+    launch += ('phase:=core',)
     gates = []
     prelaunch = []
     navigation = options.mode in NAVIGATION_MODES
@@ -119,4 +121,4 @@ def bind_commands(
         terminal = render.profile_value(profile, 'teleop.tty_device')
     return StartupCommands(launch, tuple(gates), record, monitor, zero,
                            (navrun, 'dump-params', '--run-dir', run_dir), keyboard, terminal,
-                           tuple(prelaunch))
+                           tuple(prelaunch), executor_launch)

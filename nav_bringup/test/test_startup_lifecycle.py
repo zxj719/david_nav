@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 import os
+from pathlib import Path
 import signal
 import sys
 import time
@@ -33,7 +34,8 @@ def rig(tmp_path, monkeypatch):
         def poll(self):
             if self.name in controls:
                 return controls[self.name]
-            return None if self.name in ('launch', 'record', 'monitor', 'keyboard') else 0
+            return None if self.name in (
+                'launch', 'executor_launch', 'record', 'monitor', 'keyboard') else 0
 
         def close(self, timeout_sec=10):
             trace.append(('close', self.name))
@@ -80,6 +82,37 @@ def test_order_and_two_zero_attempts_with_lock_retained(rig, tmp_path):
     events, skipped = read_events(rig[3].path)
     assert skipped == 0
     assert any(event.event_type == 'startup_ready' for event in events)
+
+
+@pytest.mark.parametrize('outcome', ['ready', 'strict_failure', 'pending', 'crash', 'spawn_error'])
+def test_executor_only_starts_after_full_check_and_is_critical(rig, tmp_path, outcome):
+    """Failed/pending gates never start WS; cleanup closes WS before the core."""
+    commands, trace, controls, events, lease = rig
+    commands = replace(commands, executor_launch=('executor_launch',))
+    if outcome in ('strict_failure', 'pending'):
+        controls['live_check'] = 1 if outcome == 'strict_failure' else None
+    if outcome in ('crash', 'spawn_error'):
+        controls['executor_launch'] = 7 if outcome == 'crash' else 'spawn_error'
+
+    def stopped():
+        if outcome == 'pending' and ('start', 'live_check') in trace:
+            return signal.SIGINT
+        return signal.SIGINT if ('start', 'record') in trace else None
+
+    result = lifecycle.supervise(commands, tmp_path, events, os.environ, lease, stopped)
+    expected = {'ready': 130, 'strict_failure': 1, 'pending': 130,
+                'crash': 7, 'spawn_error': 2}
+    assert result.exit_code == expected[outcome]
+    if outcome in ('strict_failure', 'pending'):
+        assert ('start', 'executor_launch') not in trace
+    else:
+        assert trace.index(('close', 'live_check')) < trace.index(('start', 'executor_launch'))
+        if outcome != 'spawn_error':
+            assert trace.index(('close', 'executor_launch')) < trace.index(('close', 'launch'))
+    if outcome == 'crash':
+        assert result.exit_reason == 'executor_launch_exited'
+        assert ('start', 'record') not in trace
+    lease.fileno()
 
 
 @pytest.mark.parametrize('outcome', ['ready', 'failed', 'interrupted'])
@@ -271,7 +304,8 @@ def test_no_lease_rejects_before_child_creation(rig, tmp_path):
     assert not rig[1]
 
 
-@pytest.mark.parametrize('name', ['../escape', 'launch', 'record', 'zero_before', 'ros'])
+@pytest.mark.parametrize('name', [
+    '../escape', 'launch', 'executor_launch', 'record', 'zero_before', 'ros'])
 def test_unsafe_or_reserved_gate_names_rejected(rig, tmp_path, name):
     """Gate labels cannot overwrite another child or escape the logs directory."""
     changed = replace(rig[0], gates=(lifecycle.StartupGate(name, ('check',)),))
@@ -280,7 +314,8 @@ def test_unsafe_or_reserved_gate_names_rejected(rig, tmp_path, name):
     assert not rig[1]
 
 
-def test_real_private_children_execute_pipeline_and_flush_logs(tmp_path):
+@pytest.mark.parametrize('with_executor', [False, True])
+def test_real_private_children_execute_pipeline_and_flush_logs(tmp_path, with_executor):
     """The complete child lifecycle runs without ROS or any velocity message."""
     (tmp_path / 'logs').mkdir()
 
@@ -295,6 +330,8 @@ def test_real_private_children_execute_pipeline_and_flush_logs(tmp_path):
         (lifecycle.StartupGate('ready', command('ready'), 5),
          lifecycle.StartupGate('live_check', command('localized'), 5)),
         command('recorder', True), command('monitor', True), command('zero-placeholder'))
+    if with_executor:
+        commands = replace(commands, executor_launch=command('executor', True))
     events = EventLog(tmp_path / 'events.jsonl')
     deadline = time.monotonic() + 10
 
@@ -311,6 +348,22 @@ def test_real_private_children_execute_pipeline_and_flush_logs(tmp_path):
     assert (tmp_path / 'logs/ready.log').read_text().strip() == 'ready'
     assert (tmp_path / 'logs/live_check.log').read_text().strip() == 'localized'
     assert 'zero-placeholder' in (tmp_path / 'logs/zero_after.log').read_text()
+    recorded = read_events(events.path)[0]
+    if with_executor:
+        assert 'executor' in (tmp_path / 'logs/executor_launch.log').read_text()
+        checked = next(index for index, event in enumerate(recorded)
+                       if event.event_type == 'startup_gate_finished'
+                       and event.data['name'] == 'live_check')
+        spawned = next(index for index, event in enumerate(recorded)
+                       if event.event_type == 'process_started'
+                       and event.data['name'] == 'executor_launch')
+        assert checked < spawned
+        stopped = [event.data['name'] for event in recorded
+                   if event.event_type == 'process_stopped']
+        assert stopped.index('executor_launch') < stopped.index('launch')
+        for event in recorded:
+            if event.event_type == 'process_started':
+                assert not Path('/proc', str(event.data['pid'])).exists()
 
 
 @pytest.mark.parametrize('commands', [

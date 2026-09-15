@@ -18,7 +18,8 @@ def _setup(context: LaunchContext) -> List[Action]:
     root = LaunchConfiguration('run_dir').perform(context)
     selectors = {name: LaunchConfiguration(name).perform(context)
                  for name in ('robot', 'site', 'mode', 'chassis', 'executor', 'composition')}
-    return launch_actions(build_graph(load_options(root, selectors)))
+    return launch_actions(build_graph(load_options(root, selectors)),
+                          LaunchConfiguration('phase').perform(context))
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -29,6 +30,8 @@ def generate_launch_description() -> LaunchDescription:
     """
     return LaunchDescription([
         DeclareLaunchArgument('run_dir', description='Absolute navrun-prepared run directory'),
+        DeclareLaunchArgument(
+            'phase', default_value='all', description='Owned launch phase: all/core/executor'),
         DeclareLaunchArgument(
             'robot', default_value='', description='Assert prepared robot identity'),
         DeclareLaunchArgument(

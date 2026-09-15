@@ -16,17 +16,20 @@ def observer(monkeypatch):
     """Replace every live interaction and clock before dispatching the real CLI."""
     state = SimpleNamespace(now=0.0, initialized=False, closed=False, localized=True,
                             snapshot=LiveSnapshot(True, 0.1, {}, {}, {}),
-                            handlers={}, queried=False)
+                            handlers={}, queried=False, instances=0, closed_count=0,
+                            snapshots=[])
 
     class Probe:
         def __init__(self, spec):
             state.initialized = True
+            state.instances += 1
 
         def __enter__(self):
             return self
 
         def __exit__(self, *_):
             state.closed = True
+            state.closed_count += 1
 
         def localized(self):
             return state.localized
@@ -36,7 +39,7 @@ def observer(monkeypatch):
 
         def snapshot(self, *_):
             state.queried = True
-            return state.snapshot
+            return state.snapshots.pop(0) if state.snapshots else state.snapshot
 
     def register(signum, callback):
         previous = state.handlers.get(signum, 'original')
@@ -101,7 +104,7 @@ def test_bounded_unlocalized_check_returns_pending(observer, capsys):
 def test_lost_localization_during_collection_is_pending(observer):
     """Initialization loss cannot produce a zero-error success result."""
     observer.snapshot = replace(observer.snapshot, localized=False)
-    assert _run('--live') == 3
+    assert _run('--live', '--wait-timeout', '0.1') == 3
 
 
 @pytest.mark.parametrize('signum', [signal.SIGINT, signal.SIGTERM])
@@ -146,7 +149,7 @@ def test_interface_errors_participate_in_full_check(
 def test_pending_interface_is_not_success(observer, monkeypatch, capsys):
     """Localization loss during the separate observation remains pending."""
     monkeypatch.setattr(live_cli, 'check_interface', lambda *_: InterfaceResult(3, (), None))
-    assert _run('--live') == 3
+    assert _run('--live', '--wait-timeout', '0.1') == 3
     assert 'localization_waiting' in capsys.readouterr().out
 
 
@@ -157,3 +160,68 @@ def test_missing_interface_dependency_is_an_operational_failure(observer, monkey
 
     monkeypatch.setattr(live_cli, 'check_interface', missing)
     assert _run('--live') == 2
+
+
+@pytest.mark.parametrize('stage', ['graph', 'interface'])
+def test_default_wait_rechecks_fresh_state_after_localization_loss(
+        observer, monkeypatch, capsys, stage):
+    """Pending localization restarts observation, not startup or an external provider."""
+    calls = []
+    if stage == 'graph':
+        observer.snapshots = [replace(observer.snapshot, localized=False)]
+
+    def check(*_):
+        assert observer.closed_count == observer.instances
+        calls.append(True)
+        if stage == 'interface' and len(calls) == 1:
+            return InterfaceResult(3, (), None)
+        return InterfaceResult(0, (), {})
+
+    monkeypatch.setattr(live_cli, 'check_interface', check)
+    assert _run('--live', '--strict') == 0
+    assert observer.instances == observer.closed_count == 2
+    assert len(calls) == (2 if stage == 'interface' else 1)
+    assert 'localization_retry' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('signum', [signal.SIGINT, signal.SIGTERM])
+def test_signal_during_reentered_localization_wait_closes_new_observer(
+        observer, monkeypatch, signum):
+    """A resumed manual wait remains interruptible and releases each private context."""
+    observer.snapshots = [replace(observer.snapshot, localized=False)]
+
+    def wait(*_):
+        if observer.instances == 2:
+            observer.handlers[signum](signum, None)
+            return False
+        return True
+
+    monkeypatch.setattr(live_cli, 'wait_localization', wait)
+    assert _run('--live') == 128 + signum
+    assert observer.instances == observer.closed_count == 2
+    assert all(handler == 'original' for handler in observer.handlers.values())
+
+
+def test_pending_retry_does_not_reuse_old_parameter_findings(observer, monkeypatch, capsys):
+    """A strict retry assesses the new snapshot rather than accumulating stale errors."""
+    observer.snapshots = [replace(observer.snapshot, tf_age_sec=None)]
+    results = [InterfaceResult(3, (), None), InterfaceResult(0, (), {})]
+    monkeypatch.setattr(live_cli, 'check_interface', lambda *_: results.pop(0))
+    assert _run('--live', '--strict') == 0
+    assert not results
+    assert 'navcfg check: 0 error(s)' in capsys.readouterr().out
+
+
+def test_operational_failure_after_pending_is_not_retried(observer, monkeypatch):
+    """Only localization-pending status retries; a broken checker still fails closed."""
+    calls = []
+
+    def check(*_):
+        calls.append(True)
+        if len(calls) == 1:
+            return InterfaceResult(3, (), None)
+        raise RuntimeError('invalid checker result')
+
+    monkeypatch.setattr(live_cli, 'check_interface', check)
+    assert _run('--live') == 2
+    assert len(calls) == observer.closed_count == 2

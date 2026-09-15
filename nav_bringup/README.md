@@ -95,6 +95,11 @@ critical exits, and never respawns during shutdown. Each respawn uses a fresh
 owned action instead of an unlimited background restart loop. External drivers
 are omitted completely. The plain legacy executor CLI is protected by a
 read-only action-server readiness gate and receives its exact argv, without a shell.
+`phase:=all|core|executor` partitions the same frozen graph (default `all` for
+standalone compatibility). `navrun up` starts `core`, completes its full checks,
+then starts a second launch with `executor` only when the prepared bundle enables
+WS. Both launches remain supervised, and executor shutdown precedes core shutdown.
+The phase selector cannot enable an executor disabled in the prepared graph.
 
 This is not yet an accepted production replacement for aliases: the convenience
 keyboard launch and navigation/physical acceptance remain pending. Bundle preparation,
@@ -281,13 +286,20 @@ Navigation-mode `navrun up` first invokes `--wait-localization-only` **before la
 This mode returns 0 only for TF readiness, not a successful full configuration check.
 Manual localization waiting therefore consumes no Nav2/executor readiness budget.
 After launch and readiness, the complete live check runs, with stop-on-strict-failure.
+Only then may the launch-managed WS executor start. If localization disappears
+during observation, the default unlimited check closes its observers and re-enters
+waiting, then performs a fresh complete check after recovery. Old findings are not
+reused. Explicit positive `--wait-timeout` diagnostics instead return pending status
+3; strict errors (1), operational errors (2) and signals do not retry. Neither
+path restarts navigation or localization. After startup, continuous health is P6.7.
 Chassis/teleop retain no localization prerequisite. Domain-99 integration checks run
 the real tour/precise Nav2 graph with the example robot, fake driver and stationary
 synthetic localization, without goals or a WS executor. They compare every declared
 rendered value with complete effective dumps, require missing-key findings to match
 those dumps, and verify strict rejection, provider independence and shutdown ownership.
 These are startup/configuration checks, not driving or localization-quality acceptance.
-Executor ordering and localization loss during startup remain separate integration work.
+Additional isolated tests cover localization loss/recovery and interruption;
+pure/private-child tests cover deferred executor startup, failure and cleanup order.
 
 ### Run-local logs and frame trace noise (P5.1)
 
@@ -357,11 +369,11 @@ executed by imports or the existing wrap command. Permission setup remains an
 operator-owned sudoers task; the code never supplies a password or edits policy.
 
 `navrun.startup_lifecycle.supervise` now executes an explicitly supplied startup
-pipeline under an already acquired `RunLock`: owned launch → ordered readiness
-and live-check gates → independent parameter dump → optional monitor/recorder → foreground
+pipeline under an already acquired `RunLock`: localization wait → core launch → readiness
+and live-check gates → optional executor launch → parameter dump → monitor/recorder → foreground
 supervision → stop attempts and cleanup. Manual localization can wait indefinitely,
 but launcher exits and requested signals remain observable throughout that wait.
-Unexpected launcher/recorder exits fail the run, including early exit code zero;
+Unexpected core/executor launcher or recorder exits fail the run, including exit code zero;
 optional monitor/dump failures only warn. Two bounded zero-command attempts bracket
 launch shutdown, with the first before waiting for interrupted gates; recorder
 shutdown follows the second attempt. A failed stop does not skip other cleanup.

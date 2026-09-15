@@ -64,46 +64,59 @@ def run(args: argparse.Namespace) -> int:
 
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous[signum] = signal.signal(signum, stop)
-        with RosProbe(spec) as probe:
-            ready = wait_localization(probe.localized, probe.spin, time.monotonic,
-                                      stopped.is_set, emit, args.wait_timeout)
-            if not ready:
-                return 128 + received[0] if received else 3
-            if args.wait_localization_only:
-                return 0
-            deadline = time.monotonic() + args.sample_sec
-            while not stopped.is_set() and time.monotonic() < deadline:
-                probe.spin(max(0.0, min(0.1, deadline - time.monotonic())))
-            if stopped.is_set():
-                return 128 + received[0]
-            snapshot = probe.snapshot(stopped.is_set, args.parameter_timeout)
-            if stopped.is_set():
-                return 128 + received[0]
-        findings = initial + assess(spec, snapshot)
-        if not snapshot.localized:
+
+        def _check_once() -> int:
+            """Run one disposable observation; three means localization became pending."""
+            with RosProbe(spec) as probe:
+                ready = wait_localization(probe.localized, probe.spin, time.monotonic,
+                                          stopped.is_set, emit, args.wait_timeout)
+                if not ready:
+                    return 128 + received[0] if received else 3
+                if args.wait_localization_only:
+                    return 0
+                deadline = time.monotonic() + args.sample_sec
+                while not stopped.is_set() and time.monotonic() < deadline:
+                    probe.spin(max(0.0, min(0.1, deadline - time.monotonic())))
+                if stopped.is_set():
+                    return 128 + received[0]
+                snapshot = probe.snapshot(stopped.is_set, args.parameter_timeout)
+                if stopped.is_set():
+                    return 128 + received[0]
+            findings = initial + assess(spec, snapshot)
+            if not snapshot.localized:
+                for finding in findings:
+                    emit(finding)
+                return 3
+            interface = check_interface(args.run_dir, args.sample_sec, stopped.is_set)
+            if stopped.is_set() or interface is None:
+                return 128 + received[0] if received else 130
+            findings += interface.findings
+            if events is not None:
+                events.append('navcfg', 'interface_snapshot', 'info',
+                              {'status': interface.status, 'evidence': interface.evidence})
             for finding in findings:
                 emit(finding)
-            return 3
-        interface = check_interface(args.run_dir, args.sample_sec, stopped.is_set)
-        if stopped.is_set() or interface is None:
-            return 128 + received[0] if received else 130
-        findings += interface.findings
-        if events is not None:
-            events.append('navcfg', 'interface_snapshot', 'info',
-                          {'status': interface.status, 'evidence': interface.evidence})
-        for finding in findings:
-            emit(finding)
-        if interface.status == 3:
-            if not any(item.code == 'localization_waiting' for item in findings):
-                emit(Finding('info', 'localization_waiting', '等待在 RViz 手动给初始位姿'))
-            return 3
-        if interface.status == 0:
-            emit(Finding('info', 'interface_contracts_ready',
-                         'localization/chassis/perception contracts satisfied in sample window'))
-        errors = sum(item.severity == 'error' for item in findings)
-        warnings = sum(item.severity == 'warn' for item in findings)
-        print(f'navcfg check: {errors} error(s), {warnings} warning(s)', flush=True)
-        return 1 if args.strict and errors else 0
+            if interface.status == 3:
+                if not any(item.code == 'localization_waiting' for item in findings):
+                    emit(Finding('info', 'localization_waiting', '等待在 RViz 手动给初始位姿'))
+                return 3
+            if interface.status == 0:
+                emit(Finding('info', 'interface_contracts_ready',
+                             'localization/chassis/perception contracts satisfied '
+                             'in sample window'))
+            errors = sum(item.severity == 'error' for item in findings)
+            warnings = sum(item.severity == 'warn' for item in findings)
+            print(f'navcfg check: {errors} error(s), {warnings} warning(s)', flush=True)
+            return 1 if args.strict and errors else 0
+
+        while True:
+            result = _check_once()
+            if result != 3 or args.wait_timeout > 0.0:
+                return result
+            emit(Finding('info', 'localization_retry',
+                         'localization pending; waiting before a fresh full check'))
+            if stopped.wait(0.25):
+                return 128 + received[0] if received else 130
     except KeyboardInterrupt:
         return 130
     except (ValueError, LookupError, OSError, RuntimeError) as error:
