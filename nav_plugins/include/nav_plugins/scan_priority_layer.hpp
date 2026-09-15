@@ -72,6 +72,7 @@ private:
   std::vector<ClassifiedBeam> classified_beams_;
 
   std::string scan_topic_{"/scan"};
+  std::string robot_base_frame_;
   double sector_min_angle_{-0.55};
   double sector_max_angle_{0.55};
   double max_range_{2.5};

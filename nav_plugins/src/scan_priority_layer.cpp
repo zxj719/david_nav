@@ -9,6 +9,7 @@
 #include <limits>
 
 #include "geometry_msgs/msg/point.hpp"
+#include "nav_plugins/robot_base_frame.hpp"
 #include "pluginlib/class_list_macros.hpp"
 #include "tf2/LinearMath/Transform.h"
 #include "tf2/LinearMath/Vector3.h"
@@ -31,6 +32,13 @@ void ScanPriorityLayer::onInitialize()
   if (!node) {
     throw std::runtime_error("ScanPriorityLayer node handle expired during initialization");
   }
+
+  // The layer inherits the costmap frame; it must not assume a robot model.
+  std::string costmap_frame;
+  node->get_parameter("robot_base_frame", costmap_frame);
+  declareParameter("robot_base_frame", rclcpp::ParameterValue(costmap_frame));
+  robot_base_frame_ = resolveRobotBaseFrame(
+    costmap_frame, node->get_parameter(getFullName("robot_base_frame")).as_string());
 
   declareParameter("enabled", rclcpp::ParameterValue(true));
   declareParameter("scan_topic", rclcpp::ParameterValue(std::string("/scan")));
@@ -162,7 +170,7 @@ void ScanPriorityLayer::recomputeLayer(
   geometry_msgs::msg::TransformStamped tf_msg;
   try {
     tf_msg = tf_->lookupTransform(
-      "base_footprint",
+      robot_base_frame_,
       scan.header.frame_id,
       scan.header.stamp,
       tf2::durationFromSec(0.1));
@@ -282,7 +290,7 @@ void ScanPriorityLayer::publishDebugMarkers() const
   visualization_msgs::msg::MarkerArray array;
 
   visualization_msgs::msg::Marker obstacle_marker;
-  obstacle_marker.header.frame_id = "base_footprint";
+  obstacle_marker.header.frame_id = robot_base_frame_;
   obstacle_marker.header.stamp = latest_scan_stamp_;
   obstacle_marker.ns = "scan_priority_obstacles";
   obstacle_marker.id = 0;
