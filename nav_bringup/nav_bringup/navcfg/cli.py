@@ -2,7 +2,7 @@
 
 ``navcfg render`` writes the Nav2 parameter file of a robot profile and mode.
 ``navcfg validate`` applies schema and cross-file safety rules before launch.
-``navcfg doc`` follows (PROGRESS P2.6).
+``navcfg doc`` generates the checked-in parameter reference from package schemas.
 """
 
 import argparse
@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 from typing import Dict, Optional, Sequence
 
+from nav_bringup.navcfg import documentation
 from nav_bringup.navcfg import render
 from nav_bringup.navcfg import schema
 from nav_bringup.navcfg import validation
@@ -63,6 +64,15 @@ def build_parser() -> argparse.ArgumentParser:
         '--source-root', type=Path,
         help='workspace src directory used to discover package schemas')
     validate_parser.add_argument(
+        '--schema', action='append', type=Path,
+        help='explicit package schema; repeat as needed (overrides schema discovery)')
+    doc_parser = commands.add_parser(
+        'doc', help='generate Markdown documentation from package schemas')
+    doc_parser.add_argument('--output', required=True, type=Path, help='Markdown output file')
+    doc_parser.add_argument(
+        '--source-root', type=Path,
+        help='workspace src directory used to discover package schemas')
+    doc_parser.add_argument(
         '--schema', action='append', type=Path,
         help='explicit package schema; repeat as needed (overrides schema discovery)')
     return parser
@@ -178,6 +188,24 @@ def _validate_command(args: argparse.Namespace) -> int:
     return 1 if errors else 0
 
 
+def _doc_command(args: argparse.Namespace) -> int:
+    """Execute ``navcfg doc``.
+
+    Args:
+        args: Parsed documentation arguments.
+
+    Returns:
+        Process exit status.
+    """
+    try:
+        documentation.write_catalog(args.output, _catalog(args))
+    except (schema.SchemaError, OSError) as error:
+        print(f'navcfg doc: {error}', file=sys.stderr)
+        return 2
+    print(f'navcfg doc: wrote {args.output}')
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Run navcfg.
 
@@ -190,4 +218,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == 'render':
         return _render_command(args)
-    return _validate_command(args)
+    if args.command == 'validate':
+        return _validate_command(args)
+    return _doc_command(args)
