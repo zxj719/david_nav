@@ -45,3 +45,13 @@ def test_david_navigation_does_not_publish_an_additional_chassis_imu() -> None:
     assert parameters['publish_voltage'] is True
     assert parameters['cmd_timeout_sec'] == 0.0
     assert parameters['log_tx_frames'] is False
+
+
+def test_new_entrypoint_retains_one_cycle_legacy_alias_and_detection() -> None:
+    """Both executable spellings share one implementation and remain detectable."""
+    cmake = (PACKAGE / 'CMakeLists.txt').read_text()
+    profile = yaml.safe_load((SOURCE / 'david_config/robot/david.yaml').read_text())
+    patterns = profile['chassis']['driver']['detect_patterns']
+    for executable in ('wheeltec_driver_node', 'wheeltec_robot_node'):
+        assert f'add_executable({executable} src/wheeltec_robot_main.cpp)' in cmake
+        assert executable in patterns

@@ -13,7 +13,9 @@ P3.8 / D2 传输层：`ByteStream` 可注入内存假串口；`SerialStream` 连
 节点的 odom/imu/PowerVoltage 深度分别是 50/20/10，并非频率。消息保留旧 covariance
 及 `position.z = yaw`，后者的修正仍需人工审核。9 个旧参数默认值在
 `config/wheeltec_driver.yaml`，可用普通 ROS 参数覆盖；话题可 remap。
-当前可执行文件仍叫 `wheeltec_robot_node`，节点名仍是 `wheeltec_robot`，后续 D9 独立改名。
+D9：新可执行名 `wheeltec_driver_node`，节点名保持 `wheeltec_robot`；旧可执行名
+`wheeltec_robot_node` 共用同一实现，保留一个兼容周期。导航档案 detect_patterns 同时覆盖两者。
+旧 `twist_transform` 不迁移；不修改 odom_combined 帧名（D10/D11）。
 构造节点会连接配置的串口，故自动测试禁止运行该硬件入口。析构执行一次尽力零速并关闭；
 可选发布见 D8；参数在启动时读取，修改后需正常重启节点才生效。
 

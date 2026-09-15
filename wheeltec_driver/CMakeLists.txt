@@ -44,10 +44,12 @@ target_link_libraries(wheeltec_node wheeltec_messages wheeltec_attitude)
 ament_target_dependencies(wheeltec_node ament_index_cpp geometry_msgs rclcpp std_msgs)
 install(TARGETS wheeltec_node EXPORT export_wheeltec_node
   LIBRARY DESTINATION lib ARCHIVE DESTINATION lib RUNTIME DESTINATION bin)
-# D9 renames the executable in a separate compatibility commit.
+# New entry point, with the old spelling retained for one compatibility cycle.
+add_executable(wheeltec_driver_node src/wheeltec_robot_main.cpp)
+target_link_libraries(wheeltec_driver_node wheeltec_node)
 add_executable(wheeltec_robot_node src/wheeltec_robot_main.cpp)
 target_link_libraries(wheeltec_robot_node wheeltec_node)
-install(TARGETS wheeltec_robot_node RUNTIME DESTINATION lib/${PROJECT_NAME})
+install(TARGETS wheeltec_driver_node wheeltec_robot_node RUNTIME DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config docs DESTINATION share/${PROJECT_NAME})
 install(FILES README.md NOTICE DESTINATION share/${PROJECT_NAME})
