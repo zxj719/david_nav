@@ -1,4 +1,4 @@
-"""Sandbox integration checks for the recorder ROS side (PROGRESS P1.2b, P1.4a).
+"""Sandbox integration checks for the recorder ROS side (PROGRESS P1.2b, P1.4b).
 
 These checks start ROS processes, so ``colcon test`` must not collect them:
 the file name deliberately does not match ``test_*.py``. Run them explicitly
@@ -6,29 +6,21 @@ in the isolated DDS domain while no navigation stack runs::
 
     nav_bringup/sandbox_tests/run_sandbox_checks.sh
 
-They start a topic publisher, a static transform, a fake behavior tree log,
-``navrun monitor`` and ``navrun dump-params``. Every process runs in its own
-session, and only those sessions are stopped afterwards.
+The ``sessions`` fixture of ``conftest.py`` starts every process in its own
+session and stops only those sessions afterwards.
 """
 
 import csv
-import os
-from pathlib import Path
-import signal
 import subprocess
 import time
-from typing import IO, List, Optional, Sequence, Tuple
+from typing import List
 
-import pytest
 import yaml
 
 from nav_bringup.recorder import events
 from nav_bringup.recorder import param_dump
 from nav_bringup.recorder import topic_stats
 
-LIVE_PATTERN = (
-    'run_loc_online|controller_server|bt_navigator|wheeltec_robot_node|'
-    'navigation_executor|dock_navigator|rviz2')
 CHATTER_TOPIC = '/navrun_sandbox/chatter'
 SANDBOX_BASE_FRAME = 'navrun_sandbox_base'
 READY_ACTION = '/navrun_sandbox/ready'
@@ -47,87 +39,6 @@ ACTION_SERVER_CODE = '\n'.join([
     '    pass',
     '',
 ])
-
-
-class _Sessions:
-    """Processes started in their own sessions, stopped in reverse order."""
-
-    def __init__(self, log_dir: Path) -> None:
-        """Create an empty set of sessions.
-
-        Args:
-            log_dir: Directory for one log file per process.
-        """
-        self._log_dir = log_dir
-        self._started: List[Tuple[subprocess.Popen, IO[str]]] = []
-
-    def start(self, name: str, argv: Sequence[str]) -> subprocess.Popen:
-        """Start a process as the leader of a new session.
-
-        Args:
-            name: Log file name without extension.
-            argv: Program and arguments.
-
-        Returns:
-            The started process.
-        """
-        log = (self._log_dir / f'{name}.log').open('w', encoding='utf-8')
-        process = subprocess.Popen(
-            list(argv), stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        self._started.append((process, log))
-        return process
-
-    def stop(self, process: subprocess.Popen, timeout_sec: float = 15.0) -> Optional[int]:
-        """Interrupt the session of a process, killing it if it does not exit.
-
-        Args:
-            process: A process returned by :meth:`start`.
-            timeout_sec: Seconds to wait after the interrupt.
-
-        Returns:
-            The exit status of the session leader.
-        """
-        self._signal_session(process, signal.SIGINT)
-        try:
-            return process.wait(timeout=timeout_sec)
-        except subprocess.TimeoutExpired:
-            self._signal_session(process, signal.SIGKILL)
-            return process.wait()
-
-    def stop_all(self) -> None:
-        """Stop every started session, newest first, and close the logs."""
-        for process, log in reversed(self._started):
-            self.stop(process)
-            self._signal_session(process, signal.SIGKILL)
-            log.close()
-
-    @staticmethod
-    def _signal_session(process: subprocess.Popen, signum: int) -> None:
-        try:
-            os.killpg(process.pid, signum)
-        except ProcessLookupError:
-            pass
-
-
-def _require_sandbox() -> None:
-    expected = os.environ.get('SANDBOX_ROS_DOMAIN_ID', '99')
-    if os.environ.get('ROS_DOMAIN_ID') != expected:
-        pytest.fail(f'sandbox checks need ROS_DOMAIN_ID={expected}')
-    live = subprocess.run(
-        ['pgrep', '-f', LIVE_PATTERN], capture_output=True, text=True, check=False)
-    if live.stdout.strip():
-        pytest.fail('a navigation, localization or chassis stack is running')
-
-
-@pytest.fixture
-def sessions(tmp_path):
-    """Provide process sessions that are stopped after the check."""
-    _require_sandbox()
-    log_dir = tmp_path / 'process_logs'
-    log_dir.mkdir()
-    started = _Sessions(log_dir)
-    yield started
-    started.stop_all()
 
 
 def _static_transform(child_frame: str) -> List[str]:

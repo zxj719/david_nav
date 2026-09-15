@@ -43,4 +43,4 @@ export ROS_LOG_DIR
 trap 'rm -rf "${ROS_LOG_DIR}"' EXIT
 
 cd "$(dirname "$0")" || exit 2
-python3 -m pytest -p no:cacheprovider "$@" sandbox_recorder_checks.py
+python3 -m pytest -p no:cacheprovider "$@" sandbox_*_checks.py

@@ -206,6 +206,35 @@ def test_serial_device_without_permissions(tmp_path):
     assert '读写权限' in result.message
 
 
+def test_ros_log_dir(tmp_path):
+    """Many or large ROS logs warn; a missing directory is skipped."""
+    logs = tmp_path / 'ros_log'
+    (logs / 'launch_dir').mkdir(parents=True)
+    (logs / 'launch_dir' / 'launch.log').write_bytes(b'x' * 100)
+    for index in range(3):
+        (logs / f'python3_{index}_1.log').write_bytes(b'y' * 10)
+
+    warn = checks.check_ros_log_dir(_context(tmp_path, ros_log_dir=logs, ros_log_warn_entries=4))
+    ok = checks.check_ros_log_dir(_context(tmp_path, ros_log_dir=logs, ros_log_warn_entries=5))
+    too_big = checks.check_ros_log_dir(
+        _context(tmp_path, ros_log_dir=logs, ros_log_warn_bytes=130))
+    skip = checks.check_ros_log_dir(_context(tmp_path, ros_log_dir=tmp_path / 'missing'))
+
+    assert warn.status is checks.Status.WARN
+    assert '4 个条目' in warn.message
+    assert ok.status is checks.Status.OK
+    assert too_big.status is checks.Status.WARN
+    assert skip.status is checks.Status.SKIP
+
+
+def test_ros_log_directory():
+    """ROS_LOG_DIR wins over ROS_HOME/log, which wins over ~/.ros/log."""
+    assert checks.ros_log_directory({'ROS_LOG_DIR': '/tmp/a', 'ROS_HOME': '/tmp/b'}) == (
+        Path('/tmp/a'))
+    assert checks.ros_log_directory({'ROS_HOME': '/tmp/b'}) == Path('/tmp/b/log')
+    assert checks.ros_log_directory({}) == Path('~/.ros/log').expanduser()
+
+
 def test_run_checks_isolates_broken_checks(tmp_path):
     """A check that raises becomes a FAIL result without stopping the others."""
     def check_explodes(context):
@@ -241,20 +270,23 @@ def test_worst_status_and_report():
 
 
 def test_default_context_uses_navrun_repo(tmp_path):
-    """The repository and map yamls follow NAVRUN_REPO."""
+    """The repository, map yamls and ROS log directory follow the environment."""
     maps = tmp_path / 'src' / 'david_nav' / 'config' / 'maps'
     maps.mkdir(parents=True)
     (maps / 'site.yaml').write_text('mode: trinary\n', encoding='utf-8')
 
-    context = checks.default_context({'NAVRUN_REPO': str(tmp_path / 'src')})
+    context = checks.default_context(
+        {'NAVRUN_REPO': str(tmp_path / 'src'), 'ROS_LOG_DIR': str(tmp_path / 'ros_log')})
 
     assert context.install_dir == tmp_path / 'install'
     assert context.map_yamls == (maps / 'site.yaml',)
+    assert context.ros_log_dir == tmp_path / 'ros_log'
 
 
 def test_cli_doctor_json_output(tmp_path, monkeypatch, capsys):
     """The doctor subcommand with --json prints one object per check and exits 0 or 1."""
     monkeypatch.setenv('NAVRUN_REPO', str(tmp_path / 'src'))
+    monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path / 'ros_log'))
 
     code = cli.main(['doctor', '--json'])
     payload = json.loads(capsys.readouterr().out)
@@ -262,6 +294,6 @@ def test_cli_doctor_json_output(tmp_path, monkeypatch, capsys):
     assert code in (0, 1)
     assert [item['name'] for item in payload] == [
         'ros_environment', 'dds_shared_memory', 'map_yaml_mode', 'robot_state_publishers',
-        'stale_installed_programs', 'serial_device']
+        'stale_installed_programs', 'serial_device', 'ros_log_dir']
     assert all(item['status'] in ('OK', 'WARN', 'FAIL', 'SKIP') for item in payload)
     assert Path(tmp_path / 'src').exists() is False

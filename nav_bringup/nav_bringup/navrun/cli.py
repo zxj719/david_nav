@@ -17,6 +17,7 @@ import sys
 from typing import Dict, Optional, Sequence
 
 from nav_bringup.doctor import checks
+from nav_bringup.doctor import live
 from nav_bringup.navrun import wrap
 from nav_bringup.recorder import events
 from nav_bringup.recorder import linked_process
@@ -92,6 +93,23 @@ def build_parser() -> argparse.ArgumentParser:
         'doctor', help='read-only checks for known navigation failure modes')
     doctor_parser.add_argument(
         '--json', action='store_true', help='print results as JSON instead of text')
+    doctor_parser.add_argument(
+        '--live', action='store_true',
+        help='also check the running ROS graph (short ros2 queries and a TF probe node)')
+    doctor_parser.add_argument(
+        '--cmd-topic', action='append', default=[], metavar='TOPIC',
+        help='velocity command topic that must have one publisher at most; repeatable '
+        '(robot profile chassis.cmd_topic)')
+    doctor_parser.add_argument(
+        '--watch-topic', action='append', default=[], metavar='TOPIC',
+        help='topic whose publishers must all run on one host; repeatable')
+    doctor_parser.add_argument(
+        '--map-frame', default='map', help='global frame of the localization transform')
+    doctor_parser.add_argument(
+        '--odom-frame', default='odom', help='odometry frame of the localization transform')
+    doctor_parser.add_argument(
+        '--tf-wait', type=float, default=3.0,
+        help='seconds to wait for the map to odom transform')
 
     monitor_parser = subparsers.add_parser(
         'monitor', help='record behavior tree triggers, topic rates and TF lag of a run')
@@ -200,6 +218,15 @@ def _as_flag(name: str) -> str:
 
 def _doctor(args: argparse.Namespace) -> int:
     results = checks.run_checks(checks.default_context(os.environ))
+    if args.live:
+        results.extend(live.run_live_checks(live.LiveContext(
+            runner=live.default_runner(),
+            command_topics=tuple(args.cmd_topic),
+            watched_topics=tuple(args.watch_topic),
+            map_frame=args.map_frame,
+            odom_frame=args.odom_frame,
+            transform_probe=live.ros_transform_probe(args.tf_wait),
+        )))
     if args.json:
         print(json.dumps([result.to_dict() for result in results], ensure_ascii=False, indent=2))
     else:

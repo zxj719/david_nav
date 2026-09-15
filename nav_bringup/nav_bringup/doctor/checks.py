@@ -5,8 +5,8 @@ plan §13.3) and reports ``OK``, ``WARN``, ``FAIL`` or ``SKIP`` with a hint on
 how to fix it. Checks never modify files, processes or ROS state and start no
 subprocesses.
 
-This module holds the checks that need no running ROS graph. Checks of live
-topics, TF and the ros2 CLI daemon follow in PROGRESS P1.5b.
+This module holds the checks that need no running ROS graph; the checks of a
+live graph are in :mod:`nav_bringup.doctor.live`.
 
 Messages and hints are written in Chinese for the people operating the robot.
 """
@@ -86,6 +86,9 @@ class DoctorContext:
         serial_device: Chassis controller serial device.
         map_yamls: Map yaml files used by navigation.
         shm_orphan_warn_threshold: Orphan Fast DDS segment count that warns.
+        ros_log_dir: ROS log directory, or ``None`` to skip its check.
+        ros_log_warn_entries: Entry count of the ROS log directory that warns.
+        ros_log_warn_bytes: Size of the ROS log directory that warns.
     """
 
     repo_dir: Path
@@ -96,6 +99,25 @@ class DoctorContext:
     serial_device: Path = Path('/dev/wheeltec_controller')
     map_yamls: Sequence[Path] = ()
     shm_orphan_warn_threshold: int = 10
+    ros_log_dir: Optional[Path] = None
+    ros_log_warn_entries: int = 10000
+    ros_log_warn_bytes: int = 1 << 30
+
+
+def ros_log_directory(environ: Mapping[str, str]) -> Path:
+    """Locate the ROS log directory the way ROS 2 logging does.
+
+    Args:
+        environ: Environment, typically ``os.environ``.
+
+    Returns:
+        ``$ROS_LOG_DIR``, else ``$ROS_HOME/log``, else ``~/.ros/log``.
+    """
+    if environ.get('ROS_LOG_DIR'):
+        return Path(environ['ROS_LOG_DIR']).expanduser()
+    if environ.get('ROS_HOME'):
+        return Path(environ['ROS_HOME']).expanduser() / 'log'
+    return Path('~/.ros/log').expanduser()
 
 
 def default_context(environ: Mapping[str, str]) -> DoctorContext:
@@ -106,7 +128,8 @@ def default_context(environ: Mapping[str, str]) -> DoctorContext:
 
     Returns:
         A context for ``$NAVRUN_REPO`` (default ``~/ros2_ws/src``), its
-        sibling ``install`` directory and ``david_nav/config/maps/*.yaml``.
+        sibling ``install`` directory, ``david_nav/config/maps/*.yaml`` and
+        the ROS log directory.
     """
     repo_dir = Path(environ.get('NAVRUN_REPO', '~/ros2_ws/src')).expanduser()
     maps_dir = repo_dir / 'david_nav' / 'config' / 'maps'
@@ -115,6 +138,7 @@ def default_context(environ: Mapping[str, str]) -> DoctorContext:
         install_dir=repo_dir.parent / 'install',
         environ=dict(environ),
         map_yamls=tuple(sorted(maps_dir.glob('*.yaml'))) if maps_dir.is_dir() else (),
+        ros_log_dir=ros_log_directory(environ),
     )
 
 
@@ -325,6 +349,44 @@ def check_serial_device(context: DoctorContext) -> CheckResult:
     return CheckResult(name, Status.OK, f'{device} -> {os.path.realpath(device)} 可读写')
 
 
+def check_ros_log_dir(context: DoctorContext) -> CheckResult:
+    """Check how much the ROS log directory has accumulated.
+
+    Every ros2 command and every ROS process writes a log file there, and
+    nothing removes them; on David it once held about 40,000 files.
+
+    Args:
+        context: Machine facts.
+
+    Returns:
+        ``WARN`` at or above the entry count or size limit, ``SKIP`` without
+        the directory, otherwise ``OK``.
+    """
+    name = 'ros_log_dir'
+    directory = context.ros_log_dir
+    if directory is None or not directory.is_dir():
+        return CheckResult(name, Status.SKIP, f'ROS 日志目录不存在：{directory}')
+    entries = 0
+    total = 0
+    with os.scandir(directory) as scan:
+        for entry in scan:
+            entries += 1
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    total += _tree_size(entry.path)
+                else:
+                    total += entry.stat(follow_symlinks=False).st_size
+            except OSError:
+                continue
+    message = f'{directory}：{entries} 个条目，{total / (1 << 20):.1f} MiB'
+    if entries >= context.ros_log_warn_entries or total >= context.ros_log_warn_bytes:
+        return CheckResult(
+            name, Status.WARN, message,
+            '每条 ros2 命令、每个 ROS 进程都会写日志且不会自动清理；确认无用后可删除旧日志，'
+            '或给导航运行设置 ROS_LOG_DIR（运行记录会按保留策略清理）')
+    return CheckResult(name, Status.OK, message)
+
+
 ALL_CHECKS: Tuple[Callable[[DoctorContext], CheckResult], ...] = (
     check_ros_environment,
     check_dds_shared_memory,
@@ -332,17 +394,18 @@ ALL_CHECKS: Tuple[Callable[[DoctorContext], CheckResult], ...] = (
     check_robot_state_publishers,
     check_stale_installed_programs,
     check_serial_device,
+    check_ros_log_dir,
 )
 
 
 def run_checks(
-    context: DoctorContext,
-    checks: Sequence[Callable[[DoctorContext], CheckResult]] = ALL_CHECKS,
+    context: Any,
+    checks: Sequence[Callable[[Any], CheckResult]] = ALL_CHECKS,
 ) -> List[CheckResult]:
     """Run checks, turning an unexpected error in a check into a ``FAIL`` result.
 
     Args:
-        context: Machine facts.
+        context: Facts passed to every check, such as a :class:`DoctorContext`.
         checks: Checks to run, in order.
 
     Returns:
@@ -444,3 +507,14 @@ def _mapped_shm_names(proc_dir: Path) -> Set[str]:
 
 def _segment_base(name: str) -> str:
     return name[:-len('_el')] if name.endswith('_el') else name
+
+
+def _tree_size(path: str) -> int:
+    total = 0
+    for root, _, files in os.walk(path):
+        for file_name in files:
+            try:
+                total += os.lstat(os.path.join(root, file_name)).st_size
+            except OSError:
+                continue
+    return total
