@@ -35,7 +35,14 @@ _IGNORED_PROCESS_NAMES = frozenset({'pgrep', 'grep', 'pkill', 'ps'})
 
 
 class Status(str, enum.Enum):
-    """Outcome of a check."""
+    """Outcome of a check.
+
+    Attributes:
+        FAIL: 检查失败。
+        OK: 检查通过。
+        SKIP: 当前条件下未执行检查。
+        WARN: 检查发现需注意的问题。
+    """
 
     OK = 'OK'
     SKIP = 'SKIP'

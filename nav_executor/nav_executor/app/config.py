@@ -19,6 +19,41 @@ class ExecutorConfig:
 
     Robot-specific defaults come from data, never literals in reusable code.
     Paths are normalized to expanded strings for compatibility with the old CLI.
+
+    Attributes:
+        action_name: 普通导航后端的动作名称。
+        cancel_timeout_sec: 取消清理等待期限（秒）；超时不证明资源已释放。
+        dock_action_name: 向 ROS 入站暴露的 Dock 动作名称。
+        dock_config_file: 可选的完整 Dock 参数文件路径。
+        dock_poi_ids: 显式路由到 Dock 技能的 POI 标识集合。
+        global_costmap_topic: 用于目标可行性查询的全局代价地图话题。
+        grid_map_topic: 用于目标解析的栅格地图话题。
+        heartbeat_interval: 应用层 JSON 心跳间隔（秒）。
+        loop_closure_poll_sec: 闭环重投影检查间隔（秒）。
+        loop_closure_translation_m: 触发点位重投影的平移变化阈值（米）。
+        loop_closure_yaw_rad: 触发点位重投影的偏航变化阈值（弧度）。
+        map_frame: 全局地图坐标系名称。
+        nav_goal_clearance_radius: 目标周边净空检查半径（米）。
+        nav_goal_fallback_snap_radius: 后备目标搜索半径（米）。
+        nav_goal_max_snap_radius: 扩圈搜索半径上限（米）。
+        nav_goal_snap_radius: 初始目标搜索半径（米）。
+        nav_goal_snap_step: 扩圈搜索半径增量（米）。
+        nav_retry_count: FAILED 后额外重试次数，不包含首次尝试。
+        nav_retry_delay_sec: 相邻失败重试之间的等待时间（秒）。
+        odom_frame: 定位里程计坐标系名称。
+        odom_topic: 导航使用的里程计话题；不在此处重接定位端。
+        poi_store_file: POI 缓存文件路径；不是 named_poses 的替代真源。
+        pose_file: 可选的 named_poses JSON 真源路径；None 不执行该文件导入。
+        pose_stale_after_sec: 在线位姿允许的最大年龄（秒）。
+        progress_min_interval_sec: 普通导航进度报告的最小间隔（秒）。
+        reconnect_delay: 连接失败后重试等待时间（秒）。
+        robot_base_frame: POI 位姿捕获的机器人坐标系；与 Dock 导航基准分别配置。
+        server_timeout: 等待导航服务就绪的期限（秒）。
+        server_uri: Agent WebSocket 连接 URI。
+        slam_session_id: 标记和筛选点位的定位会话标识。
+        source_poi_file: 可选的只读初始 POI YAML 文件路径。
+        status_print_interval_sec: 冻结状态日志的输出间隔（秒）。
+        websocket_enabled: 是否创建 WebSocket 连接；不决定 Dock 接口是否启用。
     """
 
     poi_store_file: str
@@ -96,7 +131,15 @@ class ExecutorConfig:
 
 @dataclass(frozen=True)
 class ResolvedConfig:
-    """Effective configuration, per-field provenance and untouched ROS arguments."""
+    """Effective configuration, per-field provenance and untouched ROS arguments.
+
+    Attributes:
+        config: 规范化后的执行器配置。
+        dock: 已校验的 Dock 入站和运行配置，或 None。
+        dock_parameters: 只读的有效 Dock 参数映射，或 None。
+        ros_args: 保留并转交 ROS 的命令行参数。
+        sources: 每个配置字段的来源说明。
+    """
 
     config: ExecutorConfig
     sources: Mapping[str, str]

@@ -23,7 +23,16 @@ from nav_sim.selftest_trace import EvidenceTrace
 
 
 class Observer:
-    """Single-threaded private ROS context, observations and nonblocking readiness."""
+    """Single-threaded private ROS context, observations and nonblocking readiness.
+
+    Attributes:
+        buffer: 本对象使用的 TF 缓冲区。
+        context: 本对象持有的私有 ROS 上下文。
+        error: ROS 观察失败原因；非 None 使本次验证失败。
+        executor: 只驱动本对象节点的执行器；未创建时为 None。
+        listener: 本对象持有的 TF 监听器；未创建时为 None。
+        node: 本对象持有的只读观察节点；未创建时为 None。
+    """
 
     def __init__(self, scene: Scene, trace: EvidenceTrace) -> None:
         """Create subscriptions before launch so early task events are observable.

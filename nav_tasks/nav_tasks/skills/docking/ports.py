@@ -14,6 +14,10 @@ class DockActionResult:
     must retain ownership until cleanup is complete, even when a deadline expires.
     External CANCELED, unlike an explicit task cancel, retains the old failed
     stage semantics and may still lead to measured stage-two acceptance.
+
+    Attributes:
+        canceled: 后端动作是否报告取消。
+        succeeded: 后端动作是否报告成功。
     """
 
     succeeded: bool

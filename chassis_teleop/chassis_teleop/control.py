@@ -114,7 +114,13 @@ def motion_for_key(key: str, layout: str = 'wasd') -> Optional[Tuple[float, floa
 
 
 class KeyboardState:
-    """A bounded latest-command state; the runtime owns clocks and publications."""
+    """A bounded latest-command state; the runtime owns clocks and publications.
+
+    Attributes:
+        active: 当前前向/偏航速度意图（米/秒、弧度/秒）。
+        config: 已校验的键盘策略和速度限制。
+        last_motion_time: 最后有效运动按键的单调时间（秒）；零值表示未激活。
+    """
 
     def __init__(self, config: TeleopConfig) -> None:
         """Start with no active command.

@@ -95,7 +95,14 @@ def shape_command(
 
 
 class AdapterState:
-    """Latest command and one-shot stale transition, with no clock or I/O ownership."""
+    """Latest command and one-shot stale transition, with no clock or I/O ownership.
+
+    Attributes:
+        config: 已校验的速度整形和超时参数。
+        input_count: 已接收输入命令的累计次数。
+        last_input: 最后一次输入的 ROS 时间（整数纳秒）；初始值刻意陈旧。
+        latest: 最近整形后的前向速度（米/秒）和偏航速度（弧度/秒）。
+    """
 
     def __init__(self, config: AdapterConfig, now: int) -> None:
         """Initialize the same stale startup state as the original adapter.

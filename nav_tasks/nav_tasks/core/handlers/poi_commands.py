@@ -9,7 +9,12 @@ from nav_tasks.domain.types import StoredPoi
 
 @dataclass(frozen=True)
 class MarkPoiResult:
-    """POI mark completion; ingress supplies acknowledgement and wire encoding."""
+    """POI mark completion; ingress supplies acknowledgement and wire encoding.
+
+    Attributes:
+        error: 失败说明；成功时为 None。
+        poi: 成功标记后的 POI，失败时为 None。
+    """
 
     poi: StoredPoi | None = None
     error: str | None = None

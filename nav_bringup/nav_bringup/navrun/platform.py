@@ -50,7 +50,11 @@ class PlatformResult:
 
 
 class PlatformError(RuntimeError):
-    """Platform setup failed; no later platform step has been attempted."""
+    """Platform setup failed; no later platform step has been attempted.
+
+    Attributes:
+        results: 按尝试顺序记录的结果，包含最后一次失败；未执行后续操作。
+    """
 
     def __init__(self, results: Tuple[PlatformResult, ...]) -> None:
         """Retain successful steps and the first failure for the run recorder.

@@ -18,6 +18,10 @@ class YamlPoiRepository:
     Writes replace the destination atomically after closing a sibling temporary
     file. As in the old store, mutations precede persistence: write failure can
     leave memory ahead of disk. This is not a multi-process transaction manager.
+
+    Attributes:
+        path: POI 缓存 YAML 文件路径。
+        source_path: 可选的只读初始 POI YAML 文件路径。
     """
 
     def __init__(

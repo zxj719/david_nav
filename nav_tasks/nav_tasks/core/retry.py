@@ -33,7 +33,14 @@ class MonotonicClock:
 
 @dataclass(frozen=True)
 class RetryFailure:
-    """Read-only failure observation emitted before retry delay or exhaustion."""
+    """Read-only failure observation emitted before retry delay or exhaustion.
+
+    Attributes:
+        attempt: 本次已失败的尝试序号，从 1 开始。
+        delay_sec: 配置的重试间隔（秒），不表示一定还会重试。
+        detail: 本次失败的后端说明。
+        total_attempts: 包含首次尝试的总预算。
+    """
 
     attempt: int
     total_attempts: int
@@ -43,7 +50,12 @@ class RetryFailure:
 
 @dataclass(frozen=True)
 class RetryPolicy:
-    """Retry FAILED outcomes only; never catch cancellation or backend crashes."""
+    """Retry FAILED outcomes only; never catch cancellation or backend crashes.
+
+    Attributes:
+        retry_count: FAILED 后允许的额外尝试次数。
+        retry_delay_sec: 两次尝试之间的等待时间（秒）。
+    """
 
     retry_count: int = 1
     retry_delay_sec: float = 1.0

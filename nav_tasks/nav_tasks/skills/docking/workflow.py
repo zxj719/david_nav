@@ -23,7 +23,16 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DockConfig:
-    """Explicit robot/mode policy; do not substitute helper defaults for David tuning."""
+    """Explicit robot/mode policy; do not substitute helper defaults for David tuning.
+
+    Attributes:
+        approach_dist: 目标朝向后方的预备距离（米）。
+        nav_timeout_sec: 单段导航期限（秒）。
+        settle_spec: 连续停稳窗口和角速度限制。
+        settle_timeout_sec: 每次停稳等待期限（秒）。
+        spin_timeout_sec: 单次 Spin 时间预算（秒）。
+        tolerance: 最终位置/偏航容差及补偿次数。
+    """
 
     approach_dist: float
     tolerance: DockTolerance

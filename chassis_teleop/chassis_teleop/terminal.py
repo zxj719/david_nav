@@ -14,7 +14,11 @@ class TerminalUnavailable(RuntimeError):
 
 
 class TerminalKeyboard:
-    """Own one close-on-exec terminal descriptor and a bounded escape-sequence buffer."""
+    """Own one close-on-exec terminal descriptor and a bounded escape-sequence buffer.
+
+    Attributes:
+        device: 待打开的终端设备路径；本对象只持有自己的描述符。
+    """
 
     def __init__(self, device: str = '/dev/tty', descriptor: Optional[int] = None) -> None:
         """Store the requested device without opening anything.

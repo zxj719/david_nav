@@ -81,7 +81,11 @@ class HealthReport:
 
 
 class HealthMonitor:
-    """Compare paired pose increments in a bounded, caller-loop-confined history."""
+    """Compare paired pose increments in a bounded, caller-loop-confined history.
+
+    Attributes:
+        policy: 采样新鲜度、历史窗口和位移残差告警策略。
+    """
 
     def __init__(self, policy: HealthPolicy) -> None:
         """Bind policy without ROS, clocks, threads, subscribers or commands.

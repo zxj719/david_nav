@@ -15,6 +15,14 @@ class GridMapView:
     share the same world<->cell math. is_goal_free is kept for the resolver's
     existing (cost==0) admissibility check; is_blocked adds a thresholded check
     for line-of-sight.
+
+    Attributes:
+        cells: 按行排列的格值列表；冻结对象不会深冻结该列表。
+        height: 栅格行数。
+        origin_x: 旧轴对齐栅格模型的原点 x（米）。
+        origin_y: 旧轴对齐栅格模型的原点 y（米）。
+        resolution: 每格边长（米）。
+        width: 栅格列数。
     """
 
     cells: list

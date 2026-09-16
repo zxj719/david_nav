@@ -125,7 +125,11 @@ class _Signals:
 
 
 class StartupInterrupted(Exception):
-    """An explicit shutdown request observed by a startup operation."""
+    """An explicit shutdown request observed by a startup operation.
+
+    Attributes:
+        signum: 导致启动流程协作退出的信号编号。
+    """
 
     def __init__(self, signum: int) -> None:
         """Preserve the first signal even across a host-operation boundary.

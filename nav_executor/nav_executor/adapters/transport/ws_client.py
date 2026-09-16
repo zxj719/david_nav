@@ -34,7 +34,13 @@ class WebSocketLike(Protocol):
 
 @dataclass(frozen=True)
 class WsOptions:
-    """Transport configuration; the robot-aware outer root supplies the server URI."""
+    """Transport configuration; the robot-aware outer root supplies the server URI.
+
+    Attributes:
+        heartbeat_interval: 应用层 JSON 心跳周期（秒）。
+        reconnect_delay: 连接失败后的重连间隔（秒）。
+        server_uri: 连接 Agent 的 WebSocket URI。
+    """
 
     server_uri: str
     heartbeat_interval: float = 30.0

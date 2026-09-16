@@ -8,6 +8,7 @@ packages can enforce those sections from a unit test.
 Rules for public definitions (names not starting with an underscore):
 
 * every module, class and function has a docstring;
+* directly declared public data fields have named ``Attributes:`` entries;
 * a function with parameters other than ``self`` / ``cls`` has an ``Args:``
   section that mentions each parameter;
 * a function that returns a value, or declares a non-``None`` return
@@ -16,7 +17,10 @@ Rules for public definitions (names not starting with an underscore):
 * a function containing an explicit ``raise SomeError`` has a ``Raises:``
   section.
 
-Nested functions and members of private classes are not checked.
+Nested functions and members of private classes are not checked. Properties use
+their getter docstrings. Attribute discovery covers class assignments, literal
+slots, and instance writes/literal setattr in methods, not inherited fields,
+computed names, receiver aliases, descriptors or dynamically generated APIs.
 
 Example:
     violations = check_paths([Path('my_pkg')])
@@ -143,10 +147,56 @@ def _check_definitions(body: Sequence[ast.stmt], path: str, prefix: str) -> List
             if ast.get_docstring(node) is None:
                 violations.append(
                     Violation(path, node.lineno, qualified_name, 'missing class docstring'))
+            else:
+                section = _split_sections(ast.get_docstring(node)).get('Attributes', '')
+                for name in sorted(_class_attributes(node)):
+                    pattern = r'^[ \t]*' + re.escape(name) + r'\s*(?:\([^)]*\))?:'
+                    if re.search(pattern, section, re.MULTILINE) is None:
+                        violations.append(Violation(
+                            path, node.lineno, qualified_name,
+                            f'attribute {name!r} not documented in Attributes:'))
             violations.extend(_check_definitions(node.body, path, qualified_name + '.'))
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_public(node.name):
             violations.extend(_check_function(node, path, prefix + node.name))
     return violations
+
+
+def _class_attributes(node: ast.ClassDef) -> set[str]:
+    """Collect fields declared by this class without evaluating or importing it."""
+    names = set()
+    for child in _walk_own_body(node):
+        if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+            names.add(child.id)
+        elif isinstance(child, (ast.Assign, ast.AnnAssign)):
+            targets = child.targets if isinstance(child, ast.Assign) else [child.target]
+            if any(isinstance(target, ast.Name) and target.id == '__slots__'
+                   for target in targets):
+                value = child.value
+                if isinstance(value, ast.Dict):
+                    entries = value.keys
+                else:
+                    entries = value.elts if isinstance(value, (ast.Tuple, ast.List)) else [value]
+                names.update(item.value for item in entries
+                             if isinstance(item, ast.Constant) and isinstance(item.value, str))
+        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            decorators = {item.id for item in child.decorator_list if isinstance(item, ast.Name)}
+            if 'staticmethod' in decorators:
+                continue
+            args = child.args.posonlyargs + child.args.args
+            if not args:
+                continue
+            receiver = args[0].arg
+            for item in _walk_own_body(child):
+                if (isinstance(item, ast.Attribute) and isinstance(item.ctx, ast.Store)
+                        and isinstance(item.value, ast.Name) and item.value.id == receiver):
+                    names.add(item.attr)
+                elif (isinstance(item, ast.Call) and isinstance(item.func, ast.Name)
+                      and item.func.id == 'setattr' and len(item.args) == 3
+                      and isinstance(item.args[0], ast.Name) and item.args[0].id == receiver
+                      and isinstance(item.args[1], ast.Constant)
+                      and isinstance(item.args[1].value, str)):
+                    names.add(item.args[1].value)
+    return {name for name in names if _is_public(name)}
 
 
 def _check_function(node: FunctionNode, path: str, qualified_name: str) -> List[Violation]:
@@ -210,7 +260,7 @@ def _is_property(node: FunctionNode) -> bool:
     return False
 
 
-def _walk_own_body(node: FunctionNode) -> Iterator[ast.AST]:
+def _walk_own_body(node: Union[FunctionNode, ast.ClassDef]) -> Iterator[ast.AST]:
     """Yield nodes of a function body without descending into nested scopes."""
     stack: List[ast.AST] = list(node.body)
     while stack:

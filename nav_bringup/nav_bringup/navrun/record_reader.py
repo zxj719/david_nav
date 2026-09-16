@@ -23,7 +23,11 @@ _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
 
 
 class RecordReader:
-    """Read a single pinned run directory with shared byte and traversal budgets."""
+    """Read a single pinned run directory with shared byte and traversal budgets.
+
+    Attributes:
+        run_id: 正在读取的固定运行目录标识，不表示该运行仍存活。
+    """
 
     def __init__(self, descriptor: int, run_id: str) -> None:
         """Borrow a directory descriptor for the lifetime of an open_record context."""

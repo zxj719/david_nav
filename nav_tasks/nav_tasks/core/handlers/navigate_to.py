@@ -14,7 +14,11 @@ from nav_tasks.domain.types import StoredPoi
 
 @dataclass(frozen=True)
 class NavigateToPoiRequest:
-    """Detached anchor captured by the decoder before motion admission."""
+    """Detached anchor captured by the decoder before motion admission.
+
+    Attributes:
+        poi: 已经解析并校验的导航 POI。
+    """
 
     poi: StoredPoi
 

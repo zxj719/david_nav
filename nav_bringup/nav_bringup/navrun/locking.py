@@ -23,7 +23,11 @@ class LockBusy(RuntimeError):
 
 
 class RunLock:
-    """Exclusive navigation lease released on context exit or process death."""
+    """Exclusive navigation lease released on context exit or process death.
+
+    Attributes:
+        path: 导航租约对应的锁文件路径。
+    """
 
     def __init__(self, path: Path = DEFAULT_LOCK_PATH) -> None:
         """Describe a lock without creating or opening a file.

@@ -26,7 +26,15 @@ from nav_bringup.navrun.keyboard_channel import KeyboardChannel, KeyboardOwnerLo
 
 
 class KeyboardNode(Node):
-    """Declare parameters first; create no command publisher before explicit arming."""
+    """Declare parameters first; create no command publisher before explicit arming.
+
+    Attributes:
+        cmd_publisher: 仅在显式 arm 后创建的 Twist 发布者；此前为 None。
+        config: 启动参数解析出的遥控配置。
+        discovery_sec: 发布者发现等待窗口（秒）。
+        guard_topics: 启动前检查发布者冲突的已解析命令话题。
+        state: 纯按键意图及失活超时状态。
+    """
 
     def __init__(self, **kwargs: Any) -> None:
         """Load startup parameters without publishing or reading a terminal.

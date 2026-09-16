@@ -76,6 +76,11 @@ class TaskRuntime:
 
     No motion or observer starts on construction. Public consumers should use
     the TaskRuntimeApi contract returned by nav_tasks.api.create_runtime.
+
+    Attributes:
+        pois: 点位管理接口，提供捕获、标记和目录更新。
+        poses: 共享位姿来源接口。
+        tasks: 共享任务管理接口，拥有运动任务的接纳和清理。
     """
 
     def __init__(

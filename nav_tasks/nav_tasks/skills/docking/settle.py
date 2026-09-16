@@ -43,6 +43,11 @@ class SettleSpec:
     window_sec     : 必须**连续**满足上限的时长。只看一个瞬时差值不够 —— 车在
                      换向的过零点上瞬时角速度也接近 0。
     sample_period_sec : 轮询周期。
+
+    Attributes:
+        max_rate_rad_s: 相邻样本允许的最大表观偏航角速度（弧度/秒）。
+        window_sec: 连续满足角速度限制所需覆盖的窗口（秒）。
+        sample_period_sec: 请求位姿样本的轮询周期（秒）。
     """
 
     max_rate_rad_s: float = 0.05

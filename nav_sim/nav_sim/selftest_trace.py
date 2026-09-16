@@ -44,7 +44,12 @@ def _decode(raw):
 
 
 class EvidenceTrace:
-    """Exclusive JSONL output and bounded in-memory observations; overflow is fatal."""
+    """Exclusive JSONL output and bounded in-memory observations; overflow is fatal.
+
+    Attributes:
+        nav: 按接收顺序保留的已校验 NavEvent 列表。
+        ws: 按接收顺序保留的已校验 WS 消息列表，与 nav 不作总序合并。
+    """
 
     def __init__(self, root: Path, max_bytes: int = 8 * 1024 * 1024,
                  max_records: int = 50000) -> None:

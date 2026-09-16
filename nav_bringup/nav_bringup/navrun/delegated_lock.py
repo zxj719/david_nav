@@ -17,7 +17,12 @@ from nav_bringup.navrun.locking import DEFAULT_LOCK_PATH
 
 
 class DelegatedLock:
-    """A close-only duplicate of an already exclusively held navigation lease."""
+    """A close-only duplicate of an already exclusively held navigation lease.
+
+    Attributes:
+        path: 预期导航锁文件的绝对路径。
+        source: 显式继承的原始描述符；本对象仅管理其副本。
+    """
 
     def __init__(self, descriptor: int, path: Path = DEFAULT_LOCK_PATH) -> None:
         """Store the capability selector without opening or changing any resource.

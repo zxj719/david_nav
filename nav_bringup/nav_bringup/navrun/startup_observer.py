@@ -12,7 +12,13 @@ from nav_bringup.recorder.run_dir import RunDirectory
 
 
 class StartupObserver:
-    """Own a short-lived recording thread, never a navigation child or ROS context."""
+    """Own a short-lived recording thread, never a navigation child or ROS context.
+
+    Attributes:
+        errors: 记录过程中收集的错误说明，不是导航任务终态。
+        run: 由启动监督器创建并持有的运行记录目录。
+        terminal: 可选的二进制日志转发输出流。
+    """
 
     def __init__(self, run: RunDirectory, terminal: Optional[IO[bytes]],
                  poll: Optional[Callable[[], None]] = None) -> None:

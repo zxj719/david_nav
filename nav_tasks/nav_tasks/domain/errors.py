@@ -20,7 +20,11 @@ class ConfigError(NavTaskError):
 
 
 class RuntimeAssemblyError(NavTaskError):
-    """Construction failed with resources still owned by a retryable cleanup handle."""
+    """Construction failed with resources still owned by a retryable cleanup handle.
+
+    Attributes:
+        cleanup: 在原事件循环重试清理的异步回调；成功前资源仍归原宿主。
+    """
 
     def __init__(
         self, cause: BaseException, cleanup: Callable[[], Awaitable[None]],

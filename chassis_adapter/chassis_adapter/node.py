@@ -17,7 +17,14 @@ from chassis_adapter.core import AdapterConfig, AdapterState
 
 
 class AdapterNode(Node):
-    """Adapt configured command topics without owning hardware or localization."""
+    """Adapt configured command topics without owning hardware or localization.
+
+    Attributes:
+        cmd_publisher: 配置输出话题的 Twist 发布者。
+        config: 启动参数解析出的适配器配置。
+        diagnostic_publisher: 状态诊断发布者，不代表实体已执行命令。
+        state: 纯速度整形与超时状态。
+    """
 
     def __init__(self, **kwargs: Any) -> None:
         """Declare legacy-compatible parameters and construct the configured endpoints.

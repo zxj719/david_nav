@@ -38,7 +38,13 @@ from nav_tasks.skills.docking.settle import SettleSpec, wait_until_settled
 
 @dataclass(frozen=True)
 class DockTolerance:
-    """Preserve the parameter names and meanings consumed by dock_navigator."""
+    """Preserve the parameter names and meanings consumed by dock_navigator.
+
+    Attributes:
+        max_yaw_retries: 最多允许的偏航 Spin 补偿次数。
+        xy_ok: 平面位置误差容差（米）。
+        yaw_ok: 偏航误差容差（弧度）。
+    """
 
     xy_ok: float = 0.10
     yaw_ok: float = 0.087           # rad, 约 5°
@@ -47,7 +53,17 @@ class DockTolerance:
 
 @dataclass
 class DockOutcome:
-    """Finish verdict and measured settled pose, errors and correction count."""
+    """Finish verdict and measured settled pose, errors and correction count.
+
+    Attributes:
+        exy: 平面位置误差（米），缺失测量时沿用失败占位值。
+        eyaw: 归一化有符号偏航误差（弧度）。
+        n_spin: 已经尝试的 Spin 补偿次数。
+        ok: 本次最终判定是否成功。
+        pose: 判定时取得的 x/y/yaw 位姿；无法取得时为 None。
+        reason: 冻结判词，例如 settled_ok、not_settled 或 no_pose。
+        settled: 本次判定前的连续停稳检查是否通过。
+    """
 
     ok: bool
     reason: str          # settled_ok / xy_out_of_tol / yaw_not_converged /

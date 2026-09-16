@@ -48,7 +48,15 @@ class ActionClientLike(Protocol):
 
 
 class ActionState(str, Enum):
-    """Single-attempt result before action-specific domain translation."""
+    """Single-attempt result before action-specific domain translation.
+
+    Attributes:
+        REJECTED: 服务明确拒绝目标。
+        RESULT_TIMEOUT: 等待执行结果超过期限。
+        SEND_TIMEOUT: 发送/接受目标阶段超过期限。
+        TERMINAL: 收到 ROS 动作终态响应，具体状态见 response。
+        UNAVAILABLE: 期限内未发现动作服务。
+    """
 
     UNAVAILABLE = 'unavailable'
     REJECTED = 'rejected'
@@ -59,7 +67,12 @@ class ActionState(str, Enum):
 
 @dataclass(frozen=True)
 class ActionOutcome:
-    """Single-attempt result and optional ROS terminal response."""
+    """Single-attempt result and optional ROS terminal response.
+
+    Attributes:
+        response: 可选的 ROS 终态响应；无响应时为 None。
+        state: 动作会话单次尝试的状态分类。
+    """
 
     state: ActionState
     response: object | None = None

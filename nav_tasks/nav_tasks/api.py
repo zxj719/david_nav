@@ -165,7 +165,13 @@ class PoiApi(Protocol):
 
 
 class TaskRuntimeApi(Protocol):
-    """In-process assembled task services; ROS node/spin and ingress remain external."""
+    """In-process assembled task services; ROS node/spin and ingress remain external.
+
+    Attributes:
+        pois: 点位管理接口，提供捕获、标记和目录更新。
+        poses: 共享位姿来源接口。
+        tasks: 共享任务管理接口，拥有运动任务的接纳和清理。
+    """
 
     tasks: TaskApi
     pois: PoiApi

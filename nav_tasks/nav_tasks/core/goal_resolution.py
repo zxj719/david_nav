@@ -24,6 +24,13 @@ class SnapSearch:
     Inputs retain the legacy axis-aligned GridMapView convention. Missing either
     grid allows the anchor, and cost values other than zero are not free. This
     extraction deliberately does not change those characterized policies.
+
+    Attributes:
+        fallback_snap_radius: 后备搜索半径（米）。
+        goal_clearance_radius: 候选点周边净空半径（米）。
+        max_snap_radius: 扩圈半径上限（米）。
+        snap_radius: 初始目标搜索半径（米）。
+        snap_step: 扩圈半径增量（米）。
     """
 
     snap_radius: float = 0.5

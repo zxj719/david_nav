@@ -11,7 +11,12 @@ from nav_bringup.navrun.locking import RunLock
 
 
 class KeyboardSession:
-    """Retain terminal recovery state until every owned child has drained."""
+    """Retain terminal recovery state until every owned child has drained.
+
+    Attributes:
+        device: 配置选择的终端设备路径。
+        lease: 父进程已持有的导航锁，本对象不负责释放。
+    """
 
     def __init__(self, lease: RunLock, device: str) -> None:
         """Describe the handoff without opening any terminal or socket.

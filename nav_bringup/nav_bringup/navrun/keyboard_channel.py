@@ -17,7 +17,11 @@ class KeyboardOwnerLost(RuntimeError):
 
 
 class KeyboardChannel:
-    """Close-only socket duplicate for a keyboard's startup and liveness checks."""
+    """Close-only socket duplicate for a keyboard's startup and liveness checks.
+
+    Attributes:
+        source: 显式继承的 Unix 流套接字描述符，不是速度通道。
+    """
 
     def __init__(self, descriptor: int) -> None:
         """Store a socket selector without opening or sending anything.

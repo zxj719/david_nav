@@ -27,6 +27,16 @@ class ContractProbe:
     Attributes:
         profile: A private snapshot of the effective configuration.
         data_topics: Required message topics, excluding the chassis command input.
+        buffer: 本对象使用的 TF 缓冲区。
+        chassis_required: 是否检查底盘数据和命令订阅者。
+        cloud: 可选的点云输入话题；关闭点云检查时为 None。
+        command: 只检查订阅者的底盘命令话题；不创建该话题的发布者。
+        context: 本对象持有的私有 ROS 上下文。
+        executor: 只驱动本对象节点的执行器；未创建时为 None。
+        frames: 本次检查使用的 map/odom/body/nav_base 坐标系绑定。
+        listener: 本对象持有的 TF 监听器；未创建时为 None。
+        node: 本对象持有的只读观察节点；未创建时为 None。
+        scan_target: 点云投影目标坐标系；未启用点云检查时为 None。
     """
 
     def __init__(self, profile: Mapping[str, Any], chassis_required: bool = True) -> None:

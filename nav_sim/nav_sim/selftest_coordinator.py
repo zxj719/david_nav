@@ -14,7 +14,14 @@ from nav_sim.selftest_trace import audit_processes, EvidenceTrace, reached
 
 
 class Peer:
-    """One non-replayable WebSocket connection with bounded evidence intake."""
+    """One non-replayable WebSocket connection with bounded evidence intake.
+
+    Attributes:
+        error: 已观察到的连接/任务失败原因，尚无失败时为 None。
+        socket: 当前唯一连接，断开或尚未接入时为 None。
+        stopping: 是否正在主动关闭，用于区分正常收尾和意外断连。
+        trace: 必须在启动子进程前绑定的有界证据记录器。
+    """
 
     def __init__(self) -> None:
         """Initialize a disconnected peer; bind trace before starting any child."""

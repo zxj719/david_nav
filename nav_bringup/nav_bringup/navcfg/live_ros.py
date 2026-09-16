@@ -20,7 +20,16 @@ from nav_bringup.navcfg.live_check import LiveSnapshot, LiveSpec
 
 
 class RosProbe:
-    """Own a read-only ROS observer, with no action client or command publisher."""
+    """Own a read-only ROS observer, with no action client or command publisher.
+
+    Attributes:
+        buffer: 本对象使用的 TF 缓冲区。
+        context: 本对象持有的私有 ROS 上下文。
+        executor: 只驱动本对象节点的执行器；未创建时为 None。
+        listener: 本对象持有的 TF 监听器；未创建时为 None。
+        node: 本对象持有的只读观察节点；未创建时为 None。
+        spec: 预期坐标系、话题和参数的只读检查配置。
+    """
 
     def __init__(self, spec: LiveSpec) -> None:
         """Describe the observation without initializing ROS.

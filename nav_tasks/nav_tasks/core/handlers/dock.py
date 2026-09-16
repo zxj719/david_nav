@@ -15,7 +15,12 @@ from nav_tasks.domain.types import PoseRecord, StoredPoi
 
 @dataclass(frozen=True)
 class DockRequest:
-    """Detached target; an optional POI retains legacy WS diagnostics and status labels."""
+    """Detached target; an optional POI retains legacy WS diagnostics and status labels.
+
+    Attributes:
+        poi: 按标识解析的 Dock POI，直接位姿入站时可为 None。
+        pose: 已校验的 Dock 目标位姿，直接目标与 POI 路由均提供。
+    """
 
     pose: PoseRecord
     poi: StoredPoi | None = None

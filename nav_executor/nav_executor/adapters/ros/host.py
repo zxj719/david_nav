@@ -9,7 +9,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class RosHost:
-    """Retain every completed construction stage until explicit ordered cleanup."""
+    """Retain every completed construction stage until explicit ordered cleanup.
+
+    Attributes:
+        node: 本宿主持有的 ROS 节点，未创建或完成销毁后为 None。
+        tf_buffer: 本宿主创建的 TF 缓冲区；未创建时为 None。
+    """
 
     def __init__(self) -> None:
         """Create an empty owner; imports and ROS initialization wait until open."""
