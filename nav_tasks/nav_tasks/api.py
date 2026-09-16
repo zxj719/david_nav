@@ -11,7 +11,9 @@ from typing import Iterable, Protocol
 from nav_tasks.core.handlers.poi_commands import MarkPoiResult
 from nav_tasks.core.registry import CommandRegistry, TaskContext
 from nav_tasks.core.state import TaskManager
-from nav_tasks.domain.errors import BusyError, ClosedError, ConfigError, NavTaskError
+from nav_tasks.domain.errors import (
+    BusyError, ClosedError, ConfigError, NavTaskError, PoseUnavailableError,
+)
 from nav_tasks.domain.tasks import (
     EventKind, NavOutcome, NavStatus, PreemptPolicy, TaskEvent, TaskRequest,
     TaskSnapshot, TaskState,
@@ -100,6 +102,7 @@ class PoiApi(Protocol):
 __all__ = [
     'BusyError', 'CapturedPose', 'ClosedError', 'CommandRegistry', 'ConfigError',
     'EventKind', 'MarkPoiResult', 'NavOutcome', 'NavStatus', 'NavTaskError', 'PoiApi',
-    'PoseRecord', 'PreemptPolicy', 'StoredPoi', 'TaskApi', 'TaskContext', 'TaskEvent',
+    'PoseRecord', 'PoseUnavailableError', 'PreemptPolicy', 'StoredPoi', 'TaskApi',
+    'TaskContext', 'TaskEvent',
     'TaskManager', 'TaskRequest', 'TaskSnapshot', 'TaskState', 'Transform2D',
 ]

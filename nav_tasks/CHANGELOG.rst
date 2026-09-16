@@ -16,3 +16,5 @@ nav_tasks
   changing retry policy, motion ownership or legacy runtime entry points.
 * Add ROS-free YAML POI repository and read-only named-poses importer with explicit
   frames, unchanged file format, byte comparisons and persistence fault injection.
+* Add configured TF/odometry and grid subscriptions plus loop-closure observation;
+  preserve legacy quaternion bits, sample semantics and owned-resource cleanup.

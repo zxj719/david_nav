@@ -52,7 +52,8 @@ are fakes and all files are under temporary test directories. No real POI files
 or robot goals are touched.
 
 The legacy store and importer remain active at old entry points pending runtime
-assembly. TF pose source, costmap subscriptions, loop-closure polling, CLI and
-Dock integration still remain. Map YAML loading/trinary checks and recording
+assembly. TF pose source, costmap subscriptions and loop-closure polling now
+have separate tested adapters; their actual runtime assembly, CLI and Dock
+integration still remain. Map YAML loading/trinary checks and recording
 hashes already exist in bringup tools; their final data-domain ownership is not
 claimed complete by adding this POI repository.

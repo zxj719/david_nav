@@ -142,11 +142,11 @@ class _Resolver:
 
 
 class _Harness:
-    def __init__(self, outcomes, resolver=None, on_failure=None, repository=None):
+    def __init__(self, outcomes, resolver=None, on_failure=None, repository=None, poses=None):
         self.clock = _Clock()
         self.client = _Client(outcomes)
         self.repository = repository if repository is not None else _Repository()
-        self.poses = _Poses()
+        self.poses = poses if poses is not None else _Poses()
         node = SimpleNamespace(get_clock=lambda: SimpleNamespace(
             now=lambda: SimpleNamespace(to_msg=lambda: self.clock.value)))
         self.backend = Nav2Client(node, '/navigate_to_pose', 0.1, client=self.client,
@@ -669,5 +669,63 @@ def test_wire_commands_use_persistent_repository_through_public_ports(tmp_path):
         assert _wire(await harness.adapter.next_event()) == _ARRIVED
         assert harness.client.goals[0].pose.pose.position.x == 3
         await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_real_pose_grid_storage_ports_feed_mark_snap_and_navigation(tmp_path):
+    """Only ROS node/message/TF/action I/O is fake throughout this assembled chain."""
+    from nav_tasks.adapters.ros.grid_source import RosGridSource
+    from nav_tasks.adapters.ros.tf_pose_source import TfPoseSource
+    from nav_tasks.core.goal_resolution import GridGoalResolver, SnapSearch
+    from nav_tasks.nav_site_data.yaml_poi_repository import YamlPoiRepository
+
+    async def scenario():
+        callbacks = {}
+
+        def subscribe(message_type, topic, callback, qos):
+            callbacks[topic] = callback
+            return topic
+
+        node = SimpleNamespace(
+            create_subscription=subscribe, destroy_subscription=lambda sub: True)
+        translation = SimpleNamespace(x=3, y=4, z=0)
+        rotation = SimpleNamespace(x=0, y=0, z=0, w=1)
+        header = SimpleNamespace(frame_id='', stamp=SimpleNamespace(sec=1000, nanosec=0))
+        transform = SimpleNamespace(header=header, transform=SimpleNamespace(
+            translation=translation, rotation=rotation))
+        poses = TfPoseSource(
+            node, SimpleNamespace(lookup_transform=lambda *args: transform),
+            robot_base_frame='chassis', odom_topic='/odom_in', map_frame='map',
+            odom_frame='odom', session_id=lambda: 'live_session',
+            odometry_type=object, latest_time=lambda: 0)
+        callbacks['/odom_in'](SimpleNamespace(header=header, pose=SimpleNamespace(
+            pose=SimpleNamespace(position=translation, orientation=rotation))))
+        grids = RosGridSource(
+            node, map_topic='/static', costmap_topic='/cost', occupancy_type=object)
+        info = SimpleNamespace(width=10, height=10, resolution=1.0,
+                               origin=SimpleNamespace(position=SimpleNamespace(x=0, y=0)))
+        callbacks['/static'](SimpleNamespace(info=info, data=[0] * 100))
+        costs = [0] * 100
+        costs[43] = 100
+        callbacks['/cost'](SimpleNamespace(info=info, data=costs))
+        repository = YamlPoiRepository(tmp_path / 'store.yaml', map_frame='map')
+        resolver = GridGoalResolver(grids.snapshot, poses, SnapSearch(goal_clearance_radius=0))
+        harness = _Harness([4], resolver, repository=repository, poses=poses)
+        frames = await harness.adapter.handle_message({
+            'action': 'mark_current_poi', 'request_id': 'mark', 'sub_id': 1,
+            'poi': {'id': 'POI_001', 'name': '现场点'},
+        })
+        assert frames[-1]['event_type'] == 'on_mark_poi_success'
+        repository.load()
+        assert repository.get('POI_001').map_pose.x == 3
+        await harness.adapter.handle_message(dict(_NAVIGATE))
+        assert _wire(await harness.adapter.next_event()) == _ARRIVED
+        goal = harness.client.goals[0].pose.pose.position
+        assert (goal.x, goal.y) != (3, 4)
+        assert len(harness.client.goals) == 1
+        await harness.close()
+        grids.close()
+        poses.close()
 
     asyncio.run(scenario())

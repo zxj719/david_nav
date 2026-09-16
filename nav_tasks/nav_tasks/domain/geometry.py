@@ -66,6 +66,28 @@ def quaternion_from_yaw(yaw: float) -> dict[str, float]:
     return {'x': 0.0, 'y': 0.0, 'z': math.sin(yaw * 0.5), 'w': math.cos(yaw * 0.5)}
 
 
+def legacy_yaw_from_quaternion(x: float, y: float, z: float, w: float) -> float:
+    """Preserve the old pose-source arithmetic for wire/storage compatibility.
+
+    Unlike yaw_from_quaternion, this migration helper does not normalize, reject
+    zero/nonfinite inputs or wrap positive pi. New geometry should normally use
+    the normalized helper; changing a migrated POI value needs a separate policy
+    change because tiny rounding differences also alter unrounded JSON fields.
+
+    Args:
+        x: Legacy quaternion x component.
+        y: Legacy quaternion y component.
+        z: Legacy quaternion z component.
+        w: Legacy quaternion w component.
+
+    Returns:
+        The exact legacy atan2 result.
+    """
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    return math.atan2(siny_cosp, cosy_cosp)
+
+
 def transform_pose(tf: Transform2D, pose: PoseRecord, *, target_frame: str) -> PoseRecord:
     """Apply target-from-source planar transform without guessing frame names.
 

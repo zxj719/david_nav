@@ -38,6 +38,10 @@ The [site data boundary](docs/site-data.md) now supplies an actual ROS-free YAML
 PoiRepository and read-only named-poses importer. It is physically hosted under
 `nav_tasks.nav_site_data` per PLAN, with byte-level old/new persistence tests;
 legacy entry points are not switched yet.
+The [observation adapters](docs/observation-adapters.md) now supply configured
+TF/odometry and static-grid/costmap ports plus supervised loop-closure polling.
+Their actual code composes with storage and the new task chain under fake ROS I/O;
+they do not start localization, spin an executor or switch the runtime entry point.
 
 The default settling threshold remains **0.05 rad/s**, continuously satisfied for
 0.4 s with a 0.05 s polling interval. `DockTolerance` still has the old helper

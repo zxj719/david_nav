@@ -4,7 +4,7 @@ import asyncio
 import time
 from typing import Awaitable, Callable, Protocol
 
-from nav_tasks.api import PoseRecord, TaskApi, TaskSnapshot
+from nav_tasks.api import PoseRecord, PoseUnavailableError, TaskApi, TaskSnapshot
 
 
 class StatusPoseSource(Protocol):
@@ -39,6 +39,8 @@ def format_status_line(snapshot: TaskSnapshot, poses: StatusPoseSource) -> str:
         pose = poses.current_map_pose()
         pose_text = f'x={pose.x:.2f} y={pose.y:.2f} yaw={pose.yaw:.2f}rad'
     except Exception as error:
+        if isinstance(error, PoseUnavailableError) and error.__cause__ is not None:
+            error = error.__cause__
         pose_text = f'pose=n/a ({type(error).__name__})'
     return (
         f'STATUS state={snapshot.state.value} poi={poi} phase={phase} '

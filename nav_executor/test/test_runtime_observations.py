@@ -10,7 +10,7 @@ import pytest
 from nav_executor.adapters.transport.outbox import ReliableOutbox
 from nav_executor.app.logging import log_line, OutboundAudit
 from nav_executor.app.status import format_status_line, print_status_loop
-from nav_tasks.api import PoseRecord, TaskSnapshot, TaskState
+from nav_tasks.api import PoseRecord, PoseUnavailableError, TaskSnapshot, TaskState
 
 
 def _poses():
@@ -124,3 +124,16 @@ def test_status_cadence_retains_transition_and_active_only_heartbeat():
         assert polls == [0.25] * (len(sequence) + 1)
 
     asyncio.run(scenario())
+
+
+def test_status_preserves_wrapped_tf_error_class():
+    """Typed pose-port errors retain the legacy TF class in the frozen status marker."""
+    def unavailable():
+        try:
+            raise LookupError('not ready')
+        except LookupError as error:
+            raise PoseUnavailableError(str(error)) from error
+
+    assert format_status_line(TaskSnapshot(TaskState.IDLE),
+                              SimpleNamespace(current_map_pose=unavailable)).endswith(
+                                  'pose=n/a (LookupError)')

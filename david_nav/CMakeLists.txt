@@ -304,6 +304,11 @@ if(BUILD_TESTING)
     test/test_poi_repository_migration.py
   )
 
+  ament_add_pytest_test(
+    pose_source_migration_test
+    test/test_pose_source_migration.py
+  )
+
 endif()
 
 ament_package()
