@@ -62,6 +62,22 @@ change the old runtime's ROS spin loop or make an R6 CPU optimization claim.
 All constructor intervals are explicit library arguments at this stage, not new
 ROS parameters or consumed profile keys; runtime schema ownership follows wiring.
 
+`ActionSession.execute` also accepts optional `send_timeout_sec` and
+`result_timeout_sec`. Both default to None, so existing ordinary POI/Spin callers
+are unchanged. The result budget starts after admission, independently of server
+readiness and the send budget. Completed futures win even at a zero deadline,
+matching the old blocking Dock wait helper. Pending timed waits use supervised
+bridges; canceling a bridge never cancels the source ROS future.
+
+These deadlines return SEND_TIMEOUT/RESULT_TIMEOUT only **after** cleanup has
+confirmed rejection or terminal motion and any already-requested cancel ack.
+Cleanup timeout/error instead raises and keeps the slot owned; a skill must not
+interpret it as a settled segment failure and issue another goal. A TimeoutError
+from the transport itself is not a local deadline and does not release ownership.
+The Dock adapter still needs to select the old 10-second admission and per-stage
+result budgets, emit frozen action logs, and bridge the managed blocking worker.
+This additive session API does not yet activate Dock or change legacy run_action.
+
 ## Spin boundary
 
 Supply `spin_action_name` to construct the second ROS client, or leave it None

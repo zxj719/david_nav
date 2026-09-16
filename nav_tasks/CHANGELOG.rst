@@ -33,3 +33,6 @@ nav_tasks
   integration disabled until managed thread/action bridging is complete.
 * Move full-footprint static-map geometry unchanged into domain/footprint with
   legacy identity-preserving exports; verify workflow logs with dock_bench parsing.
+* Add opt-in, independent action admission/result deadlines; retain late-handle
+  cleanup and fail closed until terminal settlement. Leave runtime defaults and
+  legacy Dock unchanged pending worker/backend integration.
