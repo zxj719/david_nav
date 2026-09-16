@@ -31,6 +31,15 @@ class DockRuntimeConfig:
 
 
 @dataclass(frozen=True)
+class DockNodeConfig:
+    """Validated legacy ROS ingress names and the shared Dock runtime settings."""
+
+    goal_topic: str
+    action_name: str
+    runtime: DockRuntimeConfig
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     """Task-service assembly configuration supplied by a robot-aware outer root.
 

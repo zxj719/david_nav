@@ -7,7 +7,7 @@ This API does not start ROS or a transport and does not change legacy entry poin
 
 import asyncio
 import time
-from typing import Callable, Iterable, Protocol
+from typing import Callable, Iterable, Mapping, Protocol
 
 from nav_tasks.core.handlers.poi_commands import MarkPoiResult
 from nav_tasks.core.ports import PoseSource
@@ -16,7 +16,7 @@ from nav_tasks.core.state import TaskManager
 from nav_tasks.domain.errors import (
     BusyError, ClosedError, ConfigError, NavTaskError, PoseUnavailableError, RuntimeAssemblyError,
 )
-from nav_tasks.domain.runtime_config import DockRuntimeConfig, RuntimeConfig
+from nav_tasks.domain.runtime_config import DockNodeConfig, DockRuntimeConfig, RuntimeConfig
 from nav_tasks.domain.tasks import (
     DockGoal, EventKind, NavOutcome, NavStatus, PreemptPolicy, TaskEvent, TaskRequest,
     TaskSnapshot, TaskState,
@@ -126,6 +126,54 @@ def _runtime_log(message: str) -> None:
     print(f'[navigation_executor] {message}', flush=True)
 
 
+def dock_config_from_parameters(
+    parameters: Mapping[str, object], *, spin_action_name: str = 'spin',
+    pose_timeout_sec: float = 2.0,
+) -> DockNodeConfig:
+    """Translate complete old Dock ROS parameters without opening any runtime resource.
+
+    Args:
+        parameters: All sixteen legacy names and values; footprint remains a string.
+        spin_action_name: Shared Spin client endpoint, retaining its old relative name.
+        pose_timeout_sec: TF read budget, retaining the old two-second default.
+
+    Returns:
+        Validated immutable ingress and task configuration.
+
+    Raises:
+        ConfigError: Missing, unknown or invalid parameters.
+    """
+    from nav_tasks.app.dock_parameters import from_parameters
+
+    return from_parameters(parameters, spin_action_name=spin_action_name,
+                           pose_timeout_sec=pose_timeout_sec)
+
+
+def declare_dock_parameters(
+    node: object, defaults: Mapping[str, object], *, spin_action_name: str = 'spin',
+    pose_timeout_sec: float = 2.0,
+) -> DockNodeConfig:
+    """Declare the unchanged Dock parameter surface and apply ROS overrides lazily.
+
+    Args:
+        node: Caller-owned ROS node, retained by the caller if declaration fails.
+        defaults: Complete old parameter mapping, validated before any declaration.
+        spin_action_name: Shared backend endpoint, not an added ROS parameter.
+        pose_timeout_sec: TF read budget, not an added ROS parameter.
+
+    Returns:
+        Validated effective immutable settings after ROS parameter overrides.
+
+    Raises:
+        ConfigError: Defaults or effective values are invalid.
+        Exception: ROS declaration/read failed; the caller must clean its node.
+    """
+    from nav_tasks.adapters.ros.dock_parameters import declare_parameters
+
+    return declare_parameters(node, defaults, spin_action_name=spin_action_name,
+                              pose_timeout_sec=pose_timeout_sec)
+
+
 async def create_runtime(
     config: RuntimeConfig, node: object, tf_buffer: object, *,
     log: Callable[[str], None] = _runtime_log, now: Callable[[], float] = time.time,
@@ -161,10 +209,11 @@ async def create_runtime(
 
 __all__ = [
     'BusyError', 'CapturedPose', 'ClosedError', 'CommandRegistry', 'ConfigError',
-    'DockGoal', 'DockRuntimeConfig', 'EventKind', 'MarkPoiResult',
+    'DockGoal', 'DockNodeConfig', 'DockRuntimeConfig', 'EventKind', 'MarkPoiResult',
     'NavOutcome', 'NavStatus', 'NavTaskError', 'PoiApi',
     'PoseRecord', 'PoseUnavailableError', 'PreemptPolicy', 'StoredPoi', 'TaskApi',
     'TaskContext', 'TaskEvent',
     'TaskManager', 'TaskRequest', 'TaskSnapshot', 'TaskState', 'Transform2D',
     'PoseSource', 'RuntimeAssemblyError', 'RuntimeConfig', 'TaskRuntimeApi', 'create_runtime',
+    'declare_dock_parameters', 'dock_config_from_parameters',
 ]

@@ -98,7 +98,7 @@ async def run(
         Exception: Construction or an essential background worker failed, after cleanup.
     """
     config = resolved.config
-    if config.dock_poi_ids:
+    if config.dock_poi_ids or resolved.dock is not None:
         raise ConfigError('Dock runtime assembly is not integrated yet; refusing ordinary routing')
     if stop.is_set():
         return
@@ -116,7 +116,7 @@ async def run(
         host.open(resolved.ros_args)
         spin = asyncio.create_task(_spin(host, fault, emit), name='executor-ros-spin')
         try:
-            runtime = await runtime_factory(config.task_config(), host.node, host.tf_buffer,
+            runtime = await runtime_factory(resolved.task_config(), host.node, host.tf_buffer,
                                             log=emit, now=now)
         except RuntimeAssemblyError as error:
             rollback = error.cleanup

@@ -1,6 +1,6 @@
 """Immutable executor values and explicit CLI/environment/YAML/profile provenance."""
 
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 import json
 import math
 import os
@@ -8,7 +8,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping, Sequence
 
-from nav_tasks.api import ConfigError, RuntimeConfig
+from nav_tasks.api import ConfigError, dock_config_from_parameters, DockNodeConfig, RuntimeConfig
 
 from nav_executor.adapters.transport.ws_client import WsOptions
 
@@ -52,6 +52,7 @@ class ExecutorConfig:
     progress_min_interval_sec: float = 1.0
     pose_stale_after_sec: float = 0.5
     status_print_interval_sec: float = 1.0 / 0.3
+    dock_config_file: str | None = None
 
     def legacy_values(self) -> dict:
         """Project the original config mapping for compatibility checks.
@@ -64,6 +65,7 @@ class ExecutorConfig:
             'map_frame', 'odom_frame', 'source_poi_file', 'cancel_timeout_sec',
             'loop_closure_translation_m', 'loop_closure_yaw_rad', 'progress_min_interval_sec',
             'pose_stale_after_sec', 'status_print_interval_sec',
+            'dock_config_file',
         ):
             del result[name]
         result['dock_poi_ids'] = list(self.dock_poi_ids)
@@ -98,6 +100,17 @@ class ResolvedConfig:
     config: ExecutorConfig
     sources: Mapping[str, str]
     ros_args: tuple[str, ...]
+    dock: DockNodeConfig | None = None
+    dock_parameters: Mapping[str, object] | None = None
+
+    def task_config(self) -> RuntimeConfig:
+        """Bind the separately loaded Dock policy through the public task API.
+
+        Returns:
+            Complete immutable task configuration, or unchanged ordinary-only settings.
+        """
+        return replace(self.config.task_config(),
+                       dock=None if self.dock is None else self.dock.runtime)
 
     def log_line(self) -> str:
         """Serialize effective values and their sources for startup auditing.
@@ -106,7 +119,8 @@ class ResolvedConfig:
             One JSON-bearing log line without the legacy logger prefix.
         """
         return 'effective config: ' + json.dumps(
-            {'values': asdict(self.config), 'sources': dict(self.sources)}, ensure_ascii=False)
+            {'values': asdict(self.config), 'sources': dict(self.sources),
+             'dock': None if self.dock is None else asdict(self.dock)}, ensure_ascii=False)
 
 
 def _read_mapping(path):
@@ -189,12 +203,36 @@ def _normalize(values):
             if not isinstance(value, (list, tuple)) or not all(isinstance(v, str) for v in value):
                 raise ConfigError('dock_poi_ids must be a list of strings')
             values[name] = tuple(dict.fromkeys(v.strip() for v in value if v.strip()))
-        elif name in ('pose_file', 'source_poi_file') and value is None:
+        elif name in ('pose_file', 'source_poi_file', 'dock_config_file') and value is None:
             continue
         elif not isinstance(value, str) or not value.strip():
             raise ConfigError(f'{name} must be a nonempty string')
-        if name in ('poi_store_file', 'pose_file', 'source_poi_file') and value is not None:
+        if name in ('poi_store_file', 'pose_file', 'source_poi_file', 'dock_config_file') \
+                and value is not None:
             values[name] = os.path.expanduser(value)
+
+
+def _dock_configuration(values, sources):
+    path = values.get('dock_config_file')
+    if path is None:
+        return None, None
+    parameters = _read_mapping(path)
+    if 'dock_navigator' in parameters:
+        node = parameters['dock_navigator']
+        if (set(parameters) != {'dock_navigator'} or not isinstance(node, dict)
+                or set(node) != {'ros__parameters'}):
+            raise ConfigError(f'{path}: expected only dock_navigator.ros__parameters')
+        parameters = node['ros__parameters']
+    # Validate the file itself before applying overrides, so typos/missing values
+    # cannot hide behind an unrelated executor flag.
+    dock_config_from_parameters(parameters)
+    parameters = dict(parameters)
+    if 'dock_action_name' in values:
+        parameters['action_name'] = values['dock_action_name']
+    else:
+        values['dock_action_name'] = parameters['action_name']
+        sources['dock_action_name'] = f'dock-file:{path}:action_name'
+    return dock_config_from_parameters(parameters), MappingProxyType(parameters)
 
 
 def load_configuration(
@@ -239,7 +277,8 @@ def load_configuration(
     values.update(explicit)
     sources.update({name: 'cli' for name in explicit})
     _normalize(values)
+    dock, dock_parameters = _dock_configuration(values, sources)
     config = ExecutorConfig(**values)
     return ResolvedConfig(config, MappingProxyType({
         field.name: sources.get(field.name, 'default') for field in fields(ExecutorConfig)}),
-        tuple(ros_args))
+        tuple(ros_args), dock, dock_parameters)

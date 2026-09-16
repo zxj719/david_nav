@@ -3,6 +3,10 @@ package: nav_executor
 # Canonical frames.map/odom and nav2.odom_topic are declared by their existing owners.
 # executor.reconnect_delay_sec stays declared by nav_bringup while its binding consumes it.
 parameters:
+  executor.dock_config_file:
+    type: string
+    default: null
+    description: "Complete old Dock parameters, flat or dock_navigator.ros__parameters YAML; null disables."
   frames.poi_capture:
     type: string
     default: null

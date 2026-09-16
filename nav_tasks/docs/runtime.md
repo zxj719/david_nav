@@ -1,5 +1,9 @@
 # In-process task runtime
 
+The [Dock parameter bridge](dock-parameters.md) translates the existing complete
+ROS parameter mapping into DockRuntimeConfig and applies launch/ROS overrides
+without changing the declaration surface or creating motion resources.
+
 `nav_tasks.api.create_runtime(config, node, tf_buffer)` composes ordinary POI and
 explicitly configured Dock services through one public boundary. Importing `nav_tasks.api` imports no
 ROS, YAML or WebSocket implementation. Construction uses the real repository,

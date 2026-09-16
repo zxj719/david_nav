@@ -88,6 +88,7 @@ This file lists every robot-profile key declared by package schemas.
 | `executor.action_name` | `string` | — | default: `"/navigate_to_pose"` | — | NavigateToPose server; never a second motion owner. | — |
 | `executor.cancel_timeout_sec` | `float` | s | default: `5` | range: `0.0 .. inf` | Cleanup waiting deadline, not permission to discard pending action ownership. | — |
 | `executor.dock_action_name` | `string` | — | default: `"/dock_to_pose"` | — | Legacy docking endpoint name; shared Dock integration is pending. | — |
+| `executor.dock_config_file` | `string` | — | default: `null` | — | Complete old Dock parameters, flat or dock_navigator.ros__parameters YAML; null disables. | — |
 | `executor.dock_poi_ids` | `list[string]` | — | default: `[]` | — | Dock-only POI IDs; runtime currently rejects these until Dock integration. | — |
 | `executor.global_costmap_topic` | `string` | — | default: `"/global_costmap/costmap"` | — | Global costmap observed by ordinary POI snapping. | — |
 | `executor.grid_map_topic` | `string` | — | default: `null` | — | Static grid observed by goal snapping, retaining the robot-specific default. | — |
@@ -159,7 +160,24 @@ This file lists every robot-profile key declared by package schemas.
 
 ## `nav_tasks`
 
-No parameters declared.
+| Key | Type | Unit | Required / default | Constraints | Description | Tuning |
+|---|---|---|---|---|---|---|
+| `tasks.dock.action_name` | `string` | — | default: `null` | — | Legacy NavigateToPose Dock action ingress name, not a second motion backend. | — |
+| `tasks.dock.approach_dist` | `float` | m | default: `null` | range: `0 .. inf` | Approach point distance behind the final goal along its heading. | — |
+| `tasks.dock.footprint` | `string` | — | default: `null` | — | Legacy ROS string containing a simple polygon of metric coordinate pairs. | — |
+| `tasks.dock.global_frame` | `string` | — | default: `null` | — | Global frame used to build Dock goals and measure its terminal pose. | — |
+| `tasks.dock.goal_topic` | `string` | — | default: `null` | — | Legacy PoseStamped ingress topic; supplied explicitly, R8 default fix separate. | — |
+| `tasks.dock.max_yaw_retries` | `int` | — | default: `null` | range: `0 .. inf` | Maximum finish rotation corrections, independent of ordinary POI retries. | — |
+| `tasks.dock.nav_timeout_sec` | `float` | s | default: `null` | range: `0 .. inf` | Local result budget for each Dock navigation stage; cleanup remains owned. | — |
+| `tasks.dock.robot_base_frame` | `string` | — | default: `null` | — | Dock navigation rotation frame; never the independent POI capture frame. | — |
+| `tasks.dock.settle_max_rate_rad_s` | `float` | rad/s | default: `null` | range: `0 .. inf` | Angular stop-rate threshold; David rendered mode supplies 0.05 rad/s. | — |
+| `tasks.dock.settle_timeout_sec` | `float` | s | default: `null` | range: `0 .. inf` | Maximum finish settling wait before preserving the old failure decision. | — |
+| `tasks.dock.settle_window_sec` | `float` | s | default: `null` | range: `0 .. inf` | Required continuously settled observation window. | — |
+| `tasks.dock.spin_timeout_sec` | `float` | s | default: `null` | range: `0 .. inf` | Spin server allowance; existing local result deadline adds five seconds. | — |
+| `tasks.dock.static_map_topic` | `string` | — | default: `null` | — | Retained static occupancy map for whole-footprint approach admission. | — |
+| `tasks.dock.static_occupied_threshold` | `int` | — | default: `null` | range: `0 .. 100` | Minimum occupied cell value; unknown cells retain the old allowed policy. | — |
+| `tasks.dock.xy_ok` | `float` | m | default: `null` | range: `0 .. inf` | Measured final position tolerance, supplied by the rendered mode. | — |
+| `tasks.dock.yaw_ok` | `float` | rad | default: `null` | range: `0 .. inf` | Measured final yaw tolerance; do not substitute the pure helper default. | — |
 
 ## `wheeltec_driver`
 

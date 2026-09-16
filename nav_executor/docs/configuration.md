@@ -50,6 +50,40 @@ reusable runtime classes do not embed robot-specific frames/topics.
 the supervised observer; status cadence reaches the outer root. Dock IDs remain
 explicit and the outer root rejects them before ROS/storage I/O until integration.
 
+## Explicit Dock configuration bridge
+
+`--dock-config-file PATH` (also `executor.dock_config_file` in profile/headless
+YAML, or `dock_config_file` in flat executor YAML) reads a complete Dock mapping.
+The file is either the sixteen flat legacy ROS parameters or the existing
+navrun-generated `dock_navigator: {ros__parameters: ...}` tree. Multiple nodes,
+wildcards, extra wrapper keys and incomplete/misspelled parameters are rejected;
+this is not a general ROS parameter-file parser. `~` expands as with other paths;
+relative paths retain current-directory meaning. Null/absence disables Dock data.
+
+Use the already rendered precise-mode `params/rendered/dock.yaml` so the
+profile's navigation frame, footprint, map and mode tolerances stay authoritative.
+The loader does not infer precise tuning from the ordinary executor's profile,
+does not conflate `frames.poi_capture` and `frames.nav_base`, and does not change
+the old launch renderer. David's rendered 0.4363 rad / zero corrections and
+0.05 rad/s stop threshold reach the task factory unchanged. Missing values never
+fall back to the pure helper's 0.087 rad / two corrections.
+
+`--dock-action-name` or an explicit executor YAML/profile `dock_action_name`
+overrides the file's `action_name`; absent an override the file wins over the
+legacy dataclass default. The effective Dock values appear in the startup audit;
+the file path and endpoint override source remain in the provenance map.
+`ResolvedConfig.dock_parameters` is immutable, ready for public
+`nav_tasks.api.declare_dock_parameters(node, defaults)` to apply ROS overrides.
+`ResolvedConfig.task_config()` binds `DockRuntimeConfig`; the old
+`ExecutorConfig.task_config()` is the ordinary-only projection.
+
+This bridge **does not enable the console Dock runtime**. Until ROS ingress and
+the multithreaded host are assembled, either Dock IDs or an explicit Dock file
+still stop the outer root before ROS/storage I/O. ROS CLI arguments are retained
+untouched; the configuration loader does not pretend to resolve them. The public
+declaration adapter separately validates the effective overrides and preserves
+all sixteen parameter names/default values. The old entry points are unchanged.
+
 Schema ownership remains unique: shared frames and Nav2 odometry declarations
 stay with existing packages; reconnect_delay_sec stays with nav_bringup while
 its existing launcher binding consumes it. New executor keys and the POI capture

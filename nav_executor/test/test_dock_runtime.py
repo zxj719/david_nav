@@ -8,14 +8,17 @@ import threading
 from types import ModuleType, SimpleNamespace as NS
 
 import pytest
+import yaml
 
 from nav_executor.protocol.task_adapter import TaskCommandAdapter
+from nav_executor.app.config import load_configuration
 from nav_tasks.api import (
     ConfigError, create_runtime, DockRuntimeConfig, EventKind, PoseRecord,
     PreemptPolicy, TaskRequest, TaskState,
 )
 from test_runtime_assembly import (  # noqa: F401
     _Buffer, _Client, _config, _mark, _navigate, _Node, ros_io)
+from test_dock_configuration import _parameters, PROFILE
 
 
 class _Log:
@@ -104,6 +107,37 @@ async def _create(tmp_path, node=None, **overrides):
 
 async def _bounded(awaitable):
     return await asyncio.wait_for(awaitable, 3)
+
+
+def test_dock_yaml_reaches_public_factory_without_rewriting_policy(dock_ros, tmp_path):
+    """The actual loader/factory/worker chain consumes the existing ROS parameter file."""
+    path = tmp_path / 'dock.yaml'
+    parameters = _parameters()
+    parameters['static_map_topic'] = '/dock_static'
+    path.write_text(yaml.safe_dump({'dock_navigator': {'ros__parameters': parameters}}))
+    resolved = load_configuration([
+        '--dock-config-file', str(path), '--dock-poi-id', 'p', '--poi-store-file',
+        str(tmp_path / 'pois.yaml')], profile_path=PROFILE, environ={})
+
+    async def scenario():
+        node, buffer = _DockNode(), _DockBuffer()
+        runtime = await create_runtime(resolved.task_config(), node, buffer, now=lambda: 1000.1)
+        adapter = TaskCommandAdapter(runtime.tasks, runtime.pois)
+        try:
+            node.subscriptions[0].callback(buffer.odom())
+            node.subscriptions[-1].callback(_map())
+            await _mark(adapter)
+            await _navigate(adapter)
+            assert await _bounded(adapter.next_event()) == {
+                'event_type': 'on_arrived', 'request_id': 'r', 'sub_id': 1}
+            assert [goal.pose.pose.position.x for goal in node.goals] == [0.5, 1.0]
+            assert all(goal.pose.header.frame_id == 'world' for goal in node.goals)
+        finally:
+            adapter.close()
+            await _bounded(runtime.close())
+        assert len(node.destroyed) == 4
+
+    asyncio.run(scenario())
 
 
 def test_public_factory_routes_dock_poi_through_two_stages_and_full_map(dock_ros, tmp_path):

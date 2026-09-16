@@ -1,4 +1,88 @@
 schema_version: 1
 package: nav_tasks
-# RuntimeConfig consumes explicit API values; profile/CLI binding is not switched yet.
-parameters: {}
+# Canonical documentation names for the existing flat Dock ROS parameter contract.
+# The explicit Dock file uses the final component of each key. No implicit defaults
+# are supplied: a complete rendered mode file remains required by the public binder.
+parameters:
+  tasks.dock.goal_topic:
+    type: string
+    default: null
+    description: "Legacy PoseStamped ingress topic; supplied explicitly, R8 default fix separate."
+  tasks.dock.action_name:
+    type: string
+    default: null
+    description: "Legacy NavigateToPose Dock action ingress name, not a second motion backend."
+  tasks.dock.robot_base_frame:
+    type: string
+    default: null
+    description: "Dock navigation rotation frame; never the independent POI capture frame."
+  tasks.dock.global_frame:
+    type: string
+    default: null
+    description: "Global frame used to build Dock goals and measure its terminal pose."
+  tasks.dock.static_map_topic:
+    type: string
+    default: null
+    description: "Retained static occupancy map for whole-footprint approach admission."
+  tasks.dock.footprint:
+    type: string
+    default: null
+    description: "Legacy ROS string containing a simple polygon of metric coordinate pairs."
+  tasks.dock.static_occupied_threshold:
+    type: int
+    default: null
+    range: [0, 100]
+    description: "Minimum occupied cell value; unknown cells retain the old allowed policy."
+  tasks.dock.approach_dist:
+    type: float
+    default: null
+    unit: m
+    range: [0, null]
+    description: "Approach point distance behind the final goal along its heading."
+  tasks.dock.xy_ok:
+    type: float
+    default: null
+    unit: m
+    range: [0, null]
+    description: "Measured final position tolerance, supplied by the rendered mode."
+  tasks.dock.yaw_ok:
+    type: float
+    default: null
+    unit: rad
+    range: [0, null]
+    description: "Measured final yaw tolerance; do not substitute the pure helper default."
+  tasks.dock.max_yaw_retries:
+    type: int
+    default: null
+    range: [0, null]
+    description: "Maximum finish rotation corrections, independent of ordinary POI retries."
+  tasks.dock.nav_timeout_sec:
+    type: float
+    default: null
+    unit: s
+    range: [0, null]
+    description: "Local result budget for each Dock navigation stage; cleanup remains owned."
+  tasks.dock.spin_timeout_sec:
+    type: float
+    default: null
+    unit: s
+    range: [0, null]
+    description: "Spin server allowance; existing local result deadline adds five seconds."
+  tasks.dock.settle_max_rate_rad_s:
+    type: float
+    default: null
+    unit: rad/s
+    range: [0, null]
+    description: "Angular stop-rate threshold; David rendered mode supplies 0.05 rad/s."
+  tasks.dock.settle_window_sec:
+    type: float
+    default: null
+    unit: s
+    range: [0, null]
+    description: "Required continuously settled observation window."
+  tasks.dock.settle_timeout_sec:
+    type: float
+    default: null
+    unit: s
+    range: [0, null]
+    description: "Maximum finish settling wait before preserving the old failure decision."
