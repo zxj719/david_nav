@@ -11,13 +11,12 @@
   <exec_depend>david_config</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>python3-websockets</exec_depend>
+  <!-- SPEC D3: pip websockets==16.1 is declared in setup.py, not the apt 9.x key. -->
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>nav_bringup</test_depend>
   <test_depend>python3-pytest</test_depend>
   <!-- Optional payload-schema validation; TODO-ASYNCAPI-1 skips when unavailable. -->
   <test_depend>python3-jsonschema</test_depend>
-  <test_depend>python3-websockets</test_depend>
   <export><build_type>ament_python</build_type></export>
 </package>

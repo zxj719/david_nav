@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import os
 from pathlib import Path
@@ -199,11 +200,19 @@ def test_navigation_executor_help_does_not_require_runtime_imports(capsys, monke
     assert "--poi-store-file PATH" in captured.out
 
 
-def test_package_xml_declares_python3_websockets():
+def test_package_xml_delegates_selected_websockets_to_executor():
     root = ET.parse(REPO_ROOT / "package.xml").getroot()
     exec_depends = [node.text for node in root.findall("exec_depend")]
 
-    assert "python3-websockets" in exec_depends
+    # SPEC D3 selects pip 16.1; the retained shim must depend on its owner,
+    # whose actual Python metadata declares that distribution, not apt 9.x.
+    assert "nav_executor" in exec_depends
+    assert "python3-websockets" not in exec_depends
+    tree = ast.parse((REPO_ROOT.parent / "nav_executor" / "setup.py").read_text())
+    setup = next(node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "setup")
+    required = next(item.value for item in setup.keywords if item.arg == "install_requires")
+    assert "websockets==16.1" in ast.literal_eval(required)
 
 
 def test_cmake_installs_navigation_executor_script():

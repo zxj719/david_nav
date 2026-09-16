@@ -56,6 +56,22 @@ modified. See [migration.md](docs/migration.md) and
 
 ## 30-second inspection, reuse and extension
 
+SPEC D3 selects **pip WebSockets 16.1** on Python 3.10/Humble, not the apt 9.x
+distribution. `nav_executor` and `nav_sim` declare `websockets==16.1` in their
+Python installation metadata; the ROS package manifests no longer request the
+conflicting unversioned apt key. The retained `david_nav` shim depends on
+`nav_executor`. Other versions are not claimed supported, and no global asyncio
+compatibility monkeypatch is applied. This is one explicit dependency decision,
+not a complete environment lock (TODO-V2 remains).
+
+No software is installed by this refactor workflow. A future operator-managed
+environment must provision that version before building/testing; `rosdep` alone
+does not satisfy the pip requirement. Check the interpreter that will actually
+run the entry point, e.g. `python3 -c "import websockets; print(websockets.__version__,
+websockets.__file__)"`; the runtime also logs those values. Symlink/develop builds
+can bypass dependency resolution, so successful colcon build alone is not proof
+that another machine has the required distribution.
+
 After loading the refactor environment, `ros2 run nav_executor navigation_executor --help`
 prints the frozen CLI help without starting ROS or motion. A real launch additionally
 requires the robot profile, site data and safe operator startup; this is not a command

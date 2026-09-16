@@ -13,7 +13,7 @@
   <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>tf2_ros_py</exec_depend>
-  <exec_depend>python3-websockets</exec_depend>
+  <!-- Match the executor: pip websockets==16.1 is declared in setup.py. -->
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>nav_bringup</exec_depend>
   <exec_depend>launch</exec_depend>

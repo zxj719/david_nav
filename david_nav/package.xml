@@ -48,7 +48,7 @@
   <exec_depend>david_config</exec_depend>
   <exec_depend>nav2_collision_monitor</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
-  <exec_depend>python3-websockets</exec_depend>
+  <!-- WS runtime and its selected Python dependency belong to nav_executor. -->
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>sshpass</exec_depend>
 

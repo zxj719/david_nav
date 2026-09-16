@@ -14,7 +14,7 @@ setup(
         ('share/' + PACKAGE + '/config', ['config/schema.yaml']),
         ('share/' + PACKAGE + '/docs', glob('docs/*.md')),
     ],
-    install_requires=['setuptools'], zip_safe=True,
+    install_requires=['setuptools', 'websockets==16.1'], zip_safe=True,
     maintainer='zhangxingjian', maintainer_email='xingjian.zhang@amicro.com.cn',
     description='Navigation protocol and public task API transport adapters.',
     license='Apache-2.0', tests_require=['pytest'],

@@ -3,6 +3,43 @@ nav_executor
 
 0.1.0 (2026-09-16)
 ------------------
+
+Current SPEC R1-R10 status (refactor workspace, not production deployment)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* R1: contextual malformed-command isolation keeps the WS connection alive;
+  valid wire bytes remain frozen (43e110f, docs/adr-0007-message-isolation.md).
+* R2: task crashes report on_error after owned cleanup; unproven cleanup never
+  becomes IDLE (22f4087, nav_tasks/docs/adr-0008-crash-recovery.md).
+* R3: synchronous, strongly owned queued feedback replaces orphan coroutines;
+  late/canceled callbacks are fenced (06a4ce2, nav_tasks ADR-0009).
+* R4: runtime logs the actual WebSockets version/path without global asyncio
+  patches. Python metadata now selects pip websockets==16.1 for executor and
+  simulation; ROS manifests no longer select the old apt key. No installation
+  was performed, and full environment locking remains TODO-V2.
+* R5: retained executable paths are forwarding shims and implementation lives
+  in the symlink-installed Python package (884e4d5). Existing installation/help
+  and dispatch checks do not mean production aliases have been switched.
+* R6: passive profiling tool and eligibility checks are implemented (9bfa9d6),
+  but actual 60-second idle CPU measurement and architecture choice remain
+  pending; no CPU reduction is claimed (docs/adr-0011-r6-measurement.md).
+* R7: legacy Dock text/regex consumers stay frozen; structured Dock/task events
+  are additive (60a719c, nav_tasks/docs/events.md, docs/frozen_logs.md).
+* R8: standalone Dock now defaults to /dock_goal; explicit overrides and
+  mode-specific tolerances remain intact (b767ea9, docs/adr-0010-standalone-dock-topic.md).
+* R9: required untracked production inputs were captured in the refactor
+  baseline (93676a5); generated clutter is ignored (4388e37). Production's
+  branch, index and worktree were not cleaned or rewritten.
+* R10: system onboarding and configuration documentation were corrected
+  (61b444d, f31b3d2). Audit still found stale legacy waypoint/dead-reckoning
+  descriptions; their focused text repair remains pending, not silently done.
+
+Development history
+~~~~~~~~~~~~~~~~~~~
+
+The following entries describe stages as they landed. Statements such as
+"pending" or "no runtime switch yet" below are historical, not current status.
+
 * Add R6 passive Linux PID profiling with raw counters, monotonic intervals,
   weighted CPU, PID-reuse/error/interruption detection and explicit idle/window
   eligibility. No new dependency, target startup, ROS I/O or spin-loop change.

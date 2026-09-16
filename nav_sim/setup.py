@@ -13,7 +13,7 @@ setup(
         ('share/' + PACKAGE, ['package.xml', 'README.md']),
         ('share/' + PACKAGE + '/config', ['config/schema.yaml']),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'websockets==16.1'],
     zip_safe=True,
     maintainer='zhangxingjian',
     maintainer_email='xingjian.zhang@amicro.com.cn',
