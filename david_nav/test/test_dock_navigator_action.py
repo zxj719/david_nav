@@ -9,7 +9,9 @@ import time
 from nav2_msgs.action import NavigateToPose
 from rclpy.node import Node
 
-from david_nav import dock_navigator
+from legacy_entry_reference import load_entry
+
+dock_navigator = load_entry('dock_navigator')
 
 
 class FakeFuture:

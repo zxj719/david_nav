@@ -17,7 +17,7 @@ import re
 from types import SimpleNamespace
 
 from david_nav import nav2_action_bridge
-from david_nav import navigation_executor
+from legacy_entry_reference import load_entry
 from david_nav.nav2_action_bridge import Nav2ActionBridge
 from david_nav.navigation_executor_core import ExecutorState
 from david_nav.navigation_executor_core import NavigationExecutorCore
@@ -25,6 +25,8 @@ from david_nav.navigation_types import CapturedPose
 from david_nav.navigation_types import PoseRecord
 from david_nav.navigation_types import StoredPoi
 from david_nav.poi_store import LocalPoiStore
+
+navigation_executor = load_entry('navigation_executor')
 
 
 # --------------------------------------------------------------------------

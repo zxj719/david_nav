@@ -7,12 +7,14 @@ import xml.etree.ElementTree as ET
 from geometry_msgs.msg import PoseStamped
 import pytest
 
-from david_nav import dock_navigator
+from legacy_entry_reference import load_entry
 from david_nav.dock_approach import FootprintCheck
 from david_nav.dock_approach import OccupancyGridView
 from david_nav.dock_approach import check_footprint
 from david_nav.dock_approach import parse_footprint
 from david_nav.dock_settle import SettleSpec
+
+dock_navigator = load_entry('dock_navigator')
 
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
 FOOTPRINT = parse_footprint('[[-0.4, -0.4], [0.4, -0.4], [0.4, 0.4], [-0.4, 0.4]]')

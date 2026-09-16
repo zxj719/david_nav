@@ -2,12 +2,27 @@
 
 `ros2 run nav_executor navigation_executor --help` prints the frozen legacy help
 without loading configuration or initializing ROS. The new executable is separate
-from the unchanged david_nav executable and production aliases. The equivalent
+from production aliases. The retained david_nav executable now forwards here in
+the refactor workspace. The equivalent
 `nav_task_manager` entry composes ordinary POIs and opt-in Dock in one process.
 Supply a complete `--dock-config-file` to enable Dock; Dock IDs without it are
 rejected before ROS/storage opens. `--no-websocket` disables WS imports, connection,
 proxy changes and WS observers. Default WS behavior and frozen help are unchanged.
-The old david_nav launch/shims are not switched: do not deploy both owners together.
+Both retained david_nav programs are thin shims. The standalone dock_navigator
+forwards to app.dock_cli, selects installed david_config/dock/standalone.yaml
+unless --dock-config-file is explicit, and forces --no-websocket. Its sixteen
+historical defaults (5-degree yaw, two retries, including the separate R8
+/goal_pose defect) are preserved as data. ROS parameters still override them.
+The old precise launch now also has only one shared owner: WS-enabled Dock waits
+for Nav2, ROS-only Dock keeps its former core/chassis-delay timing. Its eight ROS
+overrides retain /dock_goal, 0.4363 yaw and zero retries. Missing WS prerequisites
+or a detected existing task owner refuse that launch instead of starting a partial
+second Dock runtime; no user process is signaled. The pgrep check is conservative,
+not an atomic global singleton lock. Do not mix independent legacy/manual owners.
+Direct old executor CLI use with --dock-poi-id now requires the complete
+--dock-config-file policy; the compatibility precise launch supplies it. External
+cross-process Dock routing is replaced by the shared owner, not silently retained.
+Production aliases and deployed files have not changed.
 The prepared navrun graph now selects this manager: precise+WS uses one deferred
 process for both ingress paths, precise without WS uses one core-phase Dock node,
 and tour without WS omits it. Its argv carries a mode-merged robot profile snapshot

@@ -3,6 +3,10 @@ nav_executor
 
 0.1.0 (2026-09-16)
 ------------------
+* Replace retained david_nav executor/Dock programs with forwarding shims and
+  merge its compatibility precise launch into one shared owner. Keep standalone
+  Dock defaults as installed robot data and preserve legacy algorithm tests with
+  immutable references, separately testing real executable dispatch.
 * Consume prepared navrun graph argv with one manager for ROS Dock and optional
   WS. Test effective robot/mode/site binding for David and the offline example;
   retain separate old david_nav entry points pending coordinated shim migration.

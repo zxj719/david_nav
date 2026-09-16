@@ -1,8 +1,9 @@
-import importlib.util
 import asyncio
 import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
+
+from legacy_entry_reference import load_entry
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -10,13 +11,7 @@ MODULE_PATH = REPO_ROOT / "david_nav" / "navigation_executor.py"
 
 
 def _load_module():
-    spec = importlib.util.spec_from_file_location(
-        "david_nav_navigation_executor",
-        MODULE_PATH,
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_entry('navigation_executor')
 
 
 def test_navigation_executor_cli_parses_server_uri_and_store_path():

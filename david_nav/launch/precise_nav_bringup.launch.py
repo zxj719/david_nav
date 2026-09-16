@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """alias 0 专用：高精度两段式入位导航（2026-08-31）。
 
+重构分支：以下历史两个入口现合并为一个任务管理器。开启 WS 时，Dock 与 WS
+一起在 Nav2 就绪后开放；禁用 WS 时仍提供本地 Dock。已有任一任务管理器则拒绝
+此次启动，不自动结束用户进程。生产文件和 alias 没有随此提交切换。
+
 = 现有 2d_david_nav2_bringup.launch.py（传高精度参数快照）
 + dock_navigator（两段式对齐入位编排节点）
 + wheeltec 底盘（原 alias 5，2026-09-08 并入；已经在跑就自动跳过）
@@ -71,7 +75,11 @@ NAV2_PROC_PATTERNS = (
 )
 
 # 判定"server 模块已经在跑"。两个 executor 会同时连 agent server、抢同一批指令。
-EXECUTOR_PROC_PATTERNS = ('navigation_executor.py',)
+EXECUTOR_PROC_PATTERNS = (
+    'navigation_executor.py', 'nav_task_manager',
+    'lib/nav_executor/navigation_executor', 'lib/david_nav/dock_navigator',
+    'david_nav/dock_navigator.py',
+)
 
 DEFAULT_WHEELTEC_WS = '~/wheelhumanoidrobot/workspace_wheeltec/wheeltec_robot_ros2'
 DEFAULT_ROS_SETUP = '/opt/ros/humble/setup.bash'
@@ -166,6 +174,9 @@ def _executor_actions(context):
             '--pose-file', pose_file]
     for poi_id in dock_ids:
         args += ['--dock-poi-id', poi_id]
+    args += ['--dock-config-file', _dock_policy(), '--websocket', '--ros-args']
+    for key, value in _dock_parameters(context).items():
+        args += ['-p', '%s:=%s' % (key, value)]
     timeout = LaunchConfiguration('nav_ready_timeout').perform(context)
     return [
         LogInfo(msg='[precise_nav] server 模块：%s，点位文件 %s，精准入位 POI：%s'
@@ -175,9 +186,37 @@ def _executor_actions(context):
     ]
 
 
+def _dock_policy():
+    return os.path.join(get_package_share_directory('david_config'), 'dock', 'standalone.yaml')
+
+
+def _dock_parameters(context):
+    return {
+        'goal_topic': LaunchConfiguration('dock_goal_topic').perform(context),
+        'approach_dist': float(LaunchConfiguration('approach_dist').perform(context)),
+        'xy_ok': float(LaunchConfiguration('xy_ok').perform(context)),
+        'yaw_ok': float(LaunchConfiguration('yaw_ok').perform(context)),
+        'max_yaw_retries': int(LaunchConfiguration('max_yaw_retries').perform(context)),
+        'robot_base_frame': 'base_footprint', 'global_frame': 'map',
+        'action_name': 'dock_to_pose',
+    }
+
+
 def _setup(context, *args, **kwargs):
     pkg = get_package_share_directory('david_nav')
     actions = []
+    running = _pids_for(EXECUTOR_PROC_PATTERNS)
+    if running:
+        return [LogInfo(msg='[precise_nav] 已有任务管理器 (pid=%s)，拒绝重复启动；'
+                            '请先检查旧进程，不自动清理。' % ','.join(map(str, running)))]
+    websocket = _as_bool(LaunchConfiguration('start_executor').perform(context))
+    manager_actions = _executor_actions(context) if websocket else [Node(
+        package='nav_executor', executable='nav_task_manager', name='dock_navigator',
+        output='screen', arguments=['--dock-config-file', _dock_policy(), '--no-websocket'],
+        parameters=[_dock_parameters(context)])]
+    if websocket and not any(isinstance(action, ExecuteProcess) for action in manager_actions):
+        # A missing/occupied WS root must not leave a second local motion owner behind.
+        return manager_actions
 
     # ---------- 重复启动：nav2 ----------
     # 两套 nav2 会有两个 controller_server 抢 /cmd_vel_nav、两个 lifecycle_manager
@@ -233,31 +272,16 @@ def _setup(context, *args, **kwargs):
         }.items(),
     )
 
-    dock_navigator = Node(
-        package='david_nav',
-        executable='dock_navigator',
-        name='dock_navigator',
-        output='screen',
-        parameters=[{
-            'goal_topic': LaunchConfiguration('dock_goal_topic'),
-            'approach_dist': LaunchConfiguration('approach_dist'),
-            'xy_ok': LaunchConfiguration('xy_ok'),
-            'yaw_ok': LaunchConfiguration('yaw_ok'),
-            'max_yaw_retries': LaunchConfiguration('max_yaw_retries'),
-            'robot_base_frame': 'base_footprint',
-            'global_frame': 'map',
-            'action_name': 'dock_to_pose',
-        }],
-    )
-
+    core = [bringup] + ([] if websocket else manager_actions)
     if delay > 0.0:
-        actions.append(TimerAction(period=delay, actions=[bringup, dock_navigator]))
+        actions.append(TimerAction(period=delay, actions=core))
     else:
-        actions.extend([bringup, dock_navigator])
+        actions.extend(core)
 
     # ---------- server 模块（alias 4 的 navigation_executor，2026-09-15 并入） ----------
     # 它自己等 nav2 就绪才 exec executor，不需要跟着底盘延时。
-    actions.extend(_executor_actions(context))
+    if websocket:
+        actions.extend(manager_actions)
     return actions
 
 

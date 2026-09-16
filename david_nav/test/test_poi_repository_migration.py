@@ -6,11 +6,14 @@ import random
 
 import pytest
 
-from david_nav.navigation_executor import _populate_poi_store_from_named_poses_json
+from legacy_entry_reference import load_entry
 from david_nav.poi_store import LocalPoiStore
 from nav_tasks.domain.types import PoseRecord, StoredPoi, Transform2D
 from nav_tasks.nav_site_data.named_poses_importer import import_named_poses
 from nav_tasks.nav_site_data.yaml_poi_repository import YamlPoiRepository
+
+_populate_poi_store_from_named_poses_json = load_entry(
+    'navigation_executor')._populate_poi_store_from_named_poses_json
 
 
 @pytest.mark.parametrize('seed', range(8))

@@ -84,7 +84,7 @@ install(PROGRAMS
   RENAME map_warmup_spin
 )
 
-# 2026-08-31: 两段式对齐入位编排节点（alias 0 的高精度测试用，生产 alias 4 不使用）
+# Compatibility shim only; runtime is in nav_executor (symlink-install applies).
 install(PROGRAMS
   david_nav/dock_navigator.py
   DESTINATION lib/${PROJECT_NAME}
@@ -103,6 +103,7 @@ install(PROGRAMS
   RENAME monitor_nav2_frontier_cpu
 )
 
+# Compatibility shim only; implementation is nav_executor.app.cli, not this copy.
 install(PROGRAMS
   david_nav/navigation_executor.py
   DESTINATION lib/${PROJECT_NAME}

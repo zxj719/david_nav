@@ -21,6 +21,14 @@ drift apart. The URDF still loads its meshes from `david_nav`.
 
 ## Frames
 
+`dock/standalone.yaml` stores the sixteen historical standalone Dock defaults
+used by the retained `david_nav/dock_navigator` shim. It is not the precise-mode
+overlay: standalone keeps yaw 0.087 and two retries, while precise launch passes
+0.4363 and zero retries. The historical `/goal_pose` default is retained for the
+separate R8 repair; precise launch explicitly uses `/dock_goal`. Both retain the
+user-requested 0.05 rad/s stop threshold and static-map footprint checking.
+Reusable runtime code contains no copy of these robot values.
+
 `base_link` and `base_footprint` are different frames and are never merged:
 Nav2, docking and costmaps use `frames.nav_base` (`base_footprint`); the body
 frame published by localization is `frames.body` (`base_link`).

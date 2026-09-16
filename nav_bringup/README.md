@@ -119,8 +119,9 @@ task owners; Dock tuning and the Nav2 lifecycle order are unchanged. Preflight
 refuses a recognized existing shared-manager executable and requests inspection,
 without adding automatic kill patterns. Optional executable resolution still
 checks installation before startup; no new package dependency cycle is added.
-The old `david_nav` launch/shims and production aliases have not yet been switched;
-do not combine them with this new graph. Physical/no-goal ROS acceptance is pending.
+The refactor `david_nav` precise launch and retained executable shims also use the
+shared root; do not combine independently launched managers with this graph.
+Production aliases have not changed. Physical/no-goal ROS acceptance is pending.
 
 This is not yet an accepted production replacement for aliases: the convenience
 keyboard launch and navigation/physical acceptance remain pending. Bundle preparation,

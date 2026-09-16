@@ -48,8 +48,8 @@ def test_daolan_map_image_is_in_the_lightning_map_directory():
 def test_daolan_points_and_server_match_the_executor():
     """Point files equal the executor defaults; the server equals the headless configuration."""
     site = _load(DAOLAN / 'site.yaml')
-    executor = (SOURCE_DIR / 'david_nav' / 'david_nav' / 'navigation_executor.py').read_text(
-        encoding='utf-8')
+    executor = (SOURCE_DIR / 'david_nav/test/golden/legacy_entries'
+                / 'navigation_executor.py.txt').read_text(encoding='utf-8')
     headless = _load(SOURCE_DIR / 'david_nav' / 'config' / 'navigation_headless.yaml')
 
     assert f'os.path.expanduser("{site["pois"]["store_file"]}")' in executor

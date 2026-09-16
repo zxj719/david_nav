@@ -3,8 +3,8 @@
 Not collected by colcon test (the file name does not match test_*.py). Run
 ``david_nav/sandbox_tests/run_sandbox_checks.sh`` in DDS domain 99 while no
 navigation stack runs. The checks start fake Nav2 action servers with a fake
-map->base_footprint TF, the real dock_navigator, and the real
-navigation_executor against a fake agent server on 127.0.0.1. Nothing
+map->base_footprint TF and one shared task manager, via either retained Dock
+or executor entry, against a fake agent server on 127.0.0.1. Nothing
 publishes velocity commands.
 """
 
@@ -33,11 +33,25 @@ def _fake_nav2(log_path, delay_sec, map_mode='free'):
             '--yaw', str(GOAL[2]), '--map-mode', map_mode]
 
 
-def _dock_navigator():
-    return ['ros2', 'run', 'david_nav', 'dock_navigator', '--ros-args',
+def _dock_parameters():
+    return ['--ros-args',
             '-p', 'goal_topic:=/dock_goal', '-p', 'approach_dist:=%s' % APPROACH_DIST,
             '-p', 'xy_ok:=0.10', '-p', 'yaw_ok:=0.4363', '-p', 'max_yaw_retries:=0',
             '-p', 'robot_base_frame:=base_footprint', '-p', 'global_frame:=map']
+
+
+def _dock_navigator(tmp_path):
+    return ['ros2', 'run', 'david_nav', 'dock_navigator',
+            '--poi-store-file', str(tmp_path / 'poi_store.yaml'), *_dock_parameters()]
+
+
+def _executor_command(tmp_path, poses):
+    return [
+        'python3', str(PACKAGE_DIR / 'david_nav' / 'navigation_executor.py'),
+        '--server-uri', 'ws://127.0.0.1:%d' % AGENT_PORT,
+        '--pose-file', str(poses), '--poi-store-file', str(tmp_path / 'poi_store.yaml'),
+        '--dock-poi-id', 'POI_017', '--dock-config-file',
+        str(PACKAGE_DIR.parent / 'david_config/dock/standalone.yaml'), *_dock_parameters()]
 
 
 def _goal():
@@ -96,7 +110,7 @@ def test_dock_action_runs_both_stages_and_succeeds(sessions, ros_node, tmp_path)
     """The action sends the approach and final goals and reports SUCCEEDED."""
     log = tmp_path / 'nav2.log'
     sessions.start('fake_nav2', _fake_nav2(log, 0.5))
-    sessions.start('dock_navigator', _dock_navigator())
+    sessions.start('dock_navigator', _dock_navigator(tmp_path))
     feedback = []
 
     client, handle = _send_dock_goal(ros_node, feedback)
@@ -121,7 +135,7 @@ def test_dock_rejects_an_occupied_or_unverified_approach(sessions, ros_node, tmp
     """An occupied footprint corner or missing map aborts without any Nav2 stage goal."""
     log = tmp_path / 'nav2.log'
     sessions.start('fake_nav2', _fake_nav2(log, 0.5, map_mode))
-    sessions.start('dock_navigator', _dock_navigator())
+    sessions.start('dock_navigator', _dock_navigator(tmp_path))
     client, handle = _send_dock_goal(ros_node, [])
     assert handle.accepted
     result = handle.get_result_async()
@@ -135,7 +149,7 @@ def test_dock_action_cancel_stops_the_current_stage(sessions, ros_node, tmp_path
     """Canceling the action cancels the in-flight stage goal and sends no further stage."""
     log = tmp_path / 'nav2.log'
     sessions.start('fake_nav2', _fake_nav2(log, 30.0))
-    sessions.start('dock_navigator', _dock_navigator())
+    sessions.start('dock_navigator', _dock_navigator(tmp_path))
 
     client, handle = _send_dock_goal(ros_node, [])
     assert handle.accepted
@@ -175,12 +189,7 @@ async def _agent_session(sessions, tmp_path, poses):
                 return
 
     async with websockets.serve(handler, '127.0.0.1', AGENT_PORT):
-        sessions.start('executor', [
-            'python3', str(PACKAGE_DIR / 'david_nav' / 'navigation_executor.py'),
-            '--server-uri', 'ws://127.0.0.1:%d' % AGENT_PORT,
-            '--pose-file', str(poses),
-            '--poi-store-file', str(tmp_path / 'poi_store.yaml'),
-            '--dock-poi-id', 'POI_017'])
+        sessions.start('executor', _executor_command(tmp_path, poses))
         await asyncio.wait_for(finished.wait(), timeout=120.0)
     return frames
 
@@ -189,7 +198,6 @@ def test_executor_docks_the_dock_poi_and_reports_arrival(sessions, tmp_path):
     """navigate_to POI_017 from the agent goes through two-stage docking and ends on_arrived."""
     log = tmp_path / 'nav2.log'
     sessions.start('fake_nav2', _fake_nav2(log, 0.5))
-    sessions.start('dock_navigator', _dock_navigator())
     poses = tmp_path / 'named_poses.json'
     poses.write_text(json.dumps([{
         'id': 'POI_017', 'name': 'POI_017', 'frame_id': 'map',

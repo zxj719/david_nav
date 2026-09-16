@@ -7,8 +7,9 @@ connection-scoped receive/heartbeat/send work through an injected connector.
 The [outer runtime](docs/outer-runtime.md) now provides an installed
 `ros2 run nav_executor nav_task_manager` entry (also `navigation_executor`) for
 ordinary POIs and explicit `--dock-config-file` Dock composition. `--no-websocket`
-selects ROS-only ingress. The legacy launch/shim switch remains pending; production
-is unchanged and separate old/new motion owners must not be launched together.
+selects ROS-only ingress. The retained david_nav executable paths now delegate to
+this root in the refactor workspace. Its precise launch uses one shared manager;
+production is unchanged. Do not launch independent task owners together.
 
 ```python
 from nav_executor.protocol.codec import parse_command, build_arrived_event
@@ -35,7 +36,7 @@ is introduced. The [configuration loader](docs/configuration.md) now resolves
 explicit robot data, YAML, NAV_WS_URL and CLI values with per-key provenance.
 Its schema declares consumed executor settings. The new entry owns its private
 ROS context and preserves it until task cancellation and resource cleanup finish;
-the old executable has not been switched.
+the retained executable is now a thin forwarding shim.
 
 Only `nav_tasks.api` may be imported from the task package. The reverse dependency
 is forbidden. `TaskCommandAdapter` calls TaskApi and the administrative PoiApi,

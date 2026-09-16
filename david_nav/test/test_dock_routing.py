@@ -4,8 +4,7 @@
 DockAwareGoalResolver，并按文件路径加载 navigation_executor.py 验证新 CLI 参数。
 """
 import asyncio
-import importlib.util
-from pathlib import Path
+from legacy_entry_reference import load_entry
 
 from david_nav.dock_routing import DockAwareGoalResolver, DockRoutingBridge
 from david_nav.navigation_executor_core import ResolvedNavigationGoal
@@ -90,11 +89,7 @@ def test_dock_pois_are_never_snapped():
 
 
 def _load_executor_script():
-    path = Path(__file__).resolve().parents[1] / "david_nav" / "navigation_executor.py"
-    spec = importlib.util.spec_from_file_location("navigation_executor_dock_cli", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_entry('navigation_executor')
 
 
 def test_executor_cli_parses_dock_options():

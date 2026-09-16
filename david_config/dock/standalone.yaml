@@ -1,0 +1,18 @@
+# Historical standalone Dock defaults, not the precise launch overlay.
+# R8 goal_topic correction is intentionally a separate behavior-change commit.
+approach_dist: 0.5
+xy_ok: 0.10
+yaw_ok: 0.087
+max_yaw_retries: 2
+goal_topic: /goal_pose
+action_name: dock_to_pose
+robot_base_frame: base_footprint
+global_frame: map
+nav_timeout_sec: 120.0
+spin_timeout_sec: 30.0
+static_map_topic: /map
+static_occupied_threshold: 50
+footprint: '[[0.255, 0.30], [0.255, -0.30], [-0.465, -0.30], [-0.465, 0.30]]'
+settle_max_rate_rad_s: 0.05
+settle_window_sec: 0.4
+settle_timeout_sec: 8.0

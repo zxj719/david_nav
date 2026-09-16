@@ -9,7 +9,9 @@ Command classes and CommandParseError keep their construction/exception behavior
 The old module re-exports them so existing isinstance checks remain correct.
 POI data is only read to format an event; the codec performs no repository I/O.
 
-The next steps still require TaskApi integration, registered command translation,
-ReliableOutbox, runtime/CLI composition and separate robustness fixes. Until
-those are verified, the legacy executor core/runtime is intentionally retained.
-The existing G1–G16 files are not rewritten to accept a new wire contract.
+TaskApi integration, registered translation, ReliableOutbox and the shared
+runtime/CLI are connected. Retained navigation_executor.py and dock_navigator.py
+now forward to this package. Old algorithm tests load immutable pre-shim fixtures;
+separate shim tests exercise real paths/argv/exit status, and new-chain tests
+retain the frozen wire contract. Historical supporting classes remain available
+for imports pending P7 legacy isolation. Robustness repairs remain separate work.

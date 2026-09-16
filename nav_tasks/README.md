@@ -3,21 +3,22 @@
 The [Dock ROS ingress](docs/dock-ingress.md) now routes topic/action requests
 through the shared manager, preserving busy rejection, cancellation and full
 feedback. Its public owner requires the multithreaded host shutdown sequence;
-the nav_executor composition root now provides that host. Legacy entries remain unchanged.
+the nav_executor composition root now provides that host. Retained david_nav entries
+forward to it; deployed production files are unchanged.
 
 The [Dock parameter bridge](docs/dock-parameters.md) accepts existing rendered
 ROS parameters and preserves their declaration/override contract. It does not
-switch the legacy Dock entry; the new outer host requires explicit complete policy.
+own an executable; the outer host requires explicit complete policy.
 
 Transport-independent navigation domain and pure skills (Python 3.10+).
 The P6.1 core now provides a fake-testable `TaskManager`/`TaskApi`, ports, registry,
 ownership, retry and supervision. It does **not** start a task manager process or
-switch a runtime entry point; the old core remains active pending integration.
+own a runtime entry point; nav_executor composes it and owns the retained CLI shims.
 Sequential POI navigation, pure snap search and administrative POI handlers are
 implemented against fake-testable ports, with no subscriptions or storage I/O.
 The shared [Nav2 backend](docs/nav2-backend.md) implements one navigation or opt-in
-Spin attempt on the same motion slot and owns late-handle cleanup; it is not yet
-connected to legacy entry points.
+Spin attempt on the same motion slot and owns late-handle cleanup; the retained
+entry points now reach it through nav_executor.
 `api.PoiApi` exposes mark/rename operations separately from exclusive motion
 ownership. The new `nav_executor` command adapter uses only this public module;
 its fake-action integration tests exercise the new chain's G1–G15 wire scenarios.
@@ -29,8 +30,8 @@ services with retryable cleanup. nav_executor now supplies CLI/help, WS and an
 outer ROS lifetime for ordinary POIs. The public factory now also assembles Dock
 from explicit DockRuntimeConfig, with independent static-map/navigation-frame
 observations and routing under the same task manager. Explicit rendered Dock
-files now bind through the CLI/public parameter bridge and ROS ingress; legacy
-entry-point switching remains pending.
+files now bind through the CLI/public parameter bridge and ROS ingress, including
+the retained Dock shim and precise launch.
 
 ```python
 from nav_tasks.api import PoseRecord
@@ -62,7 +63,7 @@ Concrete ROS adapters are kept outside the pure layers and import ROS lazily.
 The [site data boundary](docs/site-data.md) now supplies an actual ROS-free YAML
 PoiRepository and read-only named-poses importer. It is physically hosted under
 `nav_tasks.nav_site_data` per PLAN, with byte-level old/new persistence tests;
-legacy entry points are not switched yet.
+legacy entry points forward to the shared outer runtime.
 The [observation adapters](docs/observation-adapters.md) now supply configured
 TF/odometry and static-grid/costmap ports plus supervised loop-closure polling.
 Their actual code composes with storage and the new task chain under fake ROS I/O;
