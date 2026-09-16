@@ -178,6 +178,29 @@ def test_deadline_fences_feedback_until_cleanup_settles():
     asyncio.run(scenario())
 
 
+def test_deadline_audit_failure_cannot_prevent_cancellation_cleanup():
+    """An audit callback runs before cancellation, but its failure cannot drop motion."""
+    async def scenario():
+        handle = _Handle()
+        session = ActionSession()
+        calls = []
+
+        def audit(state):
+            calls.append((state, handle.cancel_calls))
+            raise OSError('audit sink unavailable')
+
+        with pytest.raises(OSError, match='audit sink'):
+            await session.execute(_Client(_done(handle)), object, lambda raw: None,
+                                  server_timeout_sec=0, result_timeout_sec=0,
+                                  on_timeout=audit)
+        assert calls == [(ActionState.RESULT_TIMEOUT, 0)]
+        assert handle.cancel_calls == 1
+        assert not session.busy
+        await session.close()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize('status', [4, 5, 6])
 def test_already_completed_futures_win_even_with_zero_deadlines(status):
     """Immediate responses preserve the old wait_future done-before-timeout behavior."""

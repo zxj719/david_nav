@@ -8,11 +8,13 @@ Both action types use the same ActionSession and cannot bypass its motion slot.
 import math
 from typing import Callable
 
-from nav_tasks.adapters.ros.action_session import ActionClientLike, ActionSession, ActionState
+from nav_tasks.adapters.ros.action_session import (
+    ActionClientLike, ActionOutcome, ActionSession, ActionState)
 from nav_tasks.core.ports import Clock, FeedbackCallback
 from nav_tasks.core.retry import MonotonicClock
 from nav_tasks.domain.errors import ConfigError, RuntimeAssemblyError
 from nav_tasks.domain.tasks import NavGoal, NavOutcome, NavStatus, SpinGoal
+from nav_tasks.domain.types import PoseRecord
 
 _STATUS_NAMES = {
     0: 'UNKNOWN', 1: 'ACCEPTED', 2: 'EXECUTING', 3: 'CANCELING',
@@ -170,28 +172,10 @@ class Nav2Client:
             asyncio.CancelledError: Caller canceled; shared cleanup retains ownership.
             Exception: The shared session could not resolve action ownership safely.
         """
-        if self._spin_client is None:
-            raise ConfigError('Spin is not configured on this shared backend')
-        if (type(goal.target_yaw) not in (int, float) or
-                not math.isfinite(goal.target_yaw) or
-                abs(goal.target_yaw) > 3.4028234663852886e38):
-            raise ConfigError('target_yaw must be a finite float32 value')
-        seconds = goal.time_allowance_sec
-        if (type(seconds) not in (int, float) or not math.isfinite(seconds) or
-                seconds < 0 or seconds >= 2**31):
-            raise ConfigError('time_allowance_sec must be nonnegative and fit ROS Duration')
-        nanoseconds = int(seconds * 1000000000)
-
-        def build():
-            message = self._spin_goal_factory()
-            message.target_yaw = float(goal.target_yaw)
-            message.time_allowance.sec = nanoseconds // 1000000000
-            message.time_allowance.nanosec = nanoseconds % 1000000000
-            return message
-
         def feedback(raw):
             on_feedback(float(raw.feedback.angular_distance_traveled))
 
+        build = self._spin_factory(goal)
         result = await self._session.execute(
             self._spin_client, build, feedback,
             server_timeout_sec=self._spin_server_timeout)
@@ -208,6 +192,59 @@ class Nav2Client:
             return NavOutcome(NavStatus.CANCELED)
         return NavOutcome(NavStatus.FAILED, (
             f'Spin 终态 status={status}({_STATUS_NAMES.get(status, "?")})'))
+
+    async def navigate_pose(
+        self, pose: PoseRecord, on_feedback: Callable[[object], None], *,
+        server_timeout_sec: float, send_timeout_sec: float, result_timeout_sec: float,
+        on_timeout: Callable[[ActionState], None] | None = None,
+    ) -> ActionOutcome:
+        """Execute a Dock pose through the same clients and slot, retaining raw feedback.
+
+        Args:
+            pose: Already-resolved target; no POI lookup or snapping is performed.
+            on_feedback: Loop-thread callback receiving the complete ROS feedback wrapper.
+            server_timeout_sec: Stage readiness budget.
+            send_timeout_sec: Stage admission budget.
+            result_timeout_sec: Stage execution budget, starting after admission.
+            on_timeout: Synchronous deadline audit hook, before owned cleanup.
+
+        Returns:
+            Admission/terminal/settled-timeout result for the worker's frozen audit.
+
+        Raises:
+            Exception: Admission validation or motion cleanup failed; do not continue.
+            asyncio.CancelledError: Explicit cancellation after attempting owned cleanup.
+        """
+        return await self._session.execute(
+            self._client, lambda: self._build_pose(pose), on_feedback,
+            server_timeout_sec=server_timeout_sec, send_timeout_sec=send_timeout_sec,
+            result_timeout_sec=result_timeout_sec, on_timeout=on_timeout)
+
+    async def spin_action(
+        self, goal: SpinGoal, *, server_timeout_sec: float, send_timeout_sec: float,
+        result_timeout_sec: float, on_timeout: Callable[[ActionState], None] | None = None,
+    ) -> ActionOutcome:
+        """Execute a Dock correction with explicit stage deadlines on the shared slot.
+
+        Args:
+            goal: Signed yaw and server-side allowance, unchanged from ordinary Spin.
+            server_timeout_sec: Stage readiness budget.
+            send_timeout_sec: Stage admission budget.
+            result_timeout_sec: Stage result budget, separate from server allowance.
+            on_timeout: Synchronous deadline audit hook, before owned cleanup.
+
+        Returns:
+            Raw settled outcome; angular feedback is not converted into POI distance.
+
+        Raises:
+            Exception: Invalid goal or unresolved action ownership.
+            asyncio.CancelledError: Explicit cancellation after attempting owned cleanup.
+        """
+        build = self._spin_factory(goal)
+        return await self._session.execute(
+            self._spin_client, build, lambda raw: None,
+            server_timeout_sec=server_timeout_sec, send_timeout_sec=send_timeout_sec,
+            result_timeout_sec=result_timeout_sec, on_timeout=on_timeout)
 
     async def cancel(self) -> None:
         """Wait for the shared action session to settle its current goal.
@@ -253,8 +290,10 @@ class Nav2Client:
             f'goal={pose.frame_id}(x={pose.x:.2f}, y={pose.y:.2f}, yaw={pose.yaw:.2f}rad)')
 
     def _build_goal(self, goal: NavGoal) -> object:
+        return self._build_pose(goal.poi.map_pose)
+
+    def _build_pose(self, pose: PoseRecord) -> object:
         message = self._goal_factory()
-        pose = goal.poi.map_pose
         message.pose.header.frame_id = pose.frame_id
         message.pose.header.stamp = self._node.get_clock().now().to_msg()
         message.pose.pose.position.x = pose.x
@@ -266,3 +305,25 @@ class Nav2Client:
         message.pose.pose.orientation.z = quaternion['z']
         message.pose.pose.orientation.w = quaternion['w']
         return message
+
+    def _spin_factory(self, goal: SpinGoal) -> Callable[[], object]:
+        if self._spin_client is None:
+            raise ConfigError('Spin is not configured on this shared backend')
+        if (type(goal.target_yaw) not in (int, float) or
+                not math.isfinite(goal.target_yaw) or
+                abs(goal.target_yaw) > 3.4028234663852886e38):
+            raise ConfigError('target_yaw must be a finite float32 value')
+        seconds = goal.time_allowance_sec
+        if (type(seconds) not in (int, float) or not math.isfinite(seconds) or
+                seconds < 0 or seconds >= 2**31):
+            raise ConfigError('time_allowance_sec must be nonnegative and fit ROS Duration')
+        nanoseconds = int(seconds * 1000000000)
+
+        def build():
+            message = self._spin_goal_factory()
+            message.target_yaw = float(goal.target_yaw)
+            message.time_allowance.sec = nanoseconds // 1000000000
+            message.time_allowance.nanosec = nanoseconds % 1000000000
+            return message
+
+        return build

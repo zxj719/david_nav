@@ -35,8 +35,10 @@ rules; this relocation does not add origin rotation or new input validation.
 `skills/docking/{settle,finish}.py` retain the complete existing pure algorithms.
 The blocking [Dock workflow](docs/dock-workflow.md) now sequences approach
 admission, two navigation stages and settled-pose judgement behind worker ports.
-Its logs/results match legacy methods; the managed thread/action bridge and Dock
-runtime integration remain pending. It must not run on the asyncio or ROS thread.
+Its logs/results match legacy methods. DockWorker now owns and joins a real thread,
+bridges all actions to the same Nav2Client, preserves admission/result deadlines
+and fences canceled verdicts. Runtime configuration/ingress remain pending. The
+blocking policy must not run on the asyncio or ROS callback thread.
 `domain/footprint.py` owns the unchanged full-body static-map checker, also used
 through the `david_nav.dock_approach` compatibility exports.
 `core/handlers/navigate_to.py` sequences snap/anchor goals with per-segment retries;

@@ -36,3 +36,7 @@ nav_tasks
 * Add opt-in, independent action admission/result deadlines; retain late-handle
   cleanup and fail closed until terminal settlement. Leave runtime defaults and
   legacy Dock unchanged pending worker/backend integration.
+* Add a managed blocking Dock thread and action bridge to the sole Nav2 backend;
+  retain full feedback, frozen action logs and distinct deadlines. Join actual
+  thread termination on cancellation, retain failed cleanup and fence stale success.
+  Keep Dock runtime ingress/configuration and legacy entry switching pending.

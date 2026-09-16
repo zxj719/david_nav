@@ -122,6 +122,7 @@ class ActionSession:
         on_feedback: Callable[[object], None],
         *, server_timeout_sec: float, send_timeout_sec: float | None = None,
         result_timeout_sec: float | None = None,
+        on_timeout: Callable[[ActionState], None] | None = None,
     ) -> ActionOutcome:
         """Execute one goal, returning only a confirmed terminal/rejection outcome.
 
@@ -132,6 +133,7 @@ class ActionSession:
             server_timeout_sec: Maximum nonblocking wait for server availability.
             send_timeout_sec: Optional admission wait budget, separate from cleanup.
             result_timeout_sec: Optional result wait budget starting after admission.
+            on_timeout: Optional synchronous audit hook before deadline cleanup begins.
 
         Returns:
             Unavailable, rejected, terminal, or a timeout after confirmed cleanup.
@@ -198,7 +200,12 @@ class ActionSession:
             # A deadline is a policy failure, not evidence that motion stopped.
             # Do not hand the skill a failure it can continue from until cleanup
             # proves settlement. Cleanup failure propagates and retains ownership.
-            await self._cancel_attempt(attempt)
+            try:
+                if on_timeout is not None:
+                    on_timeout(phase)
+            finally:
+                # A broken audit sink must not prevent cancellation cleanup.
+                await self._cancel_attempt(attempt)
             return ActionOutcome(phase)
         except asyncio.CancelledError:
             await self._cancel_attempt(attempt)

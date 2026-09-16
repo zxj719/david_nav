@@ -74,9 +74,17 @@ confirmed rejection or terminal motion and any already-requested cancel ack.
 Cleanup timeout/error instead raises and keeps the slot owned; a skill must not
 interpret it as a settled segment failure and issue another goal. A TimeoutError
 from the transport itself is not a local deadline and does not release ownership.
-The Dock adapter still needs to select the old 10-second admission and per-stage
-result budgets, emit frozen action logs, and bridge the managed blocking worker.
-This additive session API does not yet activate Dock or change legacy run_action.
+The Dock worker bridge selects the old 10-second admission and per-stage result
+budgets, emits frozen action logs, and joins the blocking worker. An optional
+synchronous on_timeout audit callback runs before deadline cleanup; even if it
+raises, cleanup is still attempted. This additive API does not activate Dock's
+runtime ingress or change the existing legacy run_action entry.
+
+`navigate_pose` accepts a PoseRecord and forwards complete raw navigation feedback;
+`spin_action` uses the same validated Spin factory without distance feedback. Both
+return raw ActionOutcome to the Dock bridge for frozen action auditing, take
+explicit stage deadlines, and use the same clients/session as navigate/spin.
+They do not implement a second motion owner, snapping, retries or POI storage.
 
 ## Spin boundary
 

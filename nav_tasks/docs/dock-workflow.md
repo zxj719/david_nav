@@ -2,8 +2,8 @@
 
 `skills.docking.workflow.DockWorkflow` extracts the synchronous two-stage sequence
 from the existing node. It starts no ROS resources, worker or motion owner. A
-future managed worker must execute it off the asyncio/ROS callback thread and
-bridge DockMotionPort to the same Nav2Client used by ordinary navigation. The old
+managed DockWorker executes it off the asyncio/ROS callback thread and
+bridges DockMotionPort to the same Nav2Client used by ordinary navigation. The old
 node/entry remain unchanged and the public runtime still refuses Dock configs.
 This extraction is not a complete Dock integration or deployment.
 
@@ -50,5 +50,45 @@ without importing its ROS node. Seventeen branches at three headings compare
 result, action arguments, map-check pose, settling time and every log level/text.
 The actual dock_bench parser must derive identical timelines/verdicts. Additional
 tests enforce pre-action full-footprint rejection and legacy export identity.
-ROS action deadlines, worker joining, optional WS/same-manager ingress and real
-Dock runtime acceptance remain mandatory before the legacy node can be replaced.
+The managed worker and per-action bridge are now covered by additional tests;
+optional WS/same-manager ingress and real Dock runtime assembly/acceptance remain
+mandatory before the legacy node can be replaced.
+
+## Managed thread and action bridge
+
+`adapters.ros.dock_worker.DockWorker` starts one explicit non-daemon thread per
+admitted workflow. It owns a supervised join task and waits for actual thread
+termination, not just a completion future. All workflow pose/map callbacks are
+worker-safe injected ports. Production settling uses an interruptible Event.wait;
+the existing finish/settle algorithms themselves are unchanged.
+
+The blocking motion facade marshals each stage onto the owning asyncio loop.
+`Nav2Client.navigate_pose` and `spin_action` share the same clients/ActionSession
+as ordinary navigation. They add no POI lookup, snapping or retry. All ROS futures
+are awaited by that one loop; the worker only blocks on its own cross-thread
+answer future, never spins a ROS executor. Raw navigation feedback and the stage's
+approach-distance offset reach a loop-only callback without dropping other fields.
+The eventual ROS ingress must copy/forward those fields exactly as the old node.
+
+Stage readiness/send budgets remain 5/10 seconds, with the workflow's independent
+navigation or Spin-result budget. Deadline audit runs before owned cleanup; frozen
+action log lines match old run_action for both navigation and Spin. An audit-hook
+exception still runs cancellation cleanup. Cleanup exceptions are not converted
+to a normal false stage verdict: the worker owner remains busy until explicit
+cancel/close retry proves settlement.
+
+Cancellation fences queued/new stages, requests cancellation of the active shared
+action and joins both cleanup and the thread. Repeated execute cancellation or a
+canceled close waiter cannot abandon cleanup. Blocking pose/map callbacks cannot
+be forcibly stopped; ownership remains held until they return. A finished cleanup
+is idempotent, so a late old waiter cannot cancel newer shared-backend work.
+Exceptions retain ownership until cleanup succeeds; closing a worker does not
+destroy the backend or cancel ordinary navigation when the worker is idle.
+
+External server CANCELED/ABORTED remains an ordinary failed stage; the old measured
+finish policy can still accept a correct final pose. Explicit task cancellation
+is different: worker pose/sleep/admission guards and the final owner fence prevent
+a successful task result even if the old finish algorithm could have accepted it.
+TaskManager tests cover preemption to ordinary navigation only after real worker
+exit, with no stale arrival. This is fake-action integration, not physical stopping
+or a completed ROS Dock ingress deployment. See ADR-0006 for the thread decision.
