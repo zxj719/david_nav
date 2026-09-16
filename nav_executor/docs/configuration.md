@@ -39,15 +39,16 @@ configuration is also rejected before any runtime resource is constructed.
 
 `app.cli.build_help_text()` preserves the complete G16 help verbatim, including
 its historical executable name. Newly exposed options are documented here and
-in the dataclass/schema rather than changing the frozen text. The future outer
-entry must handle `--help` before configuration loading, print
-`ResolvedConfig.log_line()` once, and forward `ros_args` unchanged to ROS.
-This component commit does not add a partially working console executable.
+in the dataclass/schema rather than changing the frozen text. The installed
+`navigation_executor` entry handles `--help` before configuration loading, prints
+`ResolvedConfig.log_line()` once, and forwards `ros_args` unchanged to ROS.
+Without `--robot-profile`, it selects the installed david_config robot/david.yaml;
+reusable runtime classes do not embed robot-specific frames/topics.
 
 `ExecutorConfig.task_config()` maps explicitly to the public RuntimeConfig;
 `ws_options()` maps transport timings. Loop-closure threshold overrides now reach
-the supervised observer. Status cadence still awaits outer-root wiring; Dock IDs
-remain explicit and the incomplete task factory rejects them before I/O.
+the supervised observer; status cadence reaches the outer root. Dock IDs remain
+explicit and the outer root rejects them before ROS/storage I/O until integration.
 
 Schema ownership remains unique: shared frames and Nav2 odometry declarations
 stay with existing packages; reconnect_delay_sec stays with nav_bringup while
@@ -58,4 +59,5 @@ replacement for the whole robot profile or its navcfg validation.
 Tests compare help/defaults and supported legacy flags against the unchanged old
 executor, verify precedence/provenance/immutable results, alternative robot
 frames and topics, headless reads and invalid configuration rejection. Installed
-CLI execution, outer ROS lifecycle and the old executable shim remain pending.
+CLI and graceful signals have separate no-goal sandbox checks; the old executable
+shim remains pending. See [outer-runtime.md](outer-runtime.md) for ownership limits.

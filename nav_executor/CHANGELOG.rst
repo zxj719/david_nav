@@ -15,3 +15,7 @@ nav_executor
 * Add immutable configuration, CLI/environment/YAML/profile precedence, headless
   section loading and frozen help. Keep robot literals in data and expose explicit
   task/transport bindings and per-value provenance; entry-point switching is pending.
+* Add an ordinary-POI console entry, private ROS host and owned outer runtime.
+  Graceful signals retain ROS callbacks until task cancellation settles; failed
+  cleanup retains resources for retry. Dock/Spin and the legacy shim remain pending.
+* Add opt-in, no-goal ROS/WS signal checks, separate from normal test collection.

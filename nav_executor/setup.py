@@ -18,4 +18,5 @@ setup(
     maintainer='zhangxingjian', maintainer_email='xingjian.zhang@amicro.com.cn',
     description='Navigation protocol and public task API transport adapters.',
     license='Apache-2.0', tests_require=['pytest'],
+    entry_points={'console_scripts': ['navigation_executor = nav_executor.app.cli:main']},
 )

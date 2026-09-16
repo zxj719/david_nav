@@ -1,6 +1,9 @@
 """Frozen help and argparse surface; ROS startup is owned by the outer runtime."""
 
 import argparse
+import asyncio
+from pathlib import Path
+import sys
 from typing import Sequence
 
 from nav_tasks.api import ConfigError
@@ -72,3 +75,39 @@ def parse_arguments(raw_args: Sequence[str]) -> tuple[dict, list[str]]:
                                 type=field.type if field.type in (int, float) else str)
     parsed, remaining = parser.parse_known_args(list(raw_args))
     return vars(parsed), remaining
+
+
+def main(args: Sequence[str] | None = None) -> int:
+    """Run the configured executor, with help handled before any ROS or file access.
+
+    Args:
+        args: Explicit arguments, or None to use sys.argv without the executable name.
+
+    Returns:
+        Zero for help/normal exit, signal-derived shutdown status, or one on failure.
+    """
+    raw = list(sys.argv[1:] if args is None else args)
+    if any(arg in ('-h', '--help') for arg in raw):
+        print(build_help_text())
+        return 0
+    from nav_executor.app.config import load_configuration
+    from nav_executor.app.logging import log_line
+    from nav_executor.app.signals import run_with_signals
+
+    try:
+        explicit, _ = parse_arguments(raw)
+        profile = explicit.get('robot_profile')
+        if profile is None:
+            from ament_index_python.packages import get_package_share_directory
+            profile = Path(get_package_share_directory('david_config')) / 'robot' / 'david.yaml'
+        resolved = load_configuration(raw, profile_path=Path(profile))
+        return asyncio.run(run_with_signals(resolved))
+    except KeyboardInterrupt:
+        return 130
+    except Exception as error:
+        log_line(f'executor failed: {type(error).__name__}: {error}')
+        return 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

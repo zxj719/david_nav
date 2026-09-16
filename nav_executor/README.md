@@ -4,8 +4,9 @@ Navigation WS v1 protocol and ingress adapters, separate from task ownership.
 The package includes pure commands/codecs, a public-task-API command adapter,
 and a reconnect-persistent outbox. The [WS lifecycle](docs/ws-client.md) now owns
 connection-scoped receive/heartbeat/send work through an injected connector.
-It does not replace the existing runtime or
-add a runnable WebSocket entry point yet.
+The [outer runtime](docs/outer-runtime.md) now provides an installed
+`ros2 run nav_executor navigation_executor` entry for ordinary POIs. Dock/Spin
+integration and the legacy executable shim remain pending; production is unchanged.
 
 ```python
 from nav_executor.protocol.codec import parse_command, build_arrived_event
@@ -22,16 +23,17 @@ event builders. Existing `david_nav.navigation_protocol` imports remain valid
 and preserve class/function identity. The new outbox uses the same JSON settings
 as the unchanged legacy caller. New-chain tests cover G1–G15 wire scenarios;
 the original G1–G16 still exercise the legacy runtime. New status and audit helpers
-cover G16 STATUS and exact G8/G15 logs through the new chain, but CLI/help and
-actual runtime wiring remain pending; this is not full runtime acceptance.
+cover G16 STATUS and exact G8/G15 logs through the new chain. CLI/help and
+ordinary-runtime wiring are present, but this is not full Dock/runtime acceptance.
 
 Malformed non-navigation frames retain their old KeyError/TypeError/ValueError
 behavior in this relocation. R1 is a later separate red/green repair; do not
 mistake this migration for a robustness fix. No handshake or new wire command
 is introduced. The [configuration loader](docs/configuration.md) now resolves
 explicit robot data, YAML, NAV_WS_URL and CLI values with per-key provenance.
-Its schema declares consumed executor settings; CLI/help functions are available,
-but the installed entry point and outer ROS lifetime have not been switched.
+Its schema declares consumed executor settings. The new entry owns its private
+ROS context and preserves it until task cancellation and resource cleanup finish;
+the old executable has not been switched.
 
 Only `nav_tasks.api` may be imported from the task package. The reverse dependency
 is forbidden. `TaskCommandAdapter` calls TaskApi and the administrative PoiApi,
