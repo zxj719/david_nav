@@ -39,6 +39,22 @@ def build_parser() -> argparse.ArgumentParser:
         prog='navrun', description='Navigation run supervisor and recorder.')
     subparsers = parser.add_subparsers(dest='subcommand', required=True)
 
+    selftest_parser = subparsers.add_parser(
+        'selftest', help='private Nav2 experiment; requires optional nav_sim package')
+    selftest_parser.add_argument('--mode', required=True, choices=('tour', 'precise'))
+    selftest_parser.add_argument('--robot', default='david')
+    selftest_parser.add_argument('--source-root', type=Path)
+    selftest_parser.add_argument('--output-dir', type=Path,
+                                 help='new private directory; default: a temporary run')
+    selftest_parser.add_argument('--timeout', type=float, default=180.0)
+    authority = selftest_parser.add_mutually_exclusive_group()
+    authority.add_argument('--prepare-only', action='store_true',
+                           help='write private inputs without ROS; not an executed selftest')
+    authority.add_argument('--startup-only', action='store_true',
+                           help='start/observe/stop private Nav2 without goals; not closed-loop')
+    authority.add_argument('--allow-goals', action='store_true',
+                           help='explicitly permit two simulated navigation tasks in domain 99')
+
     from nav_bringup.navrun.locking import DEFAULT_LOCK_PATH
 
     gc_parser = subparsers.add_parser('gc', help='prune completed run artifacts; keep summaries')
@@ -257,6 +273,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     args.invocation = ('navrun', *(sys.argv[1:] if argv is None else list(argv)))
+    if args.subcommand == 'selftest':
+        try:
+            from nav_sim.selftest import run
+        except ImportError as error:
+            print(f'selftest requires the optional nav_sim package and dependencies: {error}',
+                  file=sys.stderr)
+            return 2
+        return run(args)
     if args.subcommand == 'gc':
         from nav_bringup.navrun import gc
 

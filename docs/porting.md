@@ -58,9 +58,11 @@ navcfg --help
 对比 `git diff --stat` 应只改变新配置包（基础通用缺陷须单独提交说明）。
 不要修改David冻结金样来迎合新机器人。
 
-PLAN要求的 `navrun selftest --robot ... --mode tour|precise` 闭环尚属P3.5：
-仿真假件已存在不代表该CLI/完整闭环已完成。实现后应隔离真实驱动、域和可写状态，
-实跑导航目标仍受当前现场规则约束，不因为称为仿真就擅自发布运动请求。
+`navrun selftest --robot NAME --mode tour|precise` 已接完整P3.5协调器（需可选nav_sim包）。
+先用 `--prepare-only` 写私有合成场景，或 `--startup-only` 只验证真实隔离栈启动/退出；
+两者都明确 `complete=false`，不是闭环通过。完整模式需显式 `--allow-goals`，再依次完成
+POI＋两段Dock、独立TF/odom与事件验收并正常清理才可complete=true。
+带目标实跑仍待审核且受现场规则约束，不因为称为仿真就擅自发布运动请求。
 
 ## 4. 现场验收与回滚
 

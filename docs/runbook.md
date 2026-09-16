@@ -82,8 +82,12 @@ logs、metrics、bag和summary.md；latest指向最新记录，但不单凭链�
   source/installed资源复用up的离线准备；唯一场地自动选，多场地需`--site NAME`。
   原显式profile/mode/site/URDF/BT接口保留，但不与robot选择器混用。
   不调用主机规划、不起ROS、不写run；离线通过不代表在线或实机验收，详见[porting.md](porting.md)。
-- P3.5：selftest闭环CLI/流程仍待；假底盘/假定位组件存在不等于POI与两段Dock闭环完成。
-- P7.4：两历史skip和规范最终收尾未结束；现有全仓绿不足以宣称全部AUTO完成。
+- P3.5：selftest CLI/完整协调器已接入；`--prepare-only`离线生成场景，
+  `--startup-only`仅验证真实domain99栈启动/观察/退出，都不声称闭环成功。
+  显式`--allow-goals`才请求POI＋两段Dock；当前S1禁止agent自动运行此模式，实际闭环待审核。
+  独立位置/位移、完整双通道事件及所有子进程正常清理均成立才complete=true，详见nav_sim README。
+- P7.4：headless Ctrl+C旧skip已修复；剩版权归属skip和规范最终收尾，
+  现有全仓绿不足以宣称全部AUTO完成。
 
 ## 人工验收与回滚
 

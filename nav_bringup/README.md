@@ -35,7 +35,13 @@ The read-only `ls/show` interfaces and frozen parameter/overlay exports are avai
 `navrun status/down` contact the current cooperative `up` owner under its lease.
 `navrun gc` previews or applies the shared completed-record retention policy.
 `navcfg validate --robot NAME --mode MODE` selects source or installed resources
-and validates them offline (P7.A2). Closed-loop selftest (P3.5) is still pending.
+and validates them offline (P7.A2). `navrun selftest --mode tour|precise` lazily
+loads the optional `nav_sim` package; it is not a reverse package dependency.
+Select `--prepare-only` (write inputs without ROS), `--startup-only` (real private
+domain-99 startup/cleanup without goals), or explicit `--allow-goals` (full experiment).
+Only a closed-loop result with `complete=true` proves both POI and Dock completion.
+The full runner is implemented; goal-bearing execution remains pending under the
+current safety rules. See [nav_sim](../nav_sim/README.md) for guards and result semantics.
 
 ### Validate a robot configuration
 

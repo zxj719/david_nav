@@ -30,8 +30,8 @@ Nav2。显式沙箱检查可以启动隔离 Nav2，但仅发布零速、不发�
 
 `selftest_evidence.check_evidence` 接收独立的NavEvent记录与WS帧，核对一个普通POI、
 随后一个两段Dock的完整事件证据。它不启动ROS、不产生目标，也不模拟或冒充Nav2。
-隔离场景和受管启动器已实现，完整runner/CLI与闭环实跑验收仍待；此模块的
-`complete` **仅指事件证据完整**。
+隔离场景、受管启动器和完整runner/CLI已实现；带目标闭环实跑验收仍待，此模块的
+`complete` **仅指事件证据完整**，不等于运行器最终结果。
 
 每例必须有唯一admission、正确POI与模式阶段、同task/sub/generation、终态成功且释放所有权。
 两例必须由同一producer按序完成，第二例generation递增；Dock还必须按顺序通过完整
@@ -77,3 +77,42 @@ DockWorkflow、静态footprint算法和协议编码器生成事件，运动/时�
 adapter未收到输入前保持静默也不是错误。检查最后要求所有13个进程有正常退出记录。
 这证明真实安装栈的零速接线与收尾，不证明轨迹跟踪、停稳或POI/Dock闭环。沙箱文件不匹配
 `test_*.py`，不会被常规colcon测试自动启动。
+
+## 完整协调器与navrun入口（闭环运行尚待审核）
+
+`navrun selftest --mode tour|precise [--robot NAME]` 由nav_bringup懒加载可选nav_sim，
+避免包依赖成环。默认robot=david；可用 `--source-root SRC` 读源码资源，否则读安装索引。
+`--output-dir DIR` 必须是新目录，省略则保留独占临时目录；失败也不自动删除证据。
+必须显式选择以下一种，不选择即报错，绝不默认发任务：
+
+- `--prepare-only`：离线写合成场景和哈希计划，不导入运行器、不起ROS、不绑定端口；
+  允许非99环境。输出 `kind=prepared, executed=false, complete=false`，不是零写dry-run。
+- `--startup-only`：domain99且无用户栈时，起真实私有Nav2＋假底盘/定位；观察所有lifecycle
+  ACTIVE、地图、TF/odom、WS与进程后正常关闭，不创建速度发布器、不派发目标。
+  成功输出 `passed=true, complete=false, kind=startup_only`，不声称闭环通过。
+- `--allow-goals`：操作人员明确允许的完整运行，domain99/无用户栈门禁仍生效；依次发送一个
+  普通POI与两段Dock的navigate_to。当前RUNBOOK S1不允许agent自动执行这个选项；
+  域隔离/假底盘并不自动构成运动授权。
+
+`--timeout SEC` 默认180，必须有限正数，是包括启动在内的总协作期限；超时进入独立有界
+清理，不是强制限制每次原生ROS调用耗时。运行器不做主机preflight、daemon/shm清理或全局
+按名杀进程。启动前两次只读检查现场栈，检查与启动不是系统级互斥，操作者不得同时起其它栈。
+
+观察器使用私有Context和显式SingleThreadedExecutor，不启用进程全局文件日志或rosout；
+每轮最多16次非阻塞spin，lifecycle查询最多每节点2Hz。只订阅私有NavEvent、map、odom和TF。
+WS仅绑定动态loopback端口，只接受一次连接，断开/重连失败，禁止重放命令；ping只答pong。
+WS/ROS数据入口拒绝重复键、非对象/非有限值/深度超限；每帧64KiB、总5万条且8MiB，
+ROS内层JSON先限60KB以预留信封空间，溢出即失败而非静默截断。落盘observations.jsonl的
+通道信封有少量额外开销；磁盘日志和launch日志不包含在该内存证据上限内。
+
+每例除匹配WS到达和任务释放所有权，还须新鲜map→nav_base TF满足目标xy/yaw容差，
+并看到本例独立fake-chassis odom位移大于5cm；不会单凭Goal succeeded报成功。
+最终还必须通过原事件验收器，两个任务/入位阶段/轮廓校验/停稳测量完整，且所有子进程
+正常退出、WS和ROS资源清理完成。取消（包括收尾时再次取消）、异常/超时/错误事件均不能
+成功；屏蔽取消直到自有资源清理完成，再写失败结果并传播取消，不丢弃进程句柄。
+`result.json` 与不可变selftest.json分离，只有 `kind=closed_loop, complete=true` 才是完整
+自测成功。CLI退出0表示所选种类通过，1表示已运行但实验失败，2表示配置/门禁错误，130表示中断。
+
+显式 `bash sandbox_tests/run_coordinator_checks.sh` 只运行真实CLI的startup-only两模式，
+检查上述实际观察与清理路径，仍要求complete=false。常规包测用内存端口检查两任务协调、
+独立位姿/位移、错误事件、断连和取消清理；这些不构成真Nav2闭环执行证据。

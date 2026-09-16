@@ -9,6 +9,9 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>david_nav_msgs</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>python3-websockets</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
@@ -32,7 +35,6 @@
   <test_depend>david_config</test_depend>
   <test_depend>example_diffdrive_config</test_depend>
   <test_depend>rcl_interfaces</test_depend>
-  <test_depend>lifecycle_msgs</test_depend>
   <test_depend>python3-pytest</test_depend>
   <export><build_type>ament_python</build_type></export>
 </package>
