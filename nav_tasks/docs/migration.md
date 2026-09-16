@@ -12,6 +12,7 @@ only through TaskApi, never by importing core implementation classes.
 | david_nav.grid_map_view | nav_tasks.domain.grid |
 | david_nav.dock_settle | nav_tasks.skills.docking.settle |
 | david_nav.dock_finish | nav_tasks.skills.docking.finish |
+| david_nav.dock_approach | nav_tasks.domain.footprint |
 | david_nav.navigation_protocol | nav_executor.protocol.messages + codec |
 
 Documentation/annotations were prepared in a separate commit. The relocation

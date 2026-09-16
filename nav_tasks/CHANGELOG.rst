@@ -28,3 +28,8 @@ nav_tasks
   server allowance. Preserve one-attempt policy and block cross-action overlap.
 * Retain multi-client construction rollback and failed teardown stages for retry;
   never destroy either client while shared motion cleanup is unresolved.
+* Extract the blocking Dock workflow behind explicit worker ports, preserving
+  approach admission, stage/finish policy and frozen log lines. Keep runtime
+  integration disabled until managed thread/action bridging is complete.
+* Move full-footprint static-map geometry unchanged into domain/footprint with
+  legacy identity-preserving exports; verify workflow logs with dock_bench parsing.
