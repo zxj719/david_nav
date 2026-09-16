@@ -11,7 +11,10 @@ and owns late-handle cleanup; it is not yet connected to legacy entry points.
 `api.PoiApi` exposes mark/rename operations separately from exclusive motion
 ownership. The new `nav_executor` command adapter uses only this public module;
 its fake-action integration tests exercise the new chain's G1–G15 wire scenarios.
-Actual runtime assembly and G16 CLI/status integration remain pending.
+Public snapshots include skill-supplied target/phase labels, fenced against stale
+callbacks. Optional immutable retry observations drive the frozen RetryAudit
+logger outside pure policy. New-chain tests cover G16 STATUS and G8/G15 audit
+text; actual runtime assembly and G16 CLI/help integration remain pending.
 
 ```python
 from nav_tasks.api import PoseRecord

@@ -20,6 +20,7 @@ class TaskContext:
         feedback: Callback accepting remaining distance for the current task only.
         cancel_requested: Whether the manager has begun explicit cancellation.
         start_segment: Mark a new segment STARTING without emitting an arrival event.
+        describe: Update public target/phase labels without changing motion ownership.
     """
 
     task_id: str
@@ -28,6 +29,7 @@ class TaskContext:
     feedback: FeedbackCallback
     cancel_requested: Callable[[], bool] = lambda: False
     start_segment: Callable[[], None] = lambda: None
+    describe: Callable[[str, str], None] = lambda target_id, phase: None
 
     def check_cancelled(self) -> None:
         """Fence new segments and retries after explicit task cancellation.

@@ -89,6 +89,9 @@ class TaskSnapshot:
     generation: int = 0
     remaining_distance: float = 0.0
 
+    target_id: str | None = None
+    phase: str | None = None
+
 
 class EventKind(str, Enum):
     """Domain event categories, translated to wire frames by an ingress adapter."""

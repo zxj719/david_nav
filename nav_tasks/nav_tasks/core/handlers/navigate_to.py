@@ -2,11 +2,11 @@
 
 from dataclasses import dataclass
 import math
-from typing import Mapping
+from typing import Callable, Mapping
 
 from nav_tasks.core.ports import Clock, GoalResolver, NavigationBackend, PoiRepository
 from nav_tasks.core.registry import TaskContext
-from nav_tasks.core.retry import MonotonicClock, RetryPolicy
+from nav_tasks.core.retry import MonotonicClock, RetryFailure, RetryPolicy
 from nav_tasks.domain.errors import ConfigError, PoiNotFoundError
 from nav_tasks.domain.tasks import NavGoal, NavOutcome, NavStatus
 from nav_tasks.domain.types import StoredPoi
@@ -26,6 +26,7 @@ class NavigateToPoi:
         self, backend: NavigationBackend, pois: PoiRepository, resolver: GoalResolver,
         retry: RetryPolicy = RetryPolicy(), clock: Clock | None = None,
         progress_min_interval_sec: float = 1.0,
+        on_failure: Callable[[TaskContext, RetryFailure], None] | None = None,
     ) -> None:
         """Inject ports and explicit interval/retry policy.
 
@@ -36,6 +37,7 @@ class NavigateToPoi:
             retry: Per-segment failure retry policy.
             clock: Monotonic interval clock; defaults to the production clock.
             progress_min_interval_sec: Minimum feedback-report interval per attempt.
+            on_failure: Optional synchronous retry audit observer, outside motion policy.
 
         Raises:
             ConfigError: Feedback interval is negative or nonfinite.
@@ -48,6 +50,7 @@ class NavigateToPoi:
         self._retry = retry
         self._clock = clock if clock is not None else MonotonicClock()
         self._progress_interval = progress_min_interval_sec
+        self._on_failure = on_failure
 
     def decode(self, payload: Mapping[str, object]) -> NavigateToPoiRequest:
         """Resolve a POI ID before an existing motion task can be preempted.
@@ -91,13 +94,15 @@ class NavigateToPoi:
         resolved = self._resolver.resolve(anchor)
         if resolved is None:
             return NavOutcome(NavStatus.FAILED, '目标点不可达，且未找到可行扩圈点')
-        outcome = await self._navigate(context, resolved.poi)
+        phase = 'to_snap' if resolved.used_snap else 'to_anchor'
+        outcome = await self._navigate(context, resolved.poi, phase)
         if outcome.succeeded and resolved.used_snap and self._resolver.is_admissible(anchor):
-            outcome = await self._navigate(context, anchor)
+            outcome = await self._navigate(context, anchor, 'to_anchor')
         return outcome
 
-    async def _navigate(self, context: TaskContext, poi: StoredPoi) -> NavOutcome:
+    async def _navigate(self, context: TaskContext, poi: StoredPoi, phase: str) -> NavOutcome:
         context.check_cancelled()
+        context.describe(poi.poi_id, phase)
         context.start_segment()
         goal = NavGoal(poi, context.task_id, context.sub_id)
 
@@ -125,4 +130,8 @@ class NavigateToPoi:
                 # so the manager generation fence alone cannot reject it.
                 accepting = False
 
-        return await self._retry.run(attempt, self._clock)
+        def observe(failure: RetryFailure) -> None:
+            if self._on_failure is not None:
+                self._on_failure(context, failure)
+
+        return await self._retry.run(attempt, self._clock, observe)

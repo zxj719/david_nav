@@ -24,6 +24,8 @@ class _Active:
     remaining: float = 0.0
     cancel_requested: bool = False
     accept_feedback: bool = True
+    target_id: str | None = None
+    phase: str | None = None
 
 
 class TaskManager:
@@ -114,7 +116,7 @@ class TaskManager:
             return TaskSnapshot(self._state)
         return TaskSnapshot(
             self._state, active.request.task_id, active.request.sub_id,
-            active.generation, active.remaining)
+            active.generation, active.remaining, active.target_id, active.phase)
 
     def subscribe_events(self) -> asyncio.Queue[TaskEvent]:
         """Subscribe to subsequent events without replaying earlier events.
@@ -192,7 +194,8 @@ class TaskManager:
         context = TaskContext(
             active.request.task_id, active.request.sub_id, active.generation,
             lambda remaining: self._feedback(active, remaining),
-            lambda: active.cancel_requested, lambda: self._starting(active))
+            lambda: active.cancel_requested, lambda: self._starting(active),
+            lambda target, phase: self._describe(active, target, phase))
         try:
             outcome = await handler(context, payload)
             if not isinstance(outcome, NavOutcome) or not isinstance(outcome.status, NavStatus):
@@ -231,6 +234,12 @@ class TaskManager:
         self._check_loop()
         if self._is_current(active) and active.accept_feedback:
             self._state = TaskState.STARTING
+
+    def _describe(self, active: _Active, target_id: str, phase: str) -> None:
+        self._check_loop()
+        if self._is_current(active) and active.accept_feedback:
+            active.target_id = target_id
+            active.phase = phase
 
     def _feedback(self, active: _Active, remaining: float) -> None:
         self._check_loop()

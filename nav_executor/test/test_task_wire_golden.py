@@ -142,7 +142,7 @@ class _Resolver:
 
 
 class _Harness:
-    def __init__(self, outcomes, resolver=None):
+    def __init__(self, outcomes, resolver=None, on_failure=None):
         self.clock = _Clock()
         self.client = _Client(outcomes)
         self.repository = _Repository()
@@ -152,7 +152,8 @@ class _Harness:
         self.backend = Nav2Client(node, '/navigate_to_pose', 0.1, client=self.client,
                                   goal_factory=_message, clock=self.clock)
         skill = NavigateToPoi(
-            self.backend, self.repository, resolver or DirectGoalResolver(), clock=self.clock)
+            self.backend, self.repository, resolver or DirectGoalResolver(), clock=self.clock,
+            on_failure=on_failure)
         registry = CommandRegistry()
         registry.register('navigate_to', skill.decode, skill.run)
         self.tasks = TaskManager(registry, self.backend.cancel)
@@ -445,10 +446,19 @@ def test_g14_directory_update_and_mark_do_not_preempt_navigation():
 
 def test_g15_arrival_retained_across_failed_send_before_later_admin_frames():
     """New core-to-outbox chain keeps arrival ahead of frames queued while disconnected."""
+    from nav_executor.app.logging import OutboundAudit
+
     async def scenario():
         harness = _Harness([4])
         audited = []
-        outbox = ReliableOutbox(on_sent=lambda frame, replay: audited.append((frame, replay)))
+        lines = []
+        audit = OutboundAudit(lines.append)
+
+        def sent(frame, replay):
+            audited.append((frame, replay))
+            audit.on_sent(frame, replay)
+
+        outbox = ReliableOutbox(on_sending=audit.on_sending, on_sent=sent)
         pump = asyncio.create_task(harness.adapter.pump_events(outbox.put))
 
         async def fail_send(encoded):
@@ -479,6 +489,7 @@ def test_g15_arrival_retained_across_failed_send_before_later_admin_frames():
         assert [json.loads(frame)['event_type'] for frame in received] == [
             'on_arrived', 'on_mark_poi_ack', 'on_mark_poi_success']
         assert [replay for _, replay in audited] == [True, False, False]
+        assert lines == ['OUT RESENT(断联重发): on_arrived request_id=req_1 sub_id=1']
         assert outbox.pending_count == 0
         for task in (sender, pump):
             task.cancel()
@@ -544,6 +555,89 @@ def test_detaching_adapter_does_not_cancel_task_ownership():
         handle.finish(4)
         await _settle()
         assert harness.tasks.status().state == TaskState.IDLE
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_g16_status_through_new_chain_tracks_snap_anchor_and_idle():
+    """Read-only public snapshots supply the exact legacy status fields."""
+    from nav_executor.app.status import format_status_line
+
+    async def scenario():
+        harness = _Harness([None, None], _Resolver(True))
+        poses = SimpleNamespace(current_map_pose=lambda: PoseRecord('map', 1, 2, 0, 0.5, 0))
+        await harness.adapter.handle_message(dict(_NAVIGATE))
+        first = await harness.client.started.get()
+        assert harness.tasks.status().target_id == 'POI_001'
+        assert harness.tasks.status().phase == 'to_snap'
+        first.progress(1.234)
+        await harness.adapter.next_event()
+        assert format_status_line(harness.tasks.status(), poses) == (
+            'STATUS state=navigating poi=POI_001 phase=to_snap d2g=1.23m '
+            'x=1.00 y=2.00 yaw=0.50rad')
+        frozen = harness.tasks.status()
+        first.finish(4)
+        second = await harness.client.started.get()
+        assert harness.tasks.status().phase == 'to_anchor'
+        assert harness.tasks.status().state == TaskState.STARTING
+        assert frozen.phase == 'to_snap'
+        assert format_status_line(harness.tasks.status(), poses) == (
+            'STATUS state=starting poi=POI_001 phase=to_anchor d2g=1.23m '
+            'x=1.00 y=2.00 yaw=0.50rad')
+        second.progress(1.234)
+        await harness.adapter.next_event()
+        assert format_status_line(harness.tasks.status(), poses) == (
+            'STATUS state=navigating poi=POI_001 phase=to_anchor d2g=1.23m '
+            'x=1.00 y=2.00 yaw=0.50rad')
+        second.finish(4)
+        assert _wire(await harness.adapter.next_event()) == _ARRIVED
+        assert format_status_line(harness.tasks.status(), poses) == (
+            'STATUS state=idle poi=- phase=- d2g=- x=1.00 y=2.00 yaw=0.50rad')
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_g8_new_chain_retry_audit_preserves_frozen_lines():
+    """The new retry observer reports each failure before delay or final error."""
+    from nav_tasks.app.logging import RetryAudit
+
+    async def scenario():
+        lines = []
+        harness = _Harness([6, 6], on_failure=RetryAudit(lines.append))
+        await harness.adapter.handle_message(dict(_NAVIGATE))
+        frame = await harness.adapter.next_event()
+        detail = frame['error_message'].split(': ', 1)[1]
+        assert lines == [
+            '[nav2_action_bridge] NAV FAILURE attempt 1/2 request_id=req_1 sub_id=1: ' + detail,
+            '[nav2_action_bridge] suppressing failure report, re-publishing goal in '
+            '1.0s (attempt 2/2)',
+            '[nav2_action_bridge] NAV FAILURE attempt 2/2 request_id=req_1 sub_id=1: ' + detail,
+            '[nav2_action_bridge] retry budget exhausted (2 attempts) — '
+            'reporting on_error to server: ' + detail,
+        ]
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_retry_audit_starts_a_fresh_budget_for_each_navigation_segment():
+    """Snap and anchor retain independent failure logs without premature wire errors."""
+    from nav_tasks.app.logging import RetryAudit
+
+    async def scenario():
+        lines = []
+        harness = _Harness([6, 4, 6, 4], _Resolver(True), RetryAudit(lines.append))
+        await harness.adapter.handle_message(dict(_NAVIGATE))
+        assert _wire(await harness.adapter.next_event()) == _ARRIVED
+        assert len(lines) == 4
+        assert all('NAV FAILURE attempt 1/2 request_id=req_1 sub_id=1: ' in lines[i]
+                   for i in (0, 2))
+        assert 'goal=map(x=0.50,' in lines[0]
+        assert 'goal=map(x=1.00,' in lines[2]
+        assert lines[1] == lines[3]
+        assert harness.adapter._events.empty()
         await harness.close()
 
     asyncio.run(scenario())

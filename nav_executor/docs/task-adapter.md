@@ -46,9 +46,24 @@ and disconnect replay. `test_outbox.py` covers serialization, cancellation,
 competing senders, audit failure and loop confinement. No ROS goal or velocity
 is sent by these tests.
 
-The new-chain tests do not yet cover G16 CLI/status or exact G8 retry/G15 resend
-runtime log lines. Original golden tests still cover those through the old
-runtime. Actual WS lifecycle/ROS port assembly, Dock/Spin and entry-point shims
+The new chain now supplies target/phase through immutable public TaskSnapshot
+observations and covers exact G16 STATUS text across snap/anchor/idle transitions.
+`app.status.print_status_loop` keeps the legacy 0.25-second poll, transition output
+and active-only heartbeat without reaching into task-manager internals. The
+runtime must supervise it and inject `app.logging.log_line` as its line sink.
+An admitted generic task may have no target/phase until its skill describes it;
+these labels render as `-`, rather than leaking wire payloads into the manager.
+
+`nav_tasks.app.logging.RetryAudit` can be injected into NavigateToPoi to preserve
+the G8 failure/retry/exhaustion lines. Retry notices are immutable, synchronous
+observations before the delay or final outcome, not an alternative retry policy.
+Success/cancellation does not invoke the observer; observer exceptions propagate
+as they did with the old synchronous logger. `app.logging.OutboundAudit` plugs
+into both ReliableOutbox callbacks to preserve pre-send errors and successful
+terminal/replay lines (including G15). Healthy progress remains quiet.
+
+G16 CLI/help migration is still pending. Actual WS lifecycle/ROS port assembly,
+Dock/Spin, observer wiring at the assembly root and entry-point shims
 remain pending; P6.1/P6.2/P6.4 must not be marked done based on these tests alone.
 
 Legacy malformed administrative commands still raise KeyError/ValueError; R1

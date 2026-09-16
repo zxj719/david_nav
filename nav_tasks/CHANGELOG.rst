@@ -12,3 +12,5 @@ nav_tasks
 * Add one-attempt Nav2 backend, shared action ownership and no-spin future helpers;
   retain timed-out cleanup, wait for terminal cancellation and stamp after readiness.
 * Export PoiApi and MarkPoiResult for transport-independent administrative commands.
+* Expose fenced target/phase observations and optional retry auditing without
+  changing retry policy, motion ownership or legacy runtime entry points.

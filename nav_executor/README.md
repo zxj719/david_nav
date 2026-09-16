@@ -19,8 +19,9 @@ CommandParseError. `protocol/codec.py` retains parse_command and all ordered
 event builders. Existing `david_nav.navigation_protocol` imports remain valid
 and preserve class/function identity. The new outbox uses the same JSON settings
 as the unchanged legacy caller. New-chain tests cover G1–G15 wire scenarios;
-the original G1–G16 still exercise the legacy runtime. G16 CLI/status and exact
-runtime audit-log migration remain pending, so these are not full runtime acceptance.
+the original G1–G16 still exercise the legacy runtime. New status and audit helpers
+cover G16 STATUS and exact G8/G15 logs through the new chain, but CLI/help and
+actual runtime wiring remain pending; this is not full runtime acceptance.
 
 Malformed non-navigation frames retain their old KeyError/TypeError/ValueError
 behavior in this relocation. R1 is a later separate red/green repair; do not
