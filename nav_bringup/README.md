@@ -546,8 +546,34 @@ evicted IDs and monitor restarts can admit duplicates, and partial disk writes
 need offline inspection. Persisted IDs let offline consumers identify them.
 The receiver never republishes, so this ingestion path cannot create an echo loop.
 
-Task and Dock publishers are connected in nav_tasks. Navrun's own `/nav/events`
-production, including events before monitor startup and after its shutdown,
-remains unfinished P6.6 work; local navrun JSONL recording is unchanged. Do not
-mark the full event chain complete from ingestion tests or assume DDS delivery,
-physical stopping, task success, or production deployment from these records.
+Task and Dock publishers are connected in nav_tasks. The same monitor node now
+also publishes local `source=navrun` timeline records, including history written
+before monitor startup. It keeps the recorded timestamp and uses a persistent
+`navrun:<uuid>:<byte-offset>` identity. Incoming records bearing `__nav_event`
+are never forwarded; the receiver suppresses its own persistent namespace even
+outside its LRU window. No event payload, task result or motion policy is changed.
+
+`RunEventStream` acquires a run-local `.nav_event_publisher.lock` lease and
+atomically replaces `nav_event_cursor.json`. It never rewrites the timeline.
+One pump reads at most 128 fragments / 1 MiB, with a 64 KiB record limit. The
+monitor pumps at startup, on its existing sampling timer (default 5 seconds),
+and once during cleanup. Partial trailing lines wait; oversized or invalid
+complete records are skipped with category-only warnings. Detected replacement
+or shrinkage seals the stream. A publication exception leaves that record for
+the next pump; failed checkpoints are retried even while idle. Crash/restart
+may replay IDs: a cursor is not a durable DDS-delivery acknowledgement, and
+volatile subscribers may miss events. File locks are released before publication.
+
+Outward data is a conservative projection: token-like `name/phase/stage/mode/
+robot/site/exit_reason`, integer `pid/exit_code/return_code/signal/bytes/
+removed_bytes`, boolean `found/exited_early/success`, plus `record_offset` and
+`fields_omitted`. Raw commands, argv, environment, paths and exception text are
+not forwarded. The complete local JSONL remains unchanged. This allowlist is
+not a general secret detector for values intentionally placed in allowed fields.
+
+Only one outward publisher may own a run. Publisher failure does not disable
+the independent incoming recorder. This does not promise multi-monitor exactly-once
+ingestion. Parent events written after monitor shutdown, and a backlog beyond
+the final bounded batch, are not yet drained by orchestration: that lifecycle
+work remains in P6.6. Do not infer DDS delivery, physical stopping, task success,
+production deployment or completion of the full event chain from these tests.

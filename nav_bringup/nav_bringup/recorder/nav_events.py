@@ -22,6 +22,7 @@ class NavEventRecorder:
 
     def __init__(
         self, log: EventLog, warn: Callable[[str], None], *, capacity: int = 4096,
+        ignored_prefixes: tuple[str, ...] = (),
     ) -> None:
         """Bind a run's writer and a bounded in-memory deduplication window.
 
@@ -29,15 +30,20 @@ class NavEventRecorder:
             log: Existing run event file, not a new recorder process.
             warn: Diagnostic sink receiving only failure category, never remote payloads.
             capacity: Maximum remembered event identities; duplicates refresh recency.
+            ignored_prefixes: Own persistent producer namespaces, suppressed to avoid echo writes.
 
         Raises:
-            ValueError: Capacity is not a positive integer.
+            ValueError: Capacity or producer namespaces are invalid.
         """
         if type(capacity) is not int or capacity <= 0:
             raise ValueError('event identity capacity must be a positive integer')
+        if (not isinstance(ignored_prefixes, tuple)
+                or any(not isinstance(prefix, str) or not prefix for prefix in ignored_prefixes)):
+            raise ValueError('ignored event namespaces must be nonempty strings')
         self._log = log
         self._warn = warn
         self._capacity = capacity
+        self._ignored = ignored_prefixes
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._lock = threading.Lock()
         self._closed = False
@@ -60,6 +66,8 @@ class NavEventRecorder:
                 return False
             try:
                 identity, event = _decode(message)
+                if identity.startswith(self._ignored):
+                    return False
                 if identity in self._seen:
                     self._seen.move_to_end(identity)
                     return False

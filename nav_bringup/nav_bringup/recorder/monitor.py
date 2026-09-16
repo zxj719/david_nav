@@ -14,7 +14,8 @@ single extra DDS participant (refactor plan §10.3, §13.2):
   the run directory in its own session. A dump still running when the monitor
   stops is interrupted.
 * structured ``/nav/events`` observations appended to the run timeline, without
-  changing their source time or adding another ROS node.
+  changing their source time or adding another ROS node; local navrun records
+  are projected back onto that topic with persistent identities and no echo writes.
 
 Counted topics are subscribed with best-effort QoS, which matches reliable
 and best-effort publishers, and as raw bytes, so messages are never
@@ -36,6 +37,7 @@ from nav_bringup.recorder import bt_log_watcher
 from nav_bringup.recorder import bt_triggers
 from nav_bringup.recorder import events
 from nav_bringup.recorder.nav_events import NavEventRecorder
+from nav_bringup.recorder.run_event_stream import RunEventStream
 from nav_bringup.recorder import run_dir
 from nav_bringup.recorder import sessions
 from nav_bringup.recorder import topic_stats
@@ -217,15 +219,7 @@ def spin(
             sink.flush()
 
     event_recorder = None
-    if event_log is not None:
-        event_recorder = NavEventRecorder(event_log, say)
-        try:
-            from david_nav_msgs.msg import NavEvent
-
-            node.create_subscription(NavEvent, '/nav/events', event_recorder.receive, 10)
-        except Exception as error:
-            event_recorder.close()
-            say(f'cannot subscribe to navigation events ({type(error).__name__})')
+    event_stream = None
 
     if options.bt_topic:
         reporter = bt_log_watcher.TriggerReporter(
@@ -286,6 +280,8 @@ def spin(
 
     def sample() -> None:
         """Check readiness and append one sampling period to ``topics.csv``."""
+        if event_stream is not None:
+            event_stream.pump()
         check_ready()
         subscribe_discovered()
         stamp = time.time()
@@ -304,10 +300,34 @@ def spin(
     subscribe_discovered()
     node.create_timer(options.period_sec, sample)
     try:
+        if event_log is not None:
+            prefixes = ()
+            try:
+                from david_nav_msgs.msg import NavEvent
+
+                publisher = node.create_publisher(NavEvent, '/nav/events', 10)
+                event_stream = RunEventStream(
+                    run.events, lambda values: publisher.publish(NavEvent(**values)), say)
+                prefixes = (event_stream.identity_prefix,)
+            except Exception as error:
+                say(f'cannot publish navrun events ({type(error).__name__})')
+            event_recorder = NavEventRecorder(event_log, say, ignored_prefixes=prefixes)
+            try:
+                from david_nav_msgs.msg import NavEvent
+
+                node.create_subscription(NavEvent, '/nav/events', event_recorder.receive, 10)
+            except Exception as error:
+                event_recorder.close()
+                say(f'cannot subscribe to navigation events ({type(error).__name__})')
+        if event_stream is not None:
+            event_stream.pump()
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        if event_stream is not None:
+            event_stream.pump()
+            event_stream.close()
         if event_recorder is not None:
             event_recorder.close()
         for process in dump_processes:

@@ -128,3 +128,10 @@ def test_invalid_cache_capacity_is_rejected_before_io(tmp_path, capacity):
     with pytest.raises(ValueError):
         _recorder(tmp_path, capacity=capacity)
     assert not (tmp_path / 'events.jsonl').exists()
+
+
+@pytest.mark.parametrize('prefixes', [('',), (None,), ['run:'], 'run:'])
+def test_ignored_namespaces_cannot_accidentally_match_every_event(tmp_path, prefixes):
+    """Own-echo suppression requires explicit nonempty immutable producer namespaces."""
+    with pytest.raises(ValueError):
+        _recorder(tmp_path, ignored_prefixes=prefixes)
