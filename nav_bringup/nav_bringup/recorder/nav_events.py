@@ -1,0 +1,130 @@
+"""Strict shared-event ingestion, without ROS imports or motion authority.
+
+Transport identity lives in the reserved data.__nav_event member so existing
+five-field JSONL consumers remain compatible. This module never republishes.
+"""
+
+from collections import OrderedDict
+import json
+import math
+import threading
+from typing import Callable
+
+from nav_bringup.recorder.events import Event, EventLog, SEVERITIES
+
+TRANSPORT_KEY = '__nav_event'
+MAX_DATA_BYTES = 65536
+MAX_DEPTH = 32
+
+
+class NavEventRecorder:
+    """Validate, deduplicate and append observations on the existing monitor node."""
+
+    def __init__(
+        self, log: EventLog, warn: Callable[[str], None], *, capacity: int = 4096,
+    ) -> None:
+        """Bind a run's writer and a bounded in-memory deduplication window.
+
+        Args:
+            log: Existing run event file, not a new recorder process.
+            warn: Diagnostic sink receiving only failure category, never remote payloads.
+            capacity: Maximum remembered event identities; duplicates refresh recency.
+
+        Raises:
+            ValueError: Capacity is not a positive integer.
+        """
+        if type(capacity) is not int or capacity <= 0:
+            raise ValueError('event identity capacity must be a positive integer')
+        self._log = log
+        self._warn = warn
+        self._capacity = capacity
+        self._seen: OrderedDict[str, None] = OrderedDict()
+        self._lock = threading.Lock()
+        self._closed = False
+
+    def receive(self, message: object) -> bool:
+        """Record one decoded ROS envelope without allowing input to crash the monitor.
+
+        Only successful writes enter the LRU cache. A failed callback can therefore
+        be retried by a later duplicate. This is not exactly-once persistence:
+        restarts, eviction and partial filesystem writes remain observable limits.
+
+        Args:
+            message: NavEvent-like object, with the six generated interface fields.
+
+        Returns:
+            True for an appended event; False for duplicate, closed or invalid input.
+        """
+        with self._lock:
+            if self._closed:
+                return False
+            try:
+                identity, event = _decode(message)
+                if identity in self._seen:
+                    self._seen.move_to_end(identity)
+                    return False
+                self._log.record(event, precise_stamp=True)
+                self._seen[identity] = None
+                if len(self._seen) > self._capacity:
+                    self._seen.popitem(last=False)
+                return True
+            except Exception as error:
+                try:
+                    self._warn(f'cannot record navigation event ({type(error).__name__})')
+                except Exception:
+                    pass  # A failed diagnostic sink is not navigation authority either.
+                return False
+
+    def close(self) -> None:
+        """Seal late callbacks after in-flight recording finishes, without deleting data."""
+        with self._lock:
+            self._closed = True
+            self._seen.clear()
+
+
+def _nonempty(value, limit):
+    if not isinstance(value, str) or not value.strip() or len(value.encode('utf-8')) > limit:
+        raise ValueError('invalid event string')
+    return value
+
+
+def _pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('duplicate event JSON key')
+        result[key] = value
+    return result
+
+
+def _finite_tree(value, depth=0):
+    if depth > MAX_DEPTH:
+        raise ValueError('event JSON nesting limit exceeded')
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError('nonfinite event JSON number')
+    if isinstance(value, dict):
+        for child in value.values():
+            _finite_tree(child, depth + 1)
+    elif isinstance(value, list):
+        for child in value:
+            _finite_tree(child, depth + 1)
+
+
+def _decode(message):
+    identity = _nonempty(message.event_id, 256)
+    source = _nonempty(message.source, 128)
+    name = _nonempty(message.event_type, 128)
+    stamp = message.stamp
+    if type(stamp) not in (int, float) or not math.isfinite(stamp):
+        raise ValueError('invalid event timestamp')
+    if message.severity not in SEVERITIES:
+        raise ValueError('invalid event severity')
+    encoded = message.data_json
+    if not isinstance(encoded, str) or len(encoded.encode('utf-8')) > MAX_DATA_BYTES:
+        raise ValueError('invalid event JSON size or type')
+    data = json.loads(encoded, object_pairs_hook=_pairs)
+    if not isinstance(data, dict) or TRANSPORT_KEY in data:
+        raise ValueError('invalid event object or reserved key')
+    _finite_tree(data)
+    data[TRANSPORT_KEY] = {'event_id': identity}
+    return identity, Event(float(stamp), source, name, message.severity, data)

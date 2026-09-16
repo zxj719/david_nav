@@ -13,7 +13,7 @@ This package is robot independent: robot-specific values live in a
 | `nav_bringup.navcfg.schema`: per-package `config/schema.yaml` format, catalog aggregation, value and profile checks, schema discovery | available (P2.1) | plan §12.1 |
 | `nav_bringup.recorder`: run directory, manifest, `code.diff`, events, resource samples, summary, retention | available (PROGRESS P1.2a) | plan §13.2 |
 | `navrun dump-params`: effective parameters of every running node into `params/effective/` (golden capture rules: helper nodes skipped, per-call timeout, retries, non-empty output; duplicate node names reported) | available (P1.2b) | plan §13.2 |
-| `navrun monitor`: one node for behavior tree triggers, key topic rates and publisher counts, and map→robot TF lag (`metrics/topics.csv`, 0.2 Hz); rates, topics without publishers and TF lag percentiles in `summary.md` | available (P1.2b) | plan §10.3, §13.2 |
+| `navrun monitor`: one node for behavior tree triggers, `/nav/events` recording, key topic rates and publisher counts, and map→robot TF lag (`metrics/topics.csv`, 0.2 Hz); rates, topics without publishers and TF lag percentiles in `summary.md` | available (P1.2b/P6.6 ingestion) | plan §10.3, §13.2 |
 | Linked localization (`recorder.linked_process`; `navrun wrap --loc-process EXECUTABLE [--loc-log GLOB]`): pid, start time, command line and config SHA-256 of the separately started localization in the manifest; what its logs gained during the run copied into `logs/loc/` (last 20 MB per file); read-only | available (P1.2c) | plan §13.2 |
 | Sandbox integration checks (`sandbox_tests/`): `navrun monitor` and `navrun dump-params` against live processes in DDS domain 99; not collected by `colcon test`, run with `sandbox_tests/run_sandbox_checks.sh` | available (P1.2b) | RUNBOOK §5 |
 | `navrun wrap -- <command>`: record a run around an existing launch command | available (P1.3) | plan §13.1, §16.2 Phase 1 |
@@ -512,3 +512,42 @@ through the launch completion future. Launch then cleans up its owned stack.
 Loading starts only after the owned container process starts; cancellation never
 continues loading another component. Existing container-exit supervision and the
 navrun stop/record/lease lifecycle remain active. Localization is never restarted.
+
+## Shared navigation event recording (P6.6)
+
+With a run directory, the existing monitor node subscribes to `/nav/events`
+(`david_nav_msgs/msg/NavEvent`, reliable/volatile/keep-last depth 10). No second
+node, spin thread, timer or motion client is added. A print-only monitor has no
+unused event subscription. Subscription failure is reported and does not disable
+the existing BT/rate/TF observations. Shutdown seals the event callback before
+destroying its node; it does not wait for new DDS arrivals or replay history.
+Finite timestamps beyond the system calendar range remain in JSONL unchanged;
+the summary shows their numeric value and a calendar-range warning, not an exception.
+
+Incoming records preserve the producer's Unix wall timestamp and all measurement
+digits. The five JSONL top-level keys remain `stamp/source/type/severity/data`;
+transport identity is stored at `data.__nav_event.event_id`. That reserved payload
+key cannot be supplied by a producer. Existing locally generated events retain
+their exact previous format, including six-decimal timestamp formatting. The
+recorder and parent process cooperate using advisory file locks, flushing each
+complete line before unlocking. This is not an fsync or disk-full transaction.
+
+Input validation rejects empty/oversized identifiers, nonfinite timestamps or
+JSON numbers, duplicate object keys, non-object data, invalid UTF-8, more than
+32 nested levels and payloads over 65536 UTF-8 bytes. IDs are limited to 256
+bytes; source and event type to 128 bytes. Warnings contain only failure types,
+never untrusted event contents. An invalid event or failed write does not crash
+the monitor, suppress later valid input or acknowledge any motion result.
+
+The last 4096 successfully written event IDs form a bounded LRU duplicate window.
+Duplicates refresh recency. Failed writes do not consume IDs, and close seals
+late callbacks. This is **not** exactly-once or crash-durable deduplication:
+evicted IDs and monitor restarts can admit duplicates, and partial disk writes
+need offline inspection. Persisted IDs let offline consumers identify them.
+The receiver never republishes, so this ingestion path cannot create an echo loop.
+
+Task and Dock publishers are connected in nav_tasks. Navrun's own `/nav/events`
+production, including events before monitor startup and after its shutdown,
+remains unfinished P6.6 work; local navrun JSONL recording is unchanged. Do not
+mark the full event chain complete from ingestion tests or assume DDS delivery,
+physical stopping, task success, or production deployment from these records.

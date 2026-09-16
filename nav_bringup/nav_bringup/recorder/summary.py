@@ -108,7 +108,10 @@ def _duration(seconds: Any) -> str:
 
 
 def _clock_time(stamp: float) -> str:
-    return datetime.datetime.fromtimestamp(stamp).strftime('%H:%M:%S')
+    try:
+        return datetime.datetime.fromtimestamp(stamp).strftime('%H:%M:%S')
+    except (OverflowError, OSError, ValueError):
+        return f'{stamp:g}（超出日期范围）'
 
 
 def _event_counts(events: Sequence[Event], skipped: int) -> List[str]:

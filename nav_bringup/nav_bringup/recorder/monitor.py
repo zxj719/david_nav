@@ -13,6 +13,8 @@ single extra DDS participant (refactor plan §10.3, §13.2):
   appears: a ``ready_action_available`` event, and ``navrun dump-params`` into
   the run directory in its own session. A dump still running when the monitor
   stops is interrupted.
+* structured ``/nav/events`` observations appended to the run timeline, without
+  changing their source time or adding another ROS node.
 
 Counted topics are subscribed with best-effort QoS, which matches reliable
 and best-effort publishers, and as raw bytes, so messages are never
@@ -33,6 +35,7 @@ from typing import Any, List, Optional, Sequence, TextIO, Tuple
 from nav_bringup.recorder import bt_log_watcher
 from nav_bringup.recorder import bt_triggers
 from nav_bringup.recorder import events
+from nav_bringup.recorder.nav_events import NavEventRecorder
 from nav_bringup.recorder import run_dir
 from nav_bringup.recorder import sessions
 from nav_bringup.recorder import topic_stats
@@ -213,6 +216,17 @@ def spin(
             sink.write(f'navrun monitor: {message}\n')
             sink.flush()
 
+    event_recorder = None
+    if event_log is not None:
+        event_recorder = NavEventRecorder(event_log, say)
+        try:
+            from david_nav_msgs.msg import NavEvent
+
+            node.create_subscription(NavEvent, '/nav/events', event_recorder.receive, 10)
+        except Exception as error:
+            event_recorder.close()
+            say(f'cannot subscribe to navigation events ({type(error).__name__})')
+
     if options.bt_topic:
         reporter = bt_log_watcher.TriggerReporter(
             bt_triggers.TriggerDetector(min_interval_sec=options.min_trigger_interval_sec),
@@ -294,6 +308,8 @@ def spin(
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        if event_recorder is not None:
+            event_recorder.close()
         for process in dump_processes:
             sessions.stop_session(process, DUMP_STOP_TIMEOUT_SEC)
         del tf_listener

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field
+import fcntl
 import json
 from pathlib import Path
 import threading
@@ -47,14 +48,18 @@ class Event:
         if self.severity not in SEVERITIES:
             raise ValueError(f'invalid severity {self.severity!r}')
 
-    def to_json(self) -> str:
+    def to_json(self, *, precise_stamp: bool = False) -> str:
         """Serialize the event as one JSON line without a trailing newline.
+
+        Args:
+            precise_stamp: Preserve an external producer's float timestamp rather
+                than applying the existing local-event six-decimal formatting.
 
         Returns:
             The JSON text; non-ASCII characters are kept as-is.
         """
         payload: Dict[str, Any] = {
-            'stamp': round(self.stamp, 6),
+            'stamp': self.stamp if precise_stamp else round(self.stamp, 6),
             'source': self.source,
             'type': self.event_type,
             'severity': self.severity,
@@ -136,11 +141,32 @@ class EventLog:
         if severity not in SEVERITIES:
             raise ValueError(f'invalid severity {severity!r}')
         event = Event(self._clock(), source, event_type, severity, dict(data or {}))
-        line = event.to_json() + '\n'
+        self.record(event)
+        return event
+
+    def record(self, event: Event, *, precise_stamp: bool = False) -> None:
+        """Append an existing event without replacing its producer timestamp.
+
+        Writers in separate navrun/monitor processes cooperate through an advisory
+        file lock. This is append serialization, not fsync-backed durable delivery
+        or transactional recovery from disk-full errors.
+
+        Args:
+            event: Already constructed event; transport adapters validate their input.
+            precise_stamp: Preserve all float timestamp digits for external events.
+
+        Raises:
+            OSError: Opening, locking or writing the event file failed.
+            ValueError: Values cannot be encoded as a JSON/UTF-8 line.
+            TypeError: Values are not JSON serializable.
+        """
+        line = event.to_json(precise_stamp=precise_stamp) + '\n'
+        line.encode('utf-8')  # Reject unpaired surrogates before creating/opening the file.
         with self._lock:
             with self._path.open('a', encoding='utf-8') as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
                 handle.write(line)
-        return event
+                handle.flush()
 
 
 def read_events(path: Union[str, Path]) -> Tuple[List[Event], int]:

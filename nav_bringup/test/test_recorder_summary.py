@@ -1,6 +1,9 @@
 """Tests for the human readable run summary."""
 
 import datetime
+from types import SimpleNamespace as NS
+
+import pytest
 
 from nav_bringup.recorder import events
 from nav_bringup.recorder import resources
@@ -111,3 +114,18 @@ def test_write_summary(tmp_path):
     summary.write_summary(path, '# 运行摘要\n')
 
     assert path.read_text(encoding='utf-8') == '# 运行摘要\n'
+
+
+@pytest.mark.parametrize('stamp', [1e300, -1e300])
+def test_external_finite_time_outside_calendar_range_does_not_break_summary(tmp_path, stamp):
+    """A finite producer timestamp remains auditable even if datetime cannot display it."""
+    from nav_bringup.recorder.nav_events import NavEventRecorder
+
+    log = events.EventLog(tmp_path / 'events.jsonl')
+    recorder = NavEventRecorder(log, lambda warning: pytest.fail(warning))
+    assert recorder.receive(NS(event_id='bad-clock:1', stamp=stamp, source='tasks',
+                               event_type='task_failed', severity='error', data_json='{}'))
+    recorded, skipped = events.read_events(log.path)
+    text = summary.render_summary(MANIFEST, recorded, resources.ResourceSummary(), skipped)
+    assert 'task_failed' in text and '超出日期范围' in text
+    assert recorded[0].stamp == stamp

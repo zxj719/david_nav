@@ -1,6 +1,10 @@
 """Tests for the structured event log."""
 
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
 import threading
 
 import pytest
@@ -77,3 +81,35 @@ def test_concurrent_appends_produce_whole_lines(tmp_path):
 
     assert len(read) == 200
     assert skipped == 0
+
+
+def test_independent_processes_append_complete_large_lines(tmp_path):
+    """Monitor and parent writers share an advisory append lock, not a Python-only lock."""
+    path = tmp_path / 'events.jsonl'
+    code = (
+        'import sys\n'
+        'from nav_bringup.recorder.events import EventLog\n'
+        'log = EventLog(sys.argv[1])\n'
+        'for index in range(25):\n'
+        '    log.append(sys.argv[2], "tick", data={"index":index,"pad":"x"*20000})\n'
+    )
+    env = dict(os.environ)
+    env['PYTHONPATH'] = str(Path(__file__).resolve().parents[1])
+    results = []
+
+    def worker(name):
+        results.append(subprocess.run(
+            [sys.executable, '-c', code, str(path), name], env=env,
+            capture_output=True, timeout=10, check=False))
+
+    threads = [threading.Thread(target=worker, args=(f'writer{i}',)) for i in range(3)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+        assert not thread.is_alive()
+    assert len(results) == 3 and all(result.returncode == 0 for result in results)
+    recorded, skipped = events.read_events(path)
+    assert len(recorded) == 75 and skipped == 0
+    assert len({(row.source, row.data['index']) for row in recorded}) == 75
+    assert all(len(row.data['pad']) == 20000 for row in recorded)
