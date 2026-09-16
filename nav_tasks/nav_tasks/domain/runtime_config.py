@@ -5,14 +5,40 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
+class DockRuntimeConfig:
+    """Explicit Dock wiring and robot policy; no helper default selects David tuning.
+
+    The navigation rotation frame is independent of RuntimeConfig.robot_base_frame,
+    which retains the POI capture frame. All geometry and finish policy are required.
+    """
+
+    robot_base_frame: str
+    global_frame: str
+    static_map_topic: str
+    spin_action_name: str
+    footprint: tuple[tuple[float, float], ...]
+    approach_dist: float
+    xy_ok: float
+    yaw_ok: float
+    max_yaw_retries: int
+    nav_timeout_sec: float
+    spin_timeout_sec: float
+    settle_max_rate_rad_s: float
+    settle_window_sec: float
+    settle_timeout_sec: float
+    static_occupied_threshold: int = 50
+    pose_timeout_sec: float = 2.0
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     """Task-service assembly configuration supplied by a robot-aware outer root.
 
     Robot-specific frames, topics, action names and storage paths are required;
     this type does not guess a robot profile or modify localization wiring.
-    Optional numeric defaults retain the old executor's policies. Dock IDs are
-    carried explicitly so an incomplete assembly cannot silently navigate them
-    with the ordinary POI skill before Dock integration is available.
+    Optional numeric defaults retain the old executor's policies. Dock IDs require
+    explicit DockRuntimeConfig so an incomplete assembly cannot silently navigate
+    them with ordinary snapping/retry. Dock None creates no Dock resources.
     """
 
     poi_store_file: Path
@@ -41,3 +67,4 @@ class RuntimeConfig:
     loop_closure_yaw_rad: float = 0.03
     progress_min_interval_sec: float = 1.0
     pose_stale_after_sec: float = 0.5
+    dock: DockRuntimeConfig | None = None

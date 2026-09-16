@@ -13,7 +13,7 @@ from nav_tasks.adapters.ros.futures import await_rclpy_future
 from nav_tasks.core.supervisor import TaskSupervisor
 from nav_tasks.domain.errors import BusyError, ClosedError, ConfigError
 from nav_tasks.domain.footprint import FootprintCheck
-from nav_tasks.domain.tasks import NavOutcome, NavStatus
+from nav_tasks.domain.tasks import DockGoal, NavOutcome, NavStatus
 from nav_tasks.nav2_client import Nav2Client
 from nav_tasks.skills.docking.ports import DockLogger, PlanarPose
 from nav_tasks.skills.docking.workflow import DockConfig, DockWorkflow
@@ -53,6 +53,7 @@ class DockWorker:
         server_timeout_sec: float = 5.0, send_timeout_sec: float = 10.0,
         now_fn: Callable[[], float] | None = None,
         sleep_fn: Callable[[float], None] | None = None,
+        on_raw_feedback: Callable[[DockGoal, object, float], None] | None = None,
     ) -> None:
         """Bind explicit Dock policy and worker-safe ports without starting any thread.
 
@@ -67,6 +68,7 @@ class DockWorker:
             send_timeout_sec: Legacy admission budget, independently injectable in tests.
             now_fn: Optional deterministic monotonic clock for finish tests.
             sleep_fn: Optional test sleeper; production uses interruptible Event.wait.
+            on_raw_feedback: Optional complete feedback observer with task/generation identity.
 
         Raises:
             ConfigError: A frame or admission budget is invalid.
@@ -87,6 +89,7 @@ class DockWorker:
         self._send_timeout = send_timeout_sec
         self._now = now_fn
         self._sleep = sleep_fn
+        self._raw_feedback = on_raw_feedback
         self._supervisor = TaskSupervisor(self._on_crash)
         self._active: _WorkerAttempt | None = None
         self._closed = False
@@ -95,6 +98,30 @@ class DockWorker:
     def busy(self) -> bool:
         """Whether a worker or failed/unresolved cleanup still owns this facade."""
         return self._active is not None
+
+    async def dock(
+        self, goal: DockGoal, on_feedback: Callable[[float], None],
+    ) -> NavOutcome:
+        """Implement the pure Dock port while retaining full feedback for ROS ingress.
+
+        Args:
+            goal: Immutable pose and owner identity; coordinates use configured Dock frame.
+            on_feedback: Loop-thread distance callback, including the stage-one offset.
+
+        Returns:
+            Complete measured Dock outcome, never intermediate approach arrival.
+
+        Raises:
+            Exception: Worker or motion cleanup failed and remains owned.
+            asyncio.CancelledError: Explicit cancellation after owned cleanup.
+        """
+        def feedback(raw, extra):
+            on_feedback(float(raw.feedback.distance_remaining) + float(extra))
+            if self._raw_feedback is not None:
+                self._raw_feedback(goal, raw, extra)
+
+        pose = goal.pose
+        return await self.execute((pose.x, pose.y, pose.yaw), feedback)
 
     async def execute(
         self, goal: PlanarPose, on_feedback: Callable[[object, float], None] | None = None,

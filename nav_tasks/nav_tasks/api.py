@@ -16,9 +16,9 @@ from nav_tasks.core.state import TaskManager
 from nav_tasks.domain.errors import (
     BusyError, ClosedError, ConfigError, NavTaskError, PoseUnavailableError, RuntimeAssemblyError,
 )
-from nav_tasks.domain.runtime_config import RuntimeConfig
+from nav_tasks.domain.runtime_config import DockRuntimeConfig, RuntimeConfig
 from nav_tasks.domain.tasks import (
-    EventKind, NavOutcome, NavStatus, PreemptPolicy, TaskEvent, TaskRequest,
+    DockGoal, EventKind, NavOutcome, NavStatus, PreemptPolicy, TaskEvent, TaskRequest,
     TaskSnapshot, TaskState,
 )
 from nav_tasks.domain.types import CapturedPose, PoseRecord, StoredPoi, Transform2D
@@ -129,12 +129,13 @@ def _runtime_log(message: str) -> None:
 async def create_runtime(
     config: RuntimeConfig, node: object, tf_buffer: object, *,
     log: Callable[[str], None] = _runtime_log, now: Callable[[], float] = time.time,
+    on_dock_feedback: Callable[[DockGoal, object, float], None] | None = None,
 ) -> TaskRuntimeApi:
     """Lazily assemble task services without importing implementation through ingress.
 
     Importing this public API remains free of ROS, YAML and transport imports.
     The caller owns node/listener/spin; keep them alive until runtime.close succeeds.
-    Dock modes are refused until their skill is integrated, not silently downgraded.
+    Dock IDs require explicit Dock configuration, never ordinary-navigation fallback.
 
     Args:
         config: Explicit immutable robot/mode runtime values.
@@ -142,6 +143,7 @@ async def create_runtime(
         tf_buffer: Externally owned TF buffer.
         log: Unprefixed startup/POI log sink.
         now: Pose-compatible timestamp reader for freshness checks.
+        on_dock_feedback: Optional loop-thread complete ROS feedback and distance offset.
 
     Returns:
         Public task/admin/observation and resource-lifetime handle.
@@ -153,12 +155,14 @@ async def create_runtime(
     """
     from nav_tasks.app.runtime import assemble_runtime
 
-    return await assemble_runtime(config, node, tf_buffer, log=log, now=now)
+    return await assemble_runtime(config, node, tf_buffer, log=log, now=now,
+                                  on_dock_feedback=on_dock_feedback)
 
 
 __all__ = [
     'BusyError', 'CapturedPose', 'ClosedError', 'CommandRegistry', 'ConfigError',
-    'EventKind', 'MarkPoiResult', 'NavOutcome', 'NavStatus', 'NavTaskError', 'PoiApi',
+    'DockGoal', 'DockRuntimeConfig', 'EventKind', 'MarkPoiResult',
+    'NavOutcome', 'NavStatus', 'NavTaskError', 'PoiApi',
     'PoseRecord', 'PoseUnavailableError', 'PreemptPolicy', 'StoredPoi', 'TaskApi',
     'TaskContext', 'TaskEvent',
     'TaskManager', 'TaskRequest', 'TaskSnapshot', 'TaskState', 'Transform2D',

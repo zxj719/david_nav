@@ -1,7 +1,7 @@
 # In-process task runtime
 
-`nav_tasks.api.create_runtime(config, node, tf_buffer)` composes the ordinary POI
-service through one public boundary. Importing `nav_tasks.api` still imports no
+`nav_tasks.api.create_runtime(config, node, tf_buffer)` composes ordinary POI and
+explicitly configured Dock services through one public boundary. Importing `nav_tasks.api` imports no
 ROS, YAML or WebSocket implementation. Construction uses the real repository,
 pose/grid adapters, goal resolver, POI skill, retry audit and task manager; only
 the caller creates ROS nodes, TF listeners, executors and transport connections.
@@ -15,9 +15,11 @@ binding and parameter-schema ownership are not switched in this step.
 
 The handle exposes `tasks: TaskApi`, `pois: PoiApi`, `poses: PoseSource` and
 observer/shutdown methods. Ingress adapters must only import this public API.
-Nonempty `dock_poi_ids` is currently rejected before file or ROS I/O: Dock must
-not accidentally use ordinary goal snapping. This temporary gate remains until
-Dock/Spin and their entry adapters share the same task/action ownership.
+Nonempty `dock_poi_ids` without `RuntimeConfig.dock` is rejected before file or
+ROS I/O: Dock must never fall back to ordinary snapping. Explicit DockRuntimeConfig
+adds a retained map observer, worker and Spin on the same Nav2Client. The existing
+nav_executor CLI/outer host still refuses Dock until its configuration and ROS
+ingress are wired; enabling this factory is not switching that executable.
 
 ## Connection and shutdown ownership
 
@@ -27,7 +29,8 @@ Dock/Spin and their entry adapters share the same task/action ownership.
 - The outer root stops command ingress first and manages its event pump/outbox.
   It keeps the ROS executor spinning and the node alive while awaiting `close()`.
 - Shutdown joins the observer, closes the task manager (including motion cleanup),
-  closes the action backend, then removes grid and odometry subscriptions.
+  joins/closes the optional Dock worker, closes the action backend, then removes
+  Dock-map, ordinary-grid and odometry subscriptions.
   It never stops an external node, executor or localization stack.
 - Canceling a caller waiting for `close()` does not cancel the owned cleanup task.
   On a timeout or cleanup failure, retain the runtime and retry `close()`; no
@@ -57,6 +60,51 @@ Coverage includes startup/import logs, retries, observer restart/crash, canceled
 close waiters, late terminal results, shutdown timeouts, construction rollback,
 and repeated cleanup failures without double destruction.
 
-Legacy executables, CLI/help, WS lifecycle, ROS spin ownership and Dock/Spin are
-not switched here. Their final outer runtime must obey the lifetime contract
-above; this factory alone is not complete runtime or hardware acceptance.
+The ordinary POI CLI/WS outer lifecycle is implemented in nav_executor; legacy
+executables remain unchanged. Dock profile/CLI binding, ROS pose/action ingress,
+MultiThreadedExecutor host and same-process optional WS entry still need wiring.
+This factory alone is not complete runtime or hardware acceptance.
+
+## Explicit Dock assembly
+
+Pass a frozen `nav_tasks.api.DockRuntimeConfig` in `RuntimeConfig.dock`. All geometry
+and finish policy are required: navigation rotation frame, global frame, static-map
+topic, Spin endpoint, immutable footprint polygon, approach distance, xy/yaw
+tolerances, correction count, navigation/Spin/settle deadlines and settle rate/window.
+The inclusive occupancy threshold defaults to the old 50 and bounded pose lookup
+to the old 2 seconds. The workflow retains its 0.05 s sampling period. These are
+explicit library values, not new consumed ROS/profile parameters; later outer
+binding must use robot/mode data (David 25 degrees/zero corrections, not helper defaults).
+
+Invalid configuration is rejected before repository reads or ROS resources.
+Dock None leaves ordinary resource counts/policies unchanged. A Dock configuration
+with no Dock POI IDs still registers the direct `dock` task action for future rviz
+and action ingress. It takes `{'pose': PoseRecord(...)}` and validates planar values
+before preemption. The old configured-global-frame interpretation of incoming
+coordinates is retained; ingress must not silently transform or reinterpret them.
+
+`navigate_to` resolves the repository target once before admission. Configured Dock
+IDs route to Dock before the ordinary resolver or retry policy runs. A whole Dock
+failure is reported once with the old one-attempt ABORTED diagnostic/audit text;
+it is never a license to rerun both displacement stages. Other POIs keep the old
+snap and retry behavior. Only the complete settled Dock verdict produces arrival.
+
+DockObservations uses reliable/transient-local/keep-last/depth-one static data and
+copies a rotation-aware immutable OccupancyGridView. Missing/wrong-frame/invalid/
+occupied or out-of-map footprints reject before any action. Its TF lookup uses
+the separate navigation rotation frame, never the POI capture frame or a new odom
+subscription. It logs the frozen TF failure line and returns None without touching
+localization. Node/buffer/listener/executor remain externally owned and must stay
+alive until worker cleanup succeeds.
+
+Scalar task progress includes the approach-distance offset and old throttling.
+An optional `on_dock_feedback(DockGoal, raw_wrapper, extra_distance)` callback gets
+the complete unmodified feedback on the task loop for future ROS ingress; task ID,
+sub-ID and generation identify the owner. The ROS adapter must preserve all message
+fields when applying the distance offset and only forward to its matching active
+goal. This API does not create an extra Dock action client or server.
+
+`test_dock_runtime.py` drives the actual public factory, TaskCommandAdapter, real
+worker thread, shared backend and real storage with fake ROS I/O. It checks map
+gates, distinct TF frames/QoS, full feedback, direct-pose preemption, ordinary retry,
+Dock no-retry, measured stage-two acceptance and retained shutdown resources.

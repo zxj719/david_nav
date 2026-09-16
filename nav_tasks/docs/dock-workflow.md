@@ -4,8 +4,9 @@
 from the existing node. It starts no ROS resources, worker or motion owner. A
 managed DockWorker executes it off the asyncio/ROS callback thread and
 bridges DockMotionPort to the same Nav2Client used by ordinary navigation. The old
-node/entry remain unchanged and the public runtime still refuses Dock configs.
-This extraction is not a complete Dock integration or deployment.
+node/entry remain unchanged. The public runtime now supports explicit DockRuntimeConfig;
+the nav_executor outer CLI/host still refuses Dock until ingress wiring is finished.
+The current components are not a complete Dock deployment.
 
 DockConfig requires all policy explicitly: approach distance, DockTolerance,
 SettleSpec, navigation/spin/settle timeouts. David uses its existing robot/mode
@@ -51,8 +52,9 @@ result, action arguments, map-check pose, settling time and every log level/text
 The actual dock_bench parser must derive identical timelines/verdicts. Additional
 tests enforce pre-action full-footprint rejection and legacy export identity.
 The managed worker and per-action bridge are now covered by additional tests;
-optional WS/same-manager ingress and real Dock runtime assembly/acceptance remain
-mandatory before the legacy node can be replaced.
+the public factory now assembles Dock and ordinary POI routing under one manager.
+Optional WS/ROS ingress and complete runtime acceptance remain mandatory before
+the legacy node can be replaced.
 
 ## Managed thread and action bridge
 

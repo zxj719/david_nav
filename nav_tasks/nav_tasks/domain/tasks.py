@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping
 
-from nav_tasks.domain.types import StoredPoi
+from nav_tasks.domain.types import PoseRecord, StoredPoi
 
 
 class NavStatus(str, Enum):
@@ -47,6 +47,16 @@ class SpinGoal:
 
     target_yaw: float
     time_allowance_sec: float
+
+
+@dataclass(frozen=True)
+class DockGoal:
+    """Planar Dock target and owner identity for complete feedback correlation."""
+
+    pose: PoseRecord
+    request_id: str
+    sub_id: int = 0
+    generation: int = 0
 
 
 @dataclass(frozen=True)

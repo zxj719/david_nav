@@ -134,7 +134,7 @@ class _DockMotion:
                        result_timeout_sec=timeout, on_timeout=deadline)
         if kind == 'navigate':
             x, y, yaw = goal
-            pose = PoseRecord(self._frame, x, y, 0.0, yaw, 0.0)
+            pose = PoseRecord(self._frame, float(x), float(y), 0.0, float(yaw), 0.0)
 
             def feedback(raw):
                 if not self._stop.is_set() and self._feedback is not None:

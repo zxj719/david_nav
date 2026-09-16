@@ -7,11 +7,15 @@ import logging
 from pathlib import Path
 from typing import Callable
 
+from nav_tasks.adapters.ros.dock_observations import DockObservations
+from nav_tasks.adapters.ros.dock_worker import DockWorker
 from nav_tasks.adapters.ros.grid_source import RosGridSource
 from nav_tasks.adapters.ros.tf_pose_source import TfPoseSource
+from nav_tasks.app.dock_config import workflow_config
 from nav_tasks.app.logging import RetryAudit
 from nav_tasks.app.loop_closure import watch_loop_closure
 from nav_tasks.core.goal_resolution import GridGoalResolver, SnapSearch
+from nav_tasks.core.handlers.dock import Dock, DockAwareNavigation
 from nav_tasks.core.handlers.navigate_to import NavigateToPoi
 from nav_tasks.core.handlers.poi_commands import PoiCommands
 from nav_tasks.core.registry import CommandRegistry
@@ -20,6 +24,7 @@ from nav_tasks.core.state import TaskManager
 from nav_tasks.core.supervisor import TaskSupervisor
 from nav_tasks.domain.errors import ClosedError, ConfigError, RuntimeAssemblyError
 from nav_tasks.domain.runtime_config import RuntimeConfig
+from nav_tasks.domain.tasks import DockGoal
 from nav_tasks.nav2_client import Nav2Client
 from nav_tasks.nav_site_data.named_poses_importer import import_named_poses
 from nav_tasks.nav_site_data.yaml_poi_repository import YamlPoiRepository
@@ -75,7 +80,8 @@ class TaskRuntime:
     def __init__(
         self, tasks: TaskManager, pois: PoiCommands, poses: TfPoseSource,
         grids: RosGridSource, backend: Nav2Client, repository: YamlPoiRepository,
-        config: RuntimeConfig,
+        config: RuntimeConfig, *, dock_worker: DockWorker | None = None,
+        dock_observations: DockObservations | None = None,
     ) -> None:
         """Take ownership of fully constructed resources on their asyncio loop.
 
@@ -87,6 +93,8 @@ class TaskRuntime:
             backend: Owned single-attempt action backend.
             repository: Shared persistence port.
             config: Immutable assembly values.
+            dock_worker: Optional owned worker sharing the navigation backend.
+            dock_observations: Optional retained-map/navigation-frame observations.
         """
         self.tasks = tasks
         self.pois = pois
@@ -95,6 +103,8 @@ class TaskRuntime:
         self._backend = backend
         self._repository = repository
         self._config = config
+        self._dock_worker = dock_worker
+        self._dock_observations = dock_observations
         self._loop = asyncio.get_running_loop()
         self._supervisor = TaskSupervisor(self._on_crash)
         self._watcher: asyncio.Task | None = None
@@ -155,7 +165,11 @@ class TaskRuntime:
     async def _close(self) -> None:
         await self.stop_loop_closure()
         await self.tasks.close()
+        if self._dock_worker is not None:
+            await self._dock_worker.close()
         await self._backend.close()
+        if self._dock_observations is not None:
+            self._dock_observations.close()
         self._grids.close()
         self.poses.close()
         self._closed = True
@@ -172,8 +186,9 @@ class TaskRuntime:
 async def assemble_runtime(
     config: RuntimeConfig, node: object, tf_buffer: object, *,
     log: Callable[[str], None], now: Callable[[], float],
+    on_dock_feedback: Callable[[DockGoal, object, float], None] | None = None,
 ) -> TaskRuntime:
-    """Construct ordinary POI services with rollback before exposing task admission.
+    """Construct ordinary POI and opt-in Dock services before exposing task admission.
 
     No ROS initialization, node/listener/executor creation, spin, transport,
     observer or action goal is started here. During partial-construction failure,
@@ -182,22 +197,24 @@ async def assemble_runtime(
     No task was exposed or run, but action clients may still own ROS waitables.
 
     Args:
-        config: Explicit robot/mode values; Dock integration remains pending.
+        config: Explicit robot/mode values; Dock IDs require complete Dock configuration.
         node: Caller-owned ROS node, kept alive through close success.
         tf_buffer: Caller-owned TF buffer/listener connection.
         log: Unprefixed runtime log sink for POI loading.
         now: Pose-compatible timestamp clock for administrative freshness checks.
+        on_dock_feedback: Optional loop-only complete feedback with task/generation identity.
 
     Returns:
         Owned resources exposing TaskApi, PoiApi and PoseSource.
 
     Raises:
-        ConfigError: A not-yet-supported Dock mode or invalid retry policy is requested.
+        ConfigError: Dock wiring is incomplete or another supplied policy is invalid.
         RuntimeAssemblyError: Rollback failed; the exception retains retryable cleanup.
         Exception: Repository loading or resource construction/rollback failed.
     """
-    if config.dock_poi_ids:
-        raise ConfigError('Dock runtime assembly is not integrated yet; refusing ordinary routing')
+    if config.dock_poi_ids and config.dock is None:
+        raise ConfigError('Dock runtime assembly requires explicit Dock configuration')
+    dock_policy = workflow_config(config.dock) if config.dock is not None else None
     retry = RetryPolicy(config.nav_retry_count, config.nav_retry_delay_sec)
     search = SnapSearch(
         config.nav_goal_snap_radius, config.nav_goal_fallback_snap_radius,
@@ -226,16 +243,45 @@ async def assemble_runtime(
         rollback.track(grids.close)
         backend = Nav2Client(
             node, config.action_name, config.server_timeout_sec,
-            cancel_timeout_sec=config.cancel_timeout_sec)
+            cancel_timeout_sec=config.cancel_timeout_sec,
+            **({'spin_action_name': config.dock.spin_action_name} if config.dock else {}))
         rollback.track(backend.close)
         resolver = GridGoalResolver(grids.snapshot, poses, search)
         skill = NavigateToPoi(
             backend, repository, resolver, retry=retry,
             progress_min_interval_sec=config.progress_min_interval_sec, on_failure=RetryAudit())
         registry = CommandRegistry()
+        dock_worker, dock_observations = None, None
+        if config.dock is not None:
+            dock_config = config.dock
+            logger = node.get_logger()
+            dock_observations = DockObservations(
+                node, tf_buffer, global_frame=dock_config.global_frame,
+                robot_base_frame=dock_config.robot_base_frame,
+                static_map_topic=dock_config.static_map_topic, footprint=dock_config.footprint,
+                occupied_threshold=dock_config.static_occupied_threshold, logger=logger,
+                pose_timeout_sec=dock_config.pose_timeout_sec)
+            rollback.track(dock_observations.close)
+            dock_worker = DockWorker(
+                backend, dock_config.global_frame, dock_policy, dock_observations.pose,
+                dock_observations.check_approach, logger, on_raw_feedback=on_dock_feedback)
+            rollback.track(dock_worker.close)
+            dock_skill = Dock(
+                dock_worker, progress_min_interval_sec=config.progress_min_interval_sec,
+                retry_delay_sec=config.nav_retry_delay_sec, on_failure=RetryAudit())
+            registry.register('dock', dock_skill.decode, dock_skill.run)
+            skill = DockAwareNavigation(skill, dock_skill, config.dock_poi_ids)
         registry.register('navigate_to', skill.decode, skill.run)
-        tasks = TaskManager(registry, backend.cancel)
+
+        async def cancel_motion():
+            if dock_worker is not None:
+                await dock_worker.cancel()
+            await backend.cancel()
+
+        tasks = TaskManager(registry, cancel_motion)
         rollback.track(tasks.close)
         commands = PoiCommands(poses, repository, now, config.pose_stale_after_sec)
-        runtime = TaskRuntime(tasks, commands, poses, grids, backend, repository, config)
+        runtime = TaskRuntime(
+            tasks, commands, poses, grids, backend, repository, config,
+            dock_worker=dock_worker, dock_observations=dock_observations)
         return runtime

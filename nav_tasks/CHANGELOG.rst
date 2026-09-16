@@ -40,3 +40,8 @@ nav_tasks
   retain full feedback, frozen action logs and distinct deadlines. Join actual
   thread termination on cancellation, retain failed cleanup and fence stale success.
   Keep Dock runtime ingress/configuration and legacy entry switching pending.
+* Assemble opt-in Dock through the public factory with explicit immutable policy,
+  retained rotation-aware static maps and independent navigation-frame TF lookup.
+  Route Dock POIs before snapping/retry, register direct pose tasks on the same
+  manager and retain full feedback and owned resources across failed shutdown.
+  Outer profile/CLI/ROS ingress and legacy entry switching remain pending.

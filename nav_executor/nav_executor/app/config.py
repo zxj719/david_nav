@@ -79,7 +79,8 @@ class ExecutorConfig:
         values['server_timeout_sec'] = values.pop('server_timeout')
         for name in ('poi_store_file', 'pose_file', 'source_poi_file'):
             values[name] = Path(values[name]) if values[name] is not None else None
-        return RuntimeConfig(**{field.name: values[field.name] for field in fields(RuntimeConfig)})
+        return RuntimeConfig(**{field.name: values[field.name] for field in fields(RuntimeConfig)
+                                if field.name in values})
 
     def ws_options(self) -> WsOptions:
         """Extract transport timings without importing a WebSocket library.

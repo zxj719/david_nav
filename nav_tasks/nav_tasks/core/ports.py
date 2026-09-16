@@ -2,10 +2,26 @@
 
 from typing import Callable, Iterable, Protocol
 
-from nav_tasks.domain.tasks import NavGoal, NavOutcome, ResolvedGoal, SpinGoal
+from nav_tasks.domain.tasks import DockGoal, NavGoal, NavOutcome, ResolvedGoal, SpinGoal
 from nav_tasks.domain.types import CapturedPose, PoseRecord, StoredPoi, Transform2D
 
 FeedbackCallback = Callable[[float], None]
+
+
+class DockBackend(Protocol):
+    """Managed blocking Dock execution sharing the sole navigation motion owner."""
+
+    async def dock(self, goal: DockGoal, on_feedback: FeedbackCallback) -> NavOutcome:
+        """Wait for complete docking, not arrival at its approach point.
+
+        Args:
+            goal: Target and correlated task ownership identity.
+            on_feedback: Loop-thread remaining-distance callback including stage offset.
+
+        Returns:
+            Final measured outcome, after worker and motion cleanup are resolved.
+        """
+        ...
 
 
 class NavigationBackend(Protocol):
