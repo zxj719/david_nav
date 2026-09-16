@@ -18,9 +18,9 @@ PLAN §13.4 / P3.4 的可配置离线假件，不依赖真实驱动，不打开�
   `--events FILE` 追加保存所有对象帧；同一时刻只允许一个客户端。
 
 三个入口均要求显式 `ROS_DOMAIN_ID=99`，ROS 节点还检查实际 context 的域。域隔离不是现场运动授权，不能将假服务端接给生产
-执行器。RUNBOOK S1 禁止自动闭环发非零速度，本包测试仅调用纯函数和内存假件；不运行带目标
-脚本，也不启动 Nav2。仅一个临时 loopback socket 测试用 ping/pong 验证已装 WebSocket API；
-不发送导航命令。真 Nav2 闭环运行的审核事项见交接包 `REVIEW_PENDING.md`。
+执行器。RUNBOOK S1 禁止自动闭环发非零速度；常规包测仅调用纯函数和内存假件，不启动
+Nav2。显式沙箱检查可以启动隔离 Nav2，但仅发布零速、不发导航命令。
+真 Nav2 闭环运行的审核事项见交接包 `REVIEW_PENDING.md`。
 
 纯测试覆盖原脚本积分等价、ROS 消息/TF 的内存映射、非默认机器人帧、协议字节、屏障超时、
 多余状态帧及隔离门禁。`colcon test --packages-select nav_sim` 不启动 ROS 节点。
@@ -30,7 +30,8 @@ PLAN §13.4 / P3.4 的可配置离线假件，不依赖真实驱动，不打开�
 
 `selftest_evidence.check_evidence` 接收独立的NavEvent记录与WS帧，核对一个普通POI、
 随后一个两段Dock的完整事件证据。它不启动ROS、不产生目标，也不模拟或冒充Nav2。
-真实runner/CLI、隔离场景和实跑验收仍待；此模块的 `complete` **仅指事件证据完整**。
+隔离场景和受管启动器已实现，完整runner/CLI与闭环实跑验收仍待；此模块的
+`complete` **仅指事件证据完整**。
 
 每例必须有唯一admission、正确POI与模式阶段、同task/sub/generation、终态成功且释放所有权。
 两例必须由同一producer按序完成，第二例generation递增；Dock还必须按顺序通过完整
@@ -47,3 +48,32 @@ ROS记录标准化为`event_id/source/event_type/severity/stamp/data`映射；�
 单测除了损坏/缺失/乱序轨迹，还用真实TaskManager、NavigateToPoi、DockAwareNavigation、
 DockWorkflow、静态footprint算法和协议编码器生成事件，运动/时钟全部内存替身。
 它证明验收器与领域事件契约一致，不证明DDS、真实Nav2控制或实体制动。
+
+## 隔离场景与零速启动检查
+
+`selftest_scene.prepare_scene` 离线生成独占目录、合成地图、普通POI与两段Dock、共享
+导航图及私有参数。支持David/example_diffdrive的tour/precise档案，保留选中档案的
+几何、帧、速度限制、目标容差和Nav2调参；只替换测试数据源与接线。不读取现场地图或POI，
+不执行平台预检/主机清理，不启动真实底盘。固定地图为12米方形、5厘米分辨率、占用边界；
+要求轮廓至少3点且各坐标绝对值小于2米，不声称适配任意尺寸机器人。
+
+所有ROS节点与话题置于随机 `selftest_<32位十六进制>` 命名空间；包括TF、NavEvent、
+速度、地图、里程计和动作名。假件积分步长20ms，body→nav_base仍由RSP负责。
+`selftest.json` 保存资产哈希、图和验收预期；其中 `executed: false` 是不可变的准备快照，
+不是运行结果。父进程必须持有生成时返回的digest，不能从随后可变的文件重算“预期hash”。
+
+`selftest_plan.load_scene` 校验父进程digest、每项资产、路径/软链和进程白名单。
+`python3 -m nav_sim.selftest_launch --run-dir DIR --plan-sha256 SHA
+--start-verified-fixture` 仅供受管父进程调用；要求domain99，不创建目标客户端或WS服务。
+父进程必须先检查现场栈，使用OwnedProcess独占进程组，保持WS事件循环可响应直至退出，
+再核对 `process_events.jsonl` 的逐进程启动/退出记录。Humble交互LaunchService不会
+转发只发给leader的SIGINT，因此 `close_fixture` 异步等待自有进程组SIGINT后的退出，
+超时清理不算成功；仅leader状态不能证明所有子进程正常退出。
+
+显式执行 `bash sandbox_tests/run_startup_checks.sh`：脚本加载Humble、重构install及
+正式DDS白名单后覆盖domain99，发现现场栈则拒绝启动。检查example_diffdrive两种模式，
+被动loopback WS只收帧、不发命令；逐个确认Nav2 lifecycle ACTIVE、参数和map→nav_base TF，
+随后仅给adapter私有输入发布默认全零Twist，核对输出全零。动作端点可发现不等于ACTIVE，
+adapter未收到输入前保持静默也不是错误。检查最后要求所有13个进程有正常退出记录。
+这证明真实安装栈的零速接线与收尾，不证明轨迹跟踪、停稳或POI/Dock闭环。沙箱文件不匹配
+`test_*.py`，不会被常规colcon测试自动启动。
