@@ -39,6 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
         prog='navrun', description='Navigation run supervisor and recorder.')
     subparsers = parser.add_subparsers(dest='subcommand', required=True)
 
+    for command in ('ls', 'show'):
+        record_parser = subparsers.add_parser(command, help='inspect saved runs as JSON')
+        record_parser.add_argument('--runs-root', type=Path,
+                                   help='default: $NAV_RUNS_ROOT or ~/nav_runs; read-only')
+        if command == 'show':
+            record_parser.add_argument('selector', help='exact run ID or latest')
+            for option in ('params', 'diff', 'events'):
+                record_parser.add_argument('--' + option, action='store_true',
+                                           help='include saved ' + option + ' evidence')
+
     up_parser = subparsers.add_parser('up', help='start and record a navigation mode')
     up_parser.add_argument('--mode', required=True, choices=(
         'tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'))
@@ -215,6 +225,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     args.invocation = ('navrun', *(sys.argv[1:] if argv is None else list(argv)))
+    if args.subcommand in ('ls', 'show'):
+        from nav_bringup.navrun import records
+
+        return records.run(args)
     if args.subcommand == 'up':
         from nav_bringup.navrun import up
 

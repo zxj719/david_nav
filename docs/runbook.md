@@ -68,8 +68,10 @@ logs、metrics、bag和summary.md；latest指向最新记录，但不单凭链�
 
 ## 明确未完成的接口（继续AUTO，不包装成文档已解决）
 
-- P7.A1：PLAN§13.1的 `down/status/ls/show/check/gc` 尚未接入navrun CLI。
-  retention和navcfg实时检查的底层存在不代表这些命令可用；show的生效参数/叠加差异导出也待补。
+- P7.A1：`ls/show` 已接入，只读JSON导出，支持 `--params/--diff/--events`；
+  `down/status/check/gc` 仍待实现，不能用底层helper代替CLI验收。
+  `--diff` 是冻结robot→robot+mode的差异，另列Nav2/遥控覆盖，不是运行参数自动回写。
+  `unfinished` 不证明进程存活；读目录可能与写入并发，输出明确非原子快照。
 - P7.A2：PLAN§12.6的 `navcfg validate --robot <robot> --mode tour` 便利选择器未接入，
   当前可用接口是显式profile/mode/site/URDF/BT文件。
 - P3.5：selftest闭环CLI/流程仍待；假底盘/假定位组件存在不等于POI与两段Dock闭环完成。

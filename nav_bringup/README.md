@@ -30,9 +30,46 @@ This package is robot independent: robot-specific values live in a
 
 Workspace [architecture](../docs/architecture.md) and [runbook](../docs/runbook.md)
 distinguish implemented code from deployment and the remaining CLI work.
-PLAN's down/status/ls/show/check/gc interfaces are not yet registered (P7.A1);
+The read-only `ls/show` interfaces and frozen parameter/overlay exports are available.
+PLAN's down/status/check/gc interfaces are not yet registered (P7.A1);
 navcfg's robot selector (P7.A2) and closed-loop selftest (P3.5) are also pending.
 Existing retention/live-check helpers do not constitute those public commands.
+
+### Inspect saved runs
+
+```bash
+navrun ls --runs-root ~/nav_runs
+navrun show latest --params --diff --events --runs-root ~/nav_runs
+```
+
+These commands print JSON to stdout and never query ROS, create a run, acquire the
+supervisor lock, or signal processes. `ls` lists newest first, leaving malformed
+records visible as `unreadable`. `show` accepts an exact run ID or a `latest`
+symlink whose target is exactly one relative run ID. Exit 2 means inspection
+failed; the diagnostic omits parser source lines that could contain secrets.
+`unfinished` means no recorded end time, **not** that a process is alive.
+
+`--params` exports exact saved texts, grouped by `inputs`, `rendered`, and
+`effective` (including the dump report when present). Empty effective output is
+not replaced with rendered values. `--diff` compares the frozen robot profile to
+that profile with its frozen mode overlay, then reports `nav2_overrides` and
+explicit teleop selectors separately. This is **not** a rendered-to-effective
+runtime comparison. Missing frozen inputs are reported as unavailable. Review
+the effective dumps and commit chosen tuning changes to the original mode
+overlay; do not turn this JSON export into a second snapshot configuration.
+`--events` preserves complete JSONL lines verbatim and flags an incomplete tail;
+it does not parse, validate or silently repair event payloads.
+
+Exports may contain sensitive parameter/event/summary content: review before
+sharing. Raw manifest commands, environment and linked process details are never
+included. Reads are bounded to 8 MiB per file, 32 MiB per record, 4096 directory
+entries and eight nested artifact directories. Oversized data is rejected, not
+silently truncated. Mapping aliases are rejected. The selected root's ancestors
+are trusted; the root and all record descendants reject symlinks (except the
+validated `latest` selector), and files must be regular with one hard link.
+Directory descriptors prevent path replacement from redirecting an open record.
+Concurrent writes can still yield incomplete or mixed-generation evidence;
+every report explicitly declares `snapshot_atomic: false`.
 
 ## Layout
 
