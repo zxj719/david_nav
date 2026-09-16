@@ -246,3 +246,31 @@ def test_actual_main_owns_ros_shutdown_but_not_provider_lifecycle(runtime, monke
     assert module.main(['--ros-args']) == 0
     assert calls == [{'args': ['--ros-args']}, 'closed']
     assert state.destroyed == state.unregistered == 1
+
+
+def test_health_severity_transitions_use_distinct_ros_logging_call_sites(runtime, monkeypatch):
+    """Humble pins severity to a call site; warn-to-info recovery must not kill the node."""
+    module, state = runtime
+    contexts = {}
+
+    def method(severity):
+        def log(message):
+            frame = sys._getframe(1)
+            caller = (frame.f_code.co_filename, frame.f_lineno, frame.f_lasti)
+            previous = contexts.setdefault(caller, severity)
+            if previous != severity:
+                raise ValueError('Logger severity cannot be changed between calls.')
+            state.logs.append((severity, message))
+        return log
+
+    logger = NS(info=method('info'), warning=method('warn'), error=method('error'))
+    monkeypatch.setattr(module.Node, 'get_logger', lambda self: logger)
+    node = module.LocalizationMonitor()
+    try:
+        for severity in ('warn', 'info', 'error', 'info', 'warn'):
+            node._event('localization_transition', severity, {})
+        assert [level for level, _ in state.logs] == ['warn', 'info', 'error', 'info', 'warn']
+        assert len(contexts) == 3
+        assert len(state.publishers['/nav/events']) == 5
+    finally:
+        node.destroy_node()

@@ -164,9 +164,15 @@ class LocalizationMonitor(Node):
             self._publication_failed(error)
         message = '等待在 RViz 手动给初始位姿' if name == 'localization_waiting' else name
         logger = self.get_logger()
-        method = logger.error if severity == 'error' else (
-            logger.warning if severity == 'warn' else logger.info)
-        method(message)
+        # Humble fixes each logging call site's severity after its first use.
+        # Keep separate sites so waiting -> ready or divergence -> recovery
+        # changes the diagnostic level without terminating this observer.
+        if severity == 'error':
+            logger.error(message)
+        elif severity == 'warn':
+            logger.warning(message)
+        else:
+            logger.info(message)
 
     def _publication_failed(self, error):
         if time.monotonic() >= self._next_failure:
