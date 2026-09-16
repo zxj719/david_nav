@@ -32,11 +32,11 @@ source of concrete robot values; the `executor.dock_config_file` schema describe
 the actual new file selector. Profile-native policy migration can be a separate
 change, without silently changing old launch behavior.
 
-The new outer console binds this bridge before opening its shared Dock ingress;
-the legacy node/launch switch remains pending. `/goal_pose` remains accepted when explicitly
-supplied; the R8 standalone-default correction is a separate red/green task.
-Before replacing the old node, freeze the declaration-name reference used by
-`test_dock_parameters.py` together with the existing workflow/action log goldens.
+The outer console and retained entry shims bind this bridge before opening their
+shared Dock ingress. R8 changes the standalone robot-data default to `/dock_goal`;
+`/goal_pose` remains accepted when explicitly supplied, so operators must avoid
+configuring two consumers for the same RViz goal. Declaration-name and workflow
+references stay frozen; the R8 default difference is asserted separately.
 
 Tests compare the declaration surface, ROS overrides, complete David/example
 precise render output, endpoint precedence and the file→public factory→worker

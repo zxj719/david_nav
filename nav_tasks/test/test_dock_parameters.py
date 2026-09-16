@@ -74,7 +74,7 @@ def test_declares_original_defaults_then_uses_ros_overrides():
     assert dict(node.declarations) == raw
     assert value.runtime.yaw_ok == 0.2 and value.runtime.max_yaw_retries == 3
     assert value.runtime.robot_base_frame == 'other_center'
-    assert value.goal_topic == '/goal_pose'  # R8 remains a separate behavior fix.
+    assert value.goal_topic == '/goal_pose'  # R8 changes the default, not explicit overrides.
     assert value.action_name == '/other_action'
     assert node.values['footprint'] == raw['footprint']
     assert value.runtime.footprint[0] == (-0.2, -0.2)

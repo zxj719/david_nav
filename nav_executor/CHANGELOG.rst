@@ -3,6 +3,9 @@ nav_executor
 
 0.1.0 (2026-09-16)
 ------------------
+* Fix R8: standalone Dock robot data now defaults goal_topic to /dock_goal rather
+  than Nav2 RViz /goal_pose. Preserve explicit overrides and the other fifteen
+  policy values, including 0.05 rad/s settling; precise launch already used it.
 * Integrate R2 task crash reports as existing on_error frames; verify successful
   cleanup and subsequent navigation through the public task adapter with fake I/O.
 * Fix R1: normalize malformed commands with recoverable request context, isolate

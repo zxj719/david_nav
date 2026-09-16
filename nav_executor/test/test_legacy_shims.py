@@ -6,16 +6,48 @@ import os
 from pathlib import Path
 import runpy
 import sys
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
 from nav_executor.app import cli
 from nav_executor.app.config import load_configuration
+from nav_tasks.api import declare_dock_parameters
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULTS = ROOT / 'david_config/dock/standalone.yaml'
+
+
+def test_no_argument_standalone_declares_dedicated_dock_topic(monkeypatch):
+    """R8 resolves no-argument Dock CLI through configuration and real parameter binding."""
+    module = importlib.import_module('nav_executor.app.dock_cli')
+    monkeypatch.setattr(module, '_default_policy', lambda: DEFAULTS)
+    declarations, configured = {}, []
+
+    class Node:
+        def declare_parameter(self, name, value):
+            declarations[name] = value
+
+        def get_parameter(self, name):
+            return SimpleNamespace(value=declarations[name])
+
+    def entry(args):
+        resolved = load_configuration(args, profile_path=ROOT / 'david_config/robot/david.yaml',
+                                      environ={})
+        configured.append(declare_dock_parameters(Node(), resolved.dock_parameters))
+        assert not resolved.config.websocket_enabled
+        return 0
+
+    monkeypatch.setattr(cli, 'main', entry)
+    assert module.main([]) == 0
+    assert configured[0].goal_topic == '/dock_goal'
+    assert declarations['goal_topic'] == '/dock_goal'
+    assert len(declarations) == 16
+    assert configured[0].runtime.yaw_ok == 0.087
+    assert configured[0].runtime.max_yaw_retries == 2
+    assert configured[0].runtime.settle_max_rate_rad_s == 0.05
 
 
 @pytest.mark.parametrize('name,target', [
@@ -46,8 +78,8 @@ def test_retained_executable_delegates_argv_and_exit_status(monkeypatch, name, t
     assert loaded['main'] is entry and len(calls) == 1
 
 
-def test_standalone_dock_data_preserves_all_frozen_defaults():
-    """Standalone historical 5-degree/2-retry policy must not become precise-mode tuning."""
+def test_standalone_dock_data_preserves_frozen_defaults_except_r8_topic():
+    """Only the documented R8 topic differs from the frozen standalone policy."""
     source = ROOT / 'david_nav/test/golden/legacy_entries/dock_navigator.py.txt'
     tree = ast.parse(source.read_text())
     footprint = next(ast.literal_eval(node.value) for node in tree.body
@@ -62,6 +94,8 @@ def test_standalone_dock_data_preserves_all_frozen_defaults():
             expected[ast.literal_eval(node.args[0])] = (
                 footprint if isinstance(value, ast.Name) else ast.literal_eval(value))
     assert len(expected) == 16
+    assert expected['goal_topic'] == '/goal_pose'
+    expected['goal_topic'] = '/dock_goal'
     assert yaml.safe_load(DEFAULTS.read_text()) == expected
 
 

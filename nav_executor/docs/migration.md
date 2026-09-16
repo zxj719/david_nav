@@ -17,4 +17,5 @@ separate shim tests exercise real paths/argv/exit status, and new-chain tests
 retain the frozen wire contract. Historical supporting classes remain available
 for imports pending P7 legacy isolation. R1/R2 are implemented; R3 is verified
 against the synchronous feedback path introduced with the new backend (see
-nav_tasks ADR-0009). R8 and measured R6 follow separately.
+nav_tasks ADR-0009). R8 now defaults standalone Dock to /dock_goal; explicit ROS
+overrides remain supported. R6 measurement follows separately.

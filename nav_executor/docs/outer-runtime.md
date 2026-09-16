@@ -11,8 +11,9 @@ proxy changes and WS observers. Default WS behavior and frozen help are unchange
 Both retained david_nav programs are thin shims. The standalone dock_navigator
 forwards to app.dock_cli, selects installed david_config/dock/standalone.yaml
 unless --dock-config-file is explicit, and forces --no-websocket. Its sixteen
-historical defaults (5-degree yaw, two retries, including the separate R8
-/goal_pose defect) are preserved as data. ROS parameters still override them.
+policy values (5-degree yaw, two retries) are preserved as data. R8 changes only
+the default goal topic to /dock_goal, avoiding Nav2 /goal_pose competition.
+ROS parameters still override them; explicit topic overrides are not blocked.
 The old precise launch now also has only one shared owner: WS-enabled Dock waits
 for Nav2, ROS-only Dock keeps its former core/chassis-delay timing. Its eight ROS
 overrides retain /dock_goal, 0.4363 yaw and zero retries. Missing WS prerequisites
