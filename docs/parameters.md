@@ -176,7 +176,7 @@ No parameters declared.
 | `tasks.dock.approach_dist` | `float` | m | default: `null` | range: `0 .. inf` | Approach point distance behind the final goal along its heading. | — |
 | `tasks.dock.footprint` | `string` | — | default: `null` | — | Legacy ROS string containing a simple polygon of metric coordinate pairs. | — |
 | `tasks.dock.global_frame` | `string` | — | default: `null` | — | Global frame used to build Dock goals and measure its terminal pose. | — |
-| `tasks.dock.goal_topic` | `string` | — | default: `null` | — | Legacy PoseStamped ingress topic; supplied explicitly, R8 default fix separate. | — |
+| `tasks.dock.goal_topic` | `string` | — | default: `null` | — | PoseStamped Dock ingress supplied explicitly; R8 standalone default is /dock_goal. | — |
 | `tasks.dock.max_yaw_retries` | `int` | — | default: `null` | range: `0 .. inf` | Maximum finish rotation corrections, independent of ordinary POI retries. | — |
 | `tasks.dock.nav_timeout_sec` | `float` | s | default: `null` | range: `0 .. inf` | Local result budget for each Dock navigation stage; cleanup remains owned. | — |
 | `tasks.dock.robot_base_frame` | `string` | — | default: `null` | — | Dock navigation rotation frame; never the independent POI capture frame. | — |

@@ -85,9 +85,10 @@ No physical stop or accuracy claim follows from the pure helper tests.
 
 The five corresponding legacy modules in `david_nav` remain compatibility
 exports. Old and new imports refer to the same classes/functions, preserving
-type identity rather than creating parallel implementations. Configuration
-schema is currently empty because pure functions consume explicit arguments;
-profile-key ownership moves with the later runtime integration.
+type identity rather than creating parallel implementations. Pure functions
+consume explicit arguments; the package schema now documents the full flat Dock
+parameter contract under tasks.dock. The public binder requires complete runtime
+configuration rather than filling it with hidden robot defaults.
 
 Tests cover pure behavior, isolated imports, architecture boundaries, Google
 docstrings and formatting. Existing `david_nav` tests and G1–G16 remain unchanged

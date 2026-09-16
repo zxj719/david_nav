@@ -25,8 +25,14 @@ This package is robot independent: robot-specific values live in a
 | `navcfg render --profile FILE [--mode FILE] --output FILE` (`nav_bringup.navcfg.render`): a base parameter tree whose robot-specific values are `<bind:KEY>` markers, a binding table listing every parameter each profile key is written to (markers and table must agree), the robot profile and a mode overlay (profile values plus `nav2_overrides`, which may not touch bound parameters); PyYAML and the standard library only | available (P2.3) | plan §12.3 |
 | `config/nav2_base.yaml` + `config/nav2_bindings.yaml`: Nav2 base parameters (the David tour values and their tuning notes) with frames, footprint, speed limits, goal tolerances and odom/scan/map topics bound to profile keys, which `config/schema.yaml` declares as required | available (P2.3) | plan §12.3 |
 | `navcfg validate --profile FILE --mode FILE --site FILE --urdf FILE --bt-dir DIR [--source-root SRC]`: schema checks plus the frame, speed, precise-mode, trinary-map, teleop, diff-drive BT and POI-frame rules; warnings do not reject the configuration | available (P2.5) | plan §12.4 |
-| `navcfg doc` | planned (P2.6) | plan §12.1 |
-| `nav.launch.py` | planned (P4.1) | plan §7.1 |
+| `navcfg doc` | available; generates the workspace parameter catalog | plan §12.1 |
+| `nav.launch.py` | available; consumes a prepared five-mode graph | plan §7.1 |
+
+Workspace [architecture](../docs/architecture.md) and [runbook](../docs/runbook.md)
+distinguish implemented code from deployment and the remaining CLI work.
+PLAN's down/status/ls/show/check/gc interfaces are not yet registered (P7.A1);
+navcfg's robot selector (P7.A2) and closed-loop selftest (P3.5) are also pending.
+Existing retention/live-check helpers do not constitute those public commands.
 
 ## Layout
 
@@ -77,8 +83,9 @@ def test_docstring_policy():
 remove, probe or signal external processes, and never starts localization.
 The selector arguments are `robot`, `site`, `mode`, `chassis:=on|off`,
 `executor:=true|false`, `composition:=false` and required `run_dir`.
-Robot/site/mode selectors must match the prepared bundle. Composition remains
-explicitly rejected until P5.4, rather than silently ignored.
+Robot/site/mode selectors must match the prepared bundle. Composition is available
+as an explicit opt-in using the supported isolated-container components; default
+graphs remain uncomposed and physical/performance acceptance is separate.
 
 `launch.json` has version 1 and fields `schema_version`, `robot`, `site`, `options`.
 Options are the fields of `launching.graph.GraphOptions`, except `run_dir` comes
@@ -86,7 +93,8 @@ from the launch argument; tuple-valued executor arguments are JSON arrays.
 All selected parameters must already exist under `params/rendered/`:
 `driver.yaml`, `adapter.yaml`, `nav2.yaml`, `lifecycle.yaml`, and the applicable
 `map_server.yaml`, `robot_state.yaml`, `scan_bridge.yaml`, `dock.yaml`,
-`rviz.yaml` or `teleop.yaml`. RViz also uses `inputs/navigation.rviz`.
+`rviz.yaml` or `teleop.yaml`. Navigation also requires `localization_health.yaml`.
+RViz uses `inputs/navigation.rviz`.
 Lifecycle node order is checked against the graph before process construction.
 
 The prepared tour/precise graph now uses `nav_executor/nav_task_manager`.
@@ -123,9 +131,10 @@ The refactor `david_nav` precise launch and retained executable shims also use t
 shared root; do not combine independently launched managers with this graph.
 Production aliases have not changed. Physical/no-goal ROS acceptance is pending.
 
-This is not yet an accepted production replacement for aliases: the convenience
-keyboard launch and navigation/physical acceptance remain pending. Bundle preparation,
-the Python chassis adapter and recorded supervision are available. No production alias has changed.
+This is not yet an accepted production replacement for aliases: shared-runtime
+and physical acceptance remain pending. Bundle preparation, the convenience
+keyboard launch, chassis adapters and recorded supervision are available.
+No production alias has changed.
 The sandbox launch checks use disposable Python children and an optional fake
 Nav2 server; they never run the physical driver or submit a goal.
 

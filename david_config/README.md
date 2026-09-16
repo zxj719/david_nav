@@ -9,15 +9,16 @@ to `<robot>_config` and changing values, not code.
 
 | Component | State | Plan reference |
 |---|---|---|
-| `robot/david.yaml`: robot profile (frames, footprint, limits, goal tolerances, chassis adapter and driver, teleop, localization, Nav2 topic wiring, sensors, platform, preflight, recording) with the values production runs today | available (PROGRESS P2.2a, P2.3) | plan §12.2 |
+| `robot/david.yaml`: baseline-derived robot profile (frames, footprint, limits, tolerances, chassis, teleop, localization, Nav2, sensors, platform, preflight, recording), with explicit refactor deltas | available (PROGRESS P2.2a, P2.3) | plan §12.2 |
 | `sites/daolan/site.yaml` + `maps/daolan_map_nav.yaml`: navigation map (trinary; image stays in the lightning map directory), point files, agent server | available (P2.2b) | plan §14 |
-| `modes/{tour,precise,bench_slamgt,teleop}.yaml`: mode overlays holding only the differences (profile values and Nav2 parameter overrides) | available (P2.2c) | plan §12.2 |
+| `modes/{tour,precise,bench_slamgt,chassis,teleop}.yaml`: mode overlays holding only the differences (profile values and Nav2 parameter overrides) | available (P2.2c) | plan §12.2 |
 | `urdf/david.urdf`: robot description | available (P2.2c) | plan §12.6 |
 
 The site map yaml and the URDF are byte-identical copies of
 `david_nav/config/maps/daolan_map_nav.yaml` and `david_nav/urdf/david.urdf`
-until the launch files read this package (Phase 4); tests fail if the copies
-drift apart. The URDF still loads its meshes from `david_nav`.
+and remain protected by equality tests. The refactor launch now reads this
+package; the URDF still loads its meshes from `david_nav`. Production deployment
+remains independent of the refactor workspace.
 
 ## Frames
 
@@ -90,7 +91,8 @@ published by the automated tests.
 The refactor startup planner now binds the WS server and POI paths from site.yaml.
 `pois.dock_poi_ids: [POI_017]` applies only to precise mode; it does not change tour
 routing. Both modes retain a 120-second Nav2 readiness deadline and a 3-second WS
-reconnect interval. The legacy executor implementation is not otherwise changed.
+reconnect interval. Retained executor paths now forward to the shared manager;
+this binding does not introduce a second legacy task owner.
 
 The robot profile now holds the exact old light/full bag topic lists, full regex,
 100 MiB cache and full-only hidden/unpublished/zstd options. Large global maps stay

@@ -64,6 +64,9 @@ the handle for retry. Sealed owners suppress late emissions and cannot reopen.
 
 Observer failures are isolated from skill results and legacy logs. Publication
 is synchronous and can add DDS latency; this change does not claim zero CPU or
-timing overhead, end-to-end delivery, or physical acceptance. Recording these
-messages in navrun, navrun's own event publication, health producers and replay
-deduplication remain separate P6.6/P6.7 work. No production alias is changed.
+timing overhead, end-to-end delivery, or physical acceptance. The actual navrun
+monitor now records these messages and publishes local lifecycle history with a
+persistent cursor, while a managed temporary publisher handles the final tail.
+The navigation health producer is also wired. Their deduplication and delivery
+limits are documented in the workspace [event contract](../../docs/events.md).
+No production alias is changed.

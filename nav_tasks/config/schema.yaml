@@ -7,7 +7,7 @@ parameters:
   tasks.dock.goal_topic:
     type: string
     default: null
-    description: "Legacy PoseStamped ingress topic; supplied explicitly, R8 default fix separate."
+    description: "PoseStamped Dock ingress supplied explicitly; R8 standalone default is /dock_goal."
   tasks.dock.action_name:
     type: string
     default: null
