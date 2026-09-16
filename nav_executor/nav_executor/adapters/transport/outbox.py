@@ -33,6 +33,12 @@ class ReliableOutbox:
         self._on_sent = on_sent
 
     @property
+    def in_flight_count(self) -> int:
+        """Number of frames retained from an unfinished send, for legacy reconnect logs."""
+        self._check_loop()
+        return int(self._pending is not None)
+
+    @property
     def pending_count(self) -> int:
         """Number of queued frames including any in-flight send."""
         self._check_loop()

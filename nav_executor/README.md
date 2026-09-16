@@ -2,7 +2,9 @@
 
 Navigation WS v1 protocol and ingress adapters, separate from task ownership.
 The package includes pure commands/codecs, a public-task-API command adapter,
-and a reconnect-persistent outbox. It does not replace the existing runtime or
+and a reconnect-persistent outbox. The [WS lifecycle](docs/ws-client.md) now owns
+connection-scoped receive/heartbeat/send work through an injected connector.
+It does not replace the existing runtime or
 add a runnable WebSocket entry point yet.
 
 ```python

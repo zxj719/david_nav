@@ -9,3 +9,6 @@ nav_executor
 * Restore frozen status cadence/text and outbound audit helpers via public snapshots.
 * Exercise the public task runtime factory with actual storage/skills/adapters and
   fake ROS I/O, including rollback failures and retryable shutdown.
+* Extract proxy bypass, heartbeat, receive and reconnect components; join all
+  connection children and reconnect promptly on sender failure without canceling
+  motion or losing the shared outbox. Keep legacy entry points unchanged.
