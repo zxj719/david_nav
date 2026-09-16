@@ -14,6 +14,8 @@ FIXTURES = ROOT / 'david_nav/test/golden/legacy_entries'
 @pytest.mark.parametrize('name,digest', [
     ('navigation_executor', '5f7bdf437c06ba886d4d23812c0767a336de2535a97503b343b75b2800d2da53'),
     ('dock_navigator', 'cf5883eb3e3b468a15bedb90c70d12f31c2f56f4aad5d78f760b39f22a8314c6'),
+    ('precise_nav_bringup.launch',
+     '016e8d154d763c7e1d84f9cc03dfffbea21b4a251a4257ec0f9b584d4951ad3d'),
 ])
 def test_reference_bytes_are_pinned_to_pre_shim_commit(name, digest):
     """Later entry changes cannot silently rewrite the oracle into the tested implementation."""

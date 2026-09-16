@@ -13,10 +13,11 @@ from nav_bringup.navrun.executor_binding import bind_executor
 
 
 SOURCE = Path(__file__).resolve().parents[2]
+LEGACY = SOURCE / 'david_nav/test/golden/legacy_entries'
 
 
 def _old_parser():
-    source = SOURCE / 'david_nav/david_nav/navigation_executor.py'
+    source = LEGACY / 'navigation_executor.py.txt'
     tree = ast.parse(source.read_text())
     selected = [node for node in tree.body if (
         isinstance(node, ast.Assign) and all(
@@ -41,7 +42,7 @@ def test_david_settings_equal_old_entry_after_legacy_parser(tmp_path, mode):
         '--server-uri', site['agent_server']['uri'], '--reconnect-delay', '3',
         '--pose-file', str(Path(site['pois']['named_poses_file']).expanduser())]
     if mode == 'precise':
-        launch = (SOURCE / 'david_nav/launch/precise_nav_bringup.launch.py').read_text()
+        launch = (LEGACY / 'precise_nav_bringup.launch.py.txt').read_text()
         match = re.search(r"'dock_poi_ids', default_value='([^']*)'", launch)
         assert match
         identifiers = [value.strip() for value in match.group(1).split(',') if value.strip()]
