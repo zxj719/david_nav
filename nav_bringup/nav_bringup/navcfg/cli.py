@@ -58,12 +58,16 @@ def build_parser() -> argparse.ArgumentParser:
     render_parser.add_argument('--bt-bindings', type=Path, help='override BT binding table')
     validate_parser = commands.add_parser(
         'validate', help='check a robot profile, mode, site, Nav2 tree, BTs and URDF')
-    validate_parser.add_argument('--profile', required=True, type=Path, help='robot profile')
-    validate_parser.add_argument('--mode', required=True, type=Path, help='mode overlay')
-    validate_parser.add_argument('--site', required=True, type=Path, help='site profile')
-    validate_parser.add_argument('--urdf', required=True, type=Path, help='robot URDF')
+    identity = validate_parser.add_mutually_exclusive_group(required=True)
+    identity.add_argument('--profile', type=Path, help='explicit robot profile file')
+    identity.add_argument('--robot', help='robot name selecting its name_config package')
+    validate_parser.add_argument('--mode', required=True, type=Path,
+                                 help='overlay file with --profile; mode name with --robot')
+    validate_parser.add_argument('--site', type=Path,
+                                 help='site file with --profile; optional site name with --robot')
+    validate_parser.add_argument('--urdf', type=Path, help='robot URDF with --profile')
     validate_parser.add_argument(
-        '--bt-dir', required=True, action='append', type=Path,
+        '--bt-dir', action='append', type=Path,
         help='directory containing rendered BT file names; repeat to add search directories')
     validate_parser.add_argument('--base', type=Path, help='base parameter tree')
     validate_parser.add_argument('--bindings', type=Path, help='binding table')
@@ -213,6 +217,10 @@ def _behavior_trees(tree: Dict[str, object], directories: Sequence[Path]) -> Dic
 def _validate_command(args: argparse.Namespace) -> int:
     """Execute ``navcfg validate`` and report every issue."""
     try:
+        if args.robot is not None:
+            from nav_bringup.navcfg.robot_validation import run
+
+            return run(args, _catalog(args))
         base = args.base or _installed_config(BASE_FILE)
         bindings = args.bindings or _installed_config(BINDINGS_FILE)
         profile = render.load_yaml(args.profile)
@@ -267,7 +275,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     Returns:
         0 on success, 1 for failed validation, or 2 for malformed inputs.
     """
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == 'validate' and args.profile is not None:
+        missing = [name for name in ('site', 'urdf', 'bt_dir') if getattr(args, name) is None]
+        if missing:
+            parser.error('--profile requires ' + ', '.join('--' + n.replace('_', '-')
+                                                           for n in missing))
     if args.command == 'render':
         return _render_command(args)
     if args.command == 'validate':

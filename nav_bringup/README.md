@@ -34,7 +34,39 @@ The read-only `ls/show` interfaces and frozen parameter/overlay exports are avai
 `navrun check` revalidates a prepared run offline, with opt-in live observation.
 `navrun status/down` contact the current cooperative `up` owner under its lease.
 `navrun gc` previews or applies the shared completed-record retention policy.
-navcfg's robot selector (P7.A2) and closed-loop selftest (P3.5) are still pending.
+`navcfg validate --robot NAME --mode MODE` selects source or installed resources
+and validates them offline (P7.A2). Closed-loop selftest (P3.5) is still pending.
+
+### Validate a robot configuration
+
+```bash
+navcfg validate --robot example_diffdrive --mode tour
+navcfg validate --robot example_diffdrive --mode precise --site offline --source-root ./src
+```
+
+The named interface uses the shared up input discovery and offline bundle
+preparation, including schema, profile/mode merging, Nav2/BT rendering, frame and
+limit rules, URDF, map metadata/image, and selected POI file readability.
+It checks the robot, mode and site identities against the selectors. It does not
+call up host planning, scan processes, resolve runtime executables, acquire a
+navigation lease, create a run record, open hardware or start ROS.
+Schemas use `--schema` if explicit, otherwise `--source-root`, otherwise the
+installed resource environment. Package resources similarly use `--source-root`
+or the installed package index; no robot-specific package code is imported.
+
+Mode names: tour, precise, bench_slamgt, chassis, teleop; the selected robot must
+supply the corresponding overlay. The shipped example provides four modes, not
+bench_slamgt. Navigation auto-selects a site only when exactly one is available;
+otherwise pass `--site NAME`. Chassis/teleop need no site, map or URDF and reject
+`--site`. Relative asset paths retain their package/site-relative meaning.
+Warnings remain nonfatal. Exit 0 means valid offline configuration, 1 rejected
+configuration, 2 invalid selectors/schema discovery or missing/inaccessible files.
+Success does not certify executable availability, a live ROS graph or hardware;
+read-only validation is not a transactional snapshot of concurrently edited files.
+
+The original `--profile FILE --mode FILE --site FILE --urdf FILE --bt-dir DIR`
+interface and its explicit `--base/--bindings` options are unchanged. Do not mix
+these file overrides with `--robot`; use the explicit interface for custom files.
 
 ### Collect completed records
 

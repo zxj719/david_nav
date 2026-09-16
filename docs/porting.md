@@ -21,7 +21,21 @@
 
 ## 2. 先离线渲染与校验
 
-当前navcfg使用显式文件接口，以下在重构工作空间根目录运行，只写指定临时输出：
+优先用PLAN的机器人选择器，在已加载重构安装环境后运行：
+
+```bash
+navcfg validate --robot example_diffdrive --mode tour
+navcfg validate --robot example_diffdrive --mode precise --site offline --source-root ./src
+```
+
+只读复用up的配置发现、叠加、Nav2/BT渲染与完整离线校验，不调用up的主机规划。
+核机器人/模式/场地身份、schema、帧/限速、URDF、地图与所选点位资产；不启动ROS、
+不扫描进程、不写运行记录。默认从安装包找资源，`--source-root`改选源码包。
+导航场地只有一个时自动选择，否则必须`--site`；chassis/teleop不依赖场地/地图/URDF。
+机器人须提供所选mode文件；样例提供tour/precise/chassis/teleop四种，不含bench_slamgt。
+成功不证明可执行文件可用、在线话题或硬件通过；并发编辑时也不是原子配置快照。
+
+原显式文件接口保留，以下在重构工作空间根目录运行，只写指定临时输出：
 
 ```bash
 navcfg render --profile src/example_diffdrive_config/robot/example_diffdrive.yaml \
@@ -32,9 +46,9 @@ navcfg render --profile src/example_diffdrive_config/robot/example_diffdrive.yam
 navcfg --help
 ```
 
-完整validate还必须给mode、site、URDF及已渲染BT目录，不能仅校验YAML可读。
-使用 `navcfg validate --help` 获取当前显式参数；`--robot <robot> --mode tour`
-这种PLAN便利选择器尚未接入，列P7.A2，不冒充可运行示例。
+显式`--profile` validate仍必须给mode、site、URDF及已渲染BT目录，不能仅校验YAML可读。
+使用 `navcfg validate --help` 获取参数；不要混用`--robot`与显式profile/URDF/BT/base/bindings。
+新选择器返回0=离线通过、1=配置不合格、2=选择器/资源/schema错误；warning不失败。
 `navrun up --dry-run --source-root ...`可验证选定图、绑定与可执行解析，不启动驱动。
 
 ## 3. 安装与行为门禁

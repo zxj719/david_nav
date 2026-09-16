@@ -78,8 +78,10 @@ logs、metrics、bag和summary.md；latest指向最新记录，但不单凭链�
   不跟随子项符号链接；根路径祖先需可信，不承诺对同用户并发写入提供事务隔离。
   `--diff` 是冻结robot→robot+mode的差异，另列Nav2/遥控覆盖，不是运行参数自动回写。
   `unfinished` 不证明进程存活；读目录可能与写入并发，输出明确非原子快照。
-- P7.A2：PLAN§12.6的 `navcfg validate --robot <robot> --mode tour` 便利选择器未接入，
-  当前可用接口是显式profile/mode/site/URDF/BT文件。
+- P7.A2：PLAN§12.6的 `navcfg validate --robot <robot> --mode tour` 已接入，
+  source/installed资源复用up的离线准备；唯一场地自动选，多场地需`--site NAME`。
+  原显式profile/mode/site/URDF/BT接口保留，但不与robot选择器混用。
+  不调用主机规划、不起ROS、不写run；离线通过不代表在线或实机验收，详见[porting.md](porting.md)。
 - P3.5：selftest闭环CLI/流程仍待；假底盘/假定位组件存在不等于POI与两段Dock闭环完成。
 - P7.4：两历史skip和规范最终收尾未结束；现有全仓绿不足以宣称全部AUTO完成。
 
