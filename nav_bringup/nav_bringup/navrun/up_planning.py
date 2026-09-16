@@ -21,6 +21,7 @@ from nav_bringup.launching.executables import resolve_component
 from nav_bringup.navcfg import render, schema
 from nav_bringup.navrun.platform import plan_platform, PlatformStep
 from nav_bringup.navrun.preflight import plan_preflight, PreflightPlan, ProcessInfo
+from nav_bringup.navrun.preflight import is_task_manager
 from nav_bringup.navrun.preparation import BundleInputs, PreparedBundle, prepare_bundle
 from nav_bringup.navrun.recording import plan_recording, RecordingPlan
 from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
@@ -37,7 +38,7 @@ class UpRequest:
         run_dir: Prospective absolute run directory, not created during planning.
         chassis: auto, on or off; resolved by a read-only process snapshot.
         record: Requested light, full or off recording policy.
-        no_executor: Explicitly omit the legacy WS executor.
+        no_executor: Disable WS transport; precise mode retains local Dock ingress.
         teleop_options: Explicit layout/gears, frozen separately from source files.
         mode_file: Optional complete mode overlay path; never changes the mode identity.
         composition: Explicitly opt in to one isolated Nav2 container.
@@ -190,6 +191,9 @@ def plan_up(
     graph = build_graph(bundle.options)
     errors = []
     for process in processes:
+        if is_task_manager(process):
+            errors.append(f'existing task manager pid {process.pid} requires inspection; '
+                          'automatic cleanup of shared task managers is disabled')
         if (process.argv and Path(process.argv[0]).name in (
                 'component_container', 'component_container_mt', 'component_container_isolated')
                 and any(argument in ('__node:=nav2_container', '__name:=nav2_container')

@@ -7,7 +7,13 @@ from the unchanged david_nav executable and production aliases. The equivalent
 Supply a complete `--dock-config-file` to enable Dock; Dock IDs without it are
 rejected before ROS/storage opens. `--no-websocket` disables WS imports, connection,
 proxy changes and WS observers. Default WS behavior and frozen help are unchanged.
-The legacy launch graph/shims are not switched: do not deploy both owners together.
+The old david_nav launch/shims are not switched: do not deploy both owners together.
+The prepared navrun graph now selects this manager: precise+WS uses one deferred
+process for both ingress paths, precise without WS uses one core-phase Dock node,
+and tour without WS omits it. Its argv carries a mode-merged robot profile snapshot
+and, for precise mode, the complete Dock parameter file. Missing snapshots reject
+launch rather than falling back to installed David data. Dock in precise+WS starts
+after Nav2 readiness/full startup checks; it is no longer a separate early node.
 
 The CLI resolves configuration, then installs main-thread INT/TERM/HUP handlers.
 The first signal sets an asyncio stop event and determines exit code 128 + signal;

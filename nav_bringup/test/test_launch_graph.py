@@ -24,11 +24,13 @@ def test_tour_keeps_nav2_lifecycle_and_command_chain() -> None:
     assert not nodes['navigation_executor'].ros_node
 
 
-def test_precise_keeps_a_separate_dock_node_and_opt_in_executor() -> None:
-    """Precise mode adds local docking without duplicating the Nav2 action client process."""
+def test_precise_keeps_local_dock_with_optional_in_process_websocket() -> None:
+    """ROS-only precise mode has one shared manager under the compatible Dock node name."""
     graph = build_graph(GraphOptions('precise', '/run/test'))
     nodes = {node.name: node for node in graph.processes}
     assert nodes['dock_navigator'].parameter_file == '/run/test/params/rendered/dock.yaml'
+    assert nodes['dock_navigator'].package == 'nav_executor'
+    assert nodes['dock_navigator'].executable == 'nav_task_manager'
     assert 'navigation_executor' not in nodes
     assert len([node for node in graph.processes if node.name == 'bt_navigator']) == 1
 

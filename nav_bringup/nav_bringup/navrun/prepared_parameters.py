@@ -54,6 +54,10 @@ def node_parameters(
     """
     graph = build_graph(options)
     output: Dict[str, Any] = {}
+    if options.start_executor or options.mode == 'precise':
+        # A CLI input, not a ROS parameter tree. Keep the mode-merged robot values
+        # instead of making the task manager fall back to its installed David profile.
+        output['executor_profile'] = dict(profile)
     if options.start_chassis:
         parameters = render.profile_value(profile, 'chassis.driver.parameters')
         if not isinstance(parameters, dict):

@@ -98,6 +98,35 @@ def test_report_does_not_disclose_other_process_arguments(tmp_path):
     assert 'DO_NOT_PRINT' not in json.dumps(report)
 
 
+@pytest.mark.parametrize('mode', ['tour', 'precise', 'teleop'])
+@pytest.mark.parametrize('argv', [
+    ('/refactor/install/nav_executor/lib/nav_executor/nav_task_manager',),
+    ('python3', '/refactor/install/nav_executor/lib/nav_executor/nav_task_manager'),
+    ('python3', '-u', '/refactor/install/nav_executor/lib/nav_executor/navigation_executor'),
+    ('/opt/ros/humble/bin/ros2', 'run', 'nav_executor', 'nav_task_manager'),
+])
+def test_existing_shared_manager_refuses_start_without_cleanup(tmp_path, mode, argv):
+    """The new entry cannot silently coexist with another owner or become a kill target."""
+    process = ProcessInfo(102, 1, 3.0, argv, 1000)
+    plan = _plan(_request(tmp_path, mode=mode), (SELF, process))
+    assert any('existing task manager pid 102' in error for error in plan.errors)
+    assert process not in plan.preflight.targets
+    assert not (tmp_path / 'not-created').exists()
+
+
+@pytest.mark.parametrize('argv', [
+    ('bash', '-c', 'ros2 run nav_executor nav_task_manager'),
+    ('python3', '-c', 'nav_task_manager'),
+    ('vim', '/refactor/install/nav_executor/lib/nav_executor/nav_task_manager'),
+    ('echo', 'nav_task_manager'),
+    ('/other/navigation_executor',),
+])
+def test_textual_manager_mentions_do_not_refuse_start(tmp_path, argv):
+    """Shell text, source editors and unrelated executable names are not live owners."""
+    process = ProcessInfo(102, 1, 3.0, argv, 1000)
+    assert _plan(_request(tmp_path), (SELF, process)).errors == ()
+
+
 @pytest.mark.parametrize('field,value', [
     ('robot', '../robot'), ('site', '/tmp/site'), ('mode', 'unknown'),
     ('record', 'mcap'), ('chassis', 'yes'), ('no_executor', 'true'),

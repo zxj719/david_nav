@@ -20,8 +20,9 @@ def _prepare(root, mode='tour'):
     (root / 'launch.json').write_text(json.dumps(data))
     graph = build_graph(options)
     for spec in graph.processes:
-        if spec.parameter_file:
-            path = Path(spec.parameter_file)
+        paths = spec.configuration_files + ((spec.parameter_file,) if spec.parameter_file else ())
+        for filename in paths:
+            path = Path(filename)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('{}')
     if graph.lifecycle_nodes:

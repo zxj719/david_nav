@@ -89,17 +89,38 @@ All selected parameters must already exist under `params/rendered/`:
 `rviz.yaml` or `teleop.yaml`. RViz also uses `inputs/navigation.rviz`.
 Lifecycle node order is checked against the graph before process construction.
 
+The prepared tour/precise graph now uses `nav_executor/nav_task_manager`.
+Precise mode has exactly one task owner: with WS enabled it serves both WS and
+ROS Dock; with `--no-executor` it serves ROS Dock only. Tour without WS has no
+task manager. The run-local `executor_profile.yaml` contains the **effective
+mode-merged** profile, not merely the source robot YAML. Precise mode also passes
+the complete `dock.yaml` through `--dock-config-file`. Both CLI input files are
+checked before launch; historical bundles without them must be freshly prepared,
+not launched using implicit David defaults. Other robot profiles must explicitly
+provide `executor.grid_map_topic` and `executor.poi_store_file`; the offline
+example now provides its own values.
+
 The launch adapter eagerly resolves every executable before returning actions.
 It allows only the configured number of driver respawns, shuts down on final
 critical exits, and never respawns during shutdown. Each respawn uses a fresh
 owned action instead of an unlimited background restart loop. External drivers
-are omitted completely. The plain legacy executor CLI is protected by a
-read-only action-server readiness gate and receives its exact argv, without a shell.
+are omitted completely. The shared manager's WS-enabled CLI is protected by a
+read-only action-server readiness gate and receives explicit argv, without a shell.
 `phase:=all|core|executor` partitions the same frozen graph (default `all` for
 standalone compatibility). `navrun up` starts `core`, completes its full checks,
 then starts a second launch with `executor` only when the prepared bundle enables
 WS. Both launches remain supervised, and executor shutdown precedes core shutdown.
 The phase selector cannot enable an executor disabled in the prepared graph.
+
+Consequently precise+WS Dock becomes available **after** Nav2 readiness/full
+startup checks, together with WS, instead of as a separate early core process.
+ROS-only precise Dock remains in the core phase. This timing change prevents two
+task owners; Dock tuning and the Nav2 lifecycle order are unchanged. Preflight
+refuses a recognized existing shared-manager executable and requests inspection,
+without adding automatic kill patterns. Optional executable resolution still
+checks installation before startup; no new package dependency cycle is added.
+The old `david_nav` launch/shims and production aliases have not yet been switched;
+do not combine them with this new graph. Physical/no-goal ROS acceptance is pending.
 
 This is not yet an accepted production replacement for aliases: the convenience
 keyboard launch and navigation/physical acceptance remain pending. Bundle preparation,

@@ -61,7 +61,7 @@ def test_node_mapping_keeps_prepared_parameters_and_topics(monkeypatch) -> None:
 
 
 def test_executor_has_readiness_gate_and_no_ros_argument_injection(monkeypatch) -> None:
-    """The legacy CLI is a plain program, not a renamed ROS Node action."""
+    """The WS task-manager CLI is a plain program, not a renamed ROS Node action."""
     plain = []
 
     def process(**kwargs):
@@ -77,8 +77,9 @@ def test_executor_has_readiness_gate_and_no_ros_argument_injection(monkeypatch) 
     runtime.launch_actions(build_graph(options))
     assert plain[0]['cmd'] == [
         '/unexecuted/nav_ready_exec', '--timeout', '90.0', '--action', '/navigate_to_pose',
-        '--', '/unexecuted/navigation_executor.py',
-        '--pose-file', '/a b.json']
+        '--', '/unexecuted/nav_task_manager',
+        '--pose-file', '/a b.json', '--action-name', '/navigate_to_pose',
+        '--robot-profile', '/run/test/params/rendered/executor_profile.yaml', '--websocket']
 
 
 @pytest.mark.parametrize('phase', ['core', 'executor'])
@@ -97,7 +98,10 @@ def test_launch_phases_partition_without_changing_executor_contract(monkeypatch,
     if phase == 'executor':
         assert len(selected) == 1
         assert selected[0].wait_for_navigation
-        assert selected[0].arguments == options.executor_arguments
+        assert selected[0].arguments[:len(options.executor_arguments)] == (
+            options.executor_arguments)
+        assert selected[0].arguments[-3:] == (
+            '--dock-config-file', '/run/test/params/rendered/dock.yaml', '--websocket')
 
 
 @pytest.mark.parametrize('phase', ['invalid', 'executor'])

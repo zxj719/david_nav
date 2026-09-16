@@ -57,6 +57,9 @@ nav2:
   odom_topic: /demo/localized_odom
   scan_topic: /demo/scan
   map_topic: /demo/map
+executor:
+  grid_map_topic: /demo/map
+  poi_store_file: ~/.ros/example_diffdrive/poi_store.yaml
 sensors:
   scan_from_cloud:
     enabled: false

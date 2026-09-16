@@ -262,8 +262,11 @@ def prepare_bundle(
             raise ValueError('configuration rejected: ' + '; '.join(errors))
     parameters = prepared_parameters.node_parameters(options, effective, navigation)
     for process in graph.processes:
+        files = process.configuration_files
         if process.parameter_file:
-            name = Path(process.parameter_file).stem
+            files += (process.parameter_file,)
+        for path in dict.fromkeys(files):
+            name = Path(path).stem
             reader.artifacts['params/rendered/' + name + '.yaml'] = _yaml(parameters[name])
     if options.rviz:
         if inputs.rviz is None:

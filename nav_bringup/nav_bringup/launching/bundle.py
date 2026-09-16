@@ -70,6 +70,9 @@ def load_options(run_dir: str, selectors: Mapping[str, str]) -> GraphOptions:
     for process in graph.processes:
         if process.parameter_file and not Path(process.parameter_file).is_file():
             raise ValueError(f'missing rendered parameters: {process.parameter_file}')
+        for path in process.configuration_files:
+            if not Path(path).is_file():
+                raise ValueError(f'missing task configuration: {path}')
     if any(process.name == 'rviz2' for process in graph.processes) and not (
             root / 'inputs/navigation.rviz').is_file():
         raise ValueError('missing prepared RViz configuration')

@@ -48,7 +48,7 @@ class GraphOptions:
         chassis_odom_topic: Wheel odometry published by the driver.
         cloud_topic: Optional preprocessing input.
         scan_topic: Optional preprocessing output.
-        executor_arguments: Frozen legacy executor CLI arguments until Phase 6.
+        executor_arguments: Explicit site/transport CLI arguments for the shared task manager.
         ready_timeout_sec: Maximum wall-clock wait before refusing to start the executor.
         ready_action: Navigation action server checked without submitting any goal.
         supervisor_keyboard: Teleop keyboard is owned directly by navrun, not launch.
@@ -103,6 +103,7 @@ class ProcessSpec:
         ros_node: Whether ROS node name/parameter arguments may be appended.
         ready_timeout_sec: Deadline of the optional navigation readiness gate.
         ready_action: Action name used by the optional readiness gate.
+        configuration_files: Additional prepared CLI input files required before launch.
     """
 
     name: str
@@ -118,6 +119,7 @@ class ProcessSpec:
     ros_node: bool = True
     ready_timeout_sec: float = 90.0
     ready_action: str = '/navigate_to_pose'
+    configuration_files: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -248,15 +250,8 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
             'pointcloud_to_laserscan', 'pointcloud_to_laserscan', 'pointcloud_to_laserscan_node',
             params('scan_bridge'),
             (('cloud_in', options.cloud_topic), ('scan', options.scan_topic)), delay_sec=delay))
-    if options.mode == 'precise':
-        processes.append(ProcessSpec(
-            'dock_navigator', 'david_nav', 'dock_navigator', params('dock'), delay_sec=delay))
-    if options.start_executor:
-        processes.append(ProcessSpec(
-            'navigation_executor', 'david_nav', 'navigation_executor.py',
-            arguments=options.executor_arguments, delay_sec=delay,
-            wait_for_navigation=True, ros_node=False,
-            ready_timeout_sec=options.ready_timeout_sec, ready_action=options.ready_action))
+    if options.mode == 'precise' or options.start_executor:
+        processes.append(_task_manager(options, params, delay))
     if options.rviz:
         processes.append(ProcessSpec(
             'rviz2', 'rviz2', 'rviz2', params('rviz'),
@@ -264,6 +259,28 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
             delay_sec=delay + options.rviz_delay_sec, critical=False))
     return LaunchGraph(options.mode, tuple(processes), tuple(lifecycle),
                        composition=options.composition)
+
+
+def _task_manager(options, params, delay):
+    profile = params('executor_profile')
+    files = (profile,)
+    arguments = options.executor_arguments
+    if not any(arg == '--action-name' or arg.startswith('--action-name=') for arg in arguments):
+        arguments += ('--action-name', options.ready_action)
+    arguments += ('--robot-profile', profile)
+    precise = options.mode == 'precise'
+    if precise:
+        files += (params('dock'),)
+        arguments += ('--dock-config-file', params('dock'))
+    arguments += ('--websocket' if options.start_executor else '--no-websocket',)
+    return ProcessSpec(
+        'navigation_executor' if options.start_executor else 'dock_navigator',
+        'nav_executor', 'nav_task_manager',
+        parameter_file=params('dock') if precise and not options.start_executor else '',
+        arguments=arguments, delay_sec=delay,
+        wait_for_navigation=options.start_executor, ros_node=not options.start_executor,
+        ready_timeout_sec=options.ready_timeout_sec, ready_action=options.ready_action,
+        configuration_files=files)
 
 
 def exit_decision(process: ProcessSpec, prior_restarts: int, shutting_down: bool) -> str:

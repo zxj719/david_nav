@@ -139,6 +139,23 @@ def _matches(command: str, patterns: Sequence[str]) -> bool:
     return bool(command) and any(re.search(pattern, command) for pattern in patterns)
 
 
+def is_task_manager(process: ProcessInfo) -> bool:
+    """Recognize a shared-manager executable, excluding shell text and editor arguments.
+
+    Args:
+        process: Read-only command-line snapshot; no host probing is performed.
+
+    Returns:
+        Whether the actual program or ROS run target is a supported manager entry.
+        This classification grants no authority to signal the process.
+    """
+    return _matches(_command(process), (
+        r'(?:^|[/\s])nav_task_manager$',
+        r'(?:^|/)lib/nav_executor/navigation_executor$',
+        r'(?:^|/)ros2 run nav_executor navigation_executor$',
+    ))
+
+
 def _table(processes: Sequence[ProcessInfo], own_pid: int) -> Dict[int, ProcessInfo]:
     table = {}
     for process in processes:

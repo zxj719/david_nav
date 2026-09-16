@@ -3,6 +3,9 @@ nav_executor
 
 0.1.0 (2026-09-16)
 ------------------
+* Consume prepared navrun graph argv with one manager for ROS Dock and optional
+  WS. Test effective robot/mode/site binding for David and the offline example;
+  retain separate old david_nav entry points pending coordinated shim migration.
 * Compose opt-in Dock and optional WS in one nav_task_manager process, applying
   actual ROS parameter overrides before runtime construction and rejecting recursive
   action endpoints. Preserve old executables, launch graphs and frozen help.
