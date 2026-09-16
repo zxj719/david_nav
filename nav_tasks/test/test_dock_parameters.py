@@ -42,7 +42,8 @@ class _Node:
 def test_parameter_names_equal_old_node_and_keep_distinct_wiring():
     """Every old declaration is represented, without substituting POI capture frames."""
     root = Path(__file__).resolve().parents[2]
-    source = ast.parse((root / 'david_nav/david_nav/dock_navigator.py').read_text())
+    path = root / 'david_nav/test/golden/legacy_entries/dock_navigator.py.txt'
+    source = ast.parse(path.read_text())
     old = {node.args[0].value for node in ast.walk(source)
            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
            and node.func.attr == 'declare_parameter'}

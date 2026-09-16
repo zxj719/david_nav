@@ -13,12 +13,13 @@ from nav_executor.app.config import load_configuration, load_headless_executor_s
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE = ROOT / 'david_config' / 'robot' / 'david.yaml'
+LEGACY = ROOT / 'david_nav/test/golden/legacy_entries/navigation_executor.py.txt'
 
 
 def test_default_configuration_and_help_match_old_executor(monkeypatch):
-    """New dataclass defaults and frozen help equal the current legacy implementation."""
+    """New dataclass defaults and frozen help equal the pinned pre-shim implementation."""
     monkeypatch.delenv('NAV_WS_URL', raising=False)
-    legacy = runpy.run_path(str(ROOT / 'david_nav' / 'david_nav' / 'navigation_executor.py'))
+    legacy = runpy.run_path(str(LEGACY))
     expected, remaining = legacy['_parse_cli_args']([])
     resolved = load_configuration([], profile_path=PROFILE, environ={})
     assert resolved.config.legacy_values() == expected
@@ -38,7 +39,7 @@ def test_default_configuration_and_help_match_old_executor(monkeypatch):
 def test_supported_old_arguments_remain_equivalent(monkeypatch, arguments):
     """Existing overrides, repetitions, paths and interspersed ROS flags preserve values."""
     monkeypatch.delenv('NAV_WS_URL', raising=False)
-    legacy = runpy.run_path(str(ROOT / 'david_nav' / 'david_nav' / 'navigation_executor.py'))
+    legacy = runpy.run_path(str(LEGACY))
     old, ros = legacy['_parse_cli_args'](arguments)
     new = load_configuration(arguments, profile_path=PROFILE, environ={})
     assert new.config.legacy_values() == old

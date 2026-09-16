@@ -16,7 +16,8 @@ from test_dock_worker import _bounded, _Log
 from test_nav2_client import _Clock
 from test_spin_backend import _backend
 
-LEGACY = Path(__file__).resolve().parents[2] / 'david_nav/david_nav/dock_navigator.py'
+LEGACY = (Path(__file__).resolve().parents[2]
+          / 'david_nav/test/golden/legacy_entries/dock_navigator.py.txt')
 
 
 def _legacy(case, label):

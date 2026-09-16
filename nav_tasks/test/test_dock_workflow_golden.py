@@ -1,4 +1,4 @@
-"""Compare the new blocking workflow with unchanged legacy methods and actual bench parsing."""
+"""Compare the new blocking workflow with frozen legacy methods and actual bench parsing."""
 
 import ast
 from dataclasses import replace
@@ -18,7 +18,7 @@ from nav_tasks.skills.docking.workflow import DockWorkflow
 from test_dock_workflow import _Clock, _config, _Log
 
 ROOT = Path(__file__).resolve().parents[2]
-LEGACY = ROOT / 'david_nav/david_nav/dock_navigator.py'
+LEGACY = ROOT / 'david_nav/test/golden/legacy_entries/dock_navigator.py.txt'
 BENCH = ROOT / 'david_nav/scripts/dock_bench/dock_common.py'
 
 
