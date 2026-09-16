@@ -8,10 +8,11 @@ from nav_bringup.navrun.cli import main
 
 
 @pytest.mark.parametrize('mode', ['tour', 'precise'])
-def test_actual_cli_startup_only_cannot_report_closed_loop(tmp_path, capsys, mode):
+@pytest.mark.parametrize('robot', ['david', 'example_diffdrive'])
+def test_actual_cli_startup_only_cannot_report_closed_loop(tmp_path, capsys, mode, robot):
     """Real lifecycle/map/TF/odom/WS/cleanup must pass, but complete must remain false."""
     root = tmp_path / 'run'
-    status = main(['selftest', '--mode', mode, '--robot', 'example_diffdrive',
+    status = main(['selftest', '--mode', mode, '--robot', robot,
                    '--output-dir', str(root), '--startup-only', '--timeout', '90'])
     output = capsys.readouterr()
     assert status == 0, output.err + output.out

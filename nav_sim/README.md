@@ -115,6 +115,7 @@ ROS内层JSON先限60KB以预留信封空间，溢出即失败而非静默截断
 `result.json` 与不可变selftest.json分离，只有 `kind=closed_loop, complete=true` 才是完整
 自测成功。CLI退出0表示所选种类通过，1表示已运行但实验失败，2表示配置/门禁错误，130表示中断。
 
-显式 `bash sandbox_tests/run_coordinator_checks.sh` 只运行真实CLI的startup-only两模式，
+显式 `bash sandbox_tests/run_coordinator_checks.sh` 只运行真实CLI的startup-only，覆盖
+David与example_diffdrive各自的tour/precise（共四组合），
 检查上述实际观察与清理路径，仍要求complete=false。常规包测用内存端口检查两任务协调、
 独立位姿/位移、错误事件、断连和取消清理；这些不构成真Nav2闭环执行证据。
