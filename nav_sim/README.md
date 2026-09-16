@@ -25,3 +25,25 @@ PLAN §13.4 / P3.4 的可配置离线假件，不依赖真实驱动，不打开�
 纯测试覆盖原脚本积分等价、ROS 消息/TF 的内存映射、非默认机器人帧、协议字节、屏障超时、
 多余状态帧及隔离门禁。`colcon test --packages-select nav_sim` 不启动 ROS 节点。
 共享档案帧键来自其它包 schema；此包独有参数列于 `config/schema.yaml`。
+
+## 闭环自检的事件验收核心（P3.5进行中）
+
+`selftest_evidence.check_evidence` 接收独立的NavEvent记录与WS帧，核对一个普通POI、
+随后一个两段Dock的完整事件证据。它不启动ROS、不产生目标，也不模拟或冒充Nav2。
+真实runner/CLI、隔离场景和实跑验收仍待；此模块的 `complete` **仅指事件证据完整**。
+
+每例必须有唯一admission、正确POI与模式阶段、同task/sub/generation、终态成功且释放所有权。
+两例必须由同一producer按序完成，第二例generation递增；Dock还必须按顺序通过完整
+轮廓校验、approach/final两个阶段及停稳位置/角度容差测量。校验目标及预备点几何，
+不把“到达预备点”或单个WS on_arrived当成Dock成功。该健康场景预期0次旋转补偿；
+额外Spin/失败/暂停/取消/多余阶段、丢失事件或提前终态均失败，不更改实际Dock行为。
+
+ROS记录标准化为`event_id/source/event_type/severity/stamp/data`映射；同ID完全相同的
+重送可去重，冲突重送拒绝。选中任务的producer序号必须递增，WS到达帧各一次且顺序正确。
+两个传输的接收顺序不作跨通道比较；wall clock回退不影响序号判断。每通道最多5万条、
+序列化单NavEvent最多64KiB；这不是传输解析器，runner仍须限制接收大小和落盘量。
+其它健康事件不提供任务成功证据。报告不回显原始payload。
+
+单测除了损坏/缺失/乱序轨迹，还用真实TaskManager、NavigateToPoi、DockAwareNavigation、
+DockWorkflow、静态footprint算法和协议编码器生成事件，运动/时钟全部内存替身。
+它证明验收器与领域事件契约一致，不证明DDS、真实Nav2控制或实体制动。
