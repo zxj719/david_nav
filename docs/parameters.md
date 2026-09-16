@@ -37,6 +37,10 @@ This file lists every robot-profile key declared by package schemas.
 | `teleop.publish_hz` | `float` | Hz | default: `20.0` | — | 键盘轮询/发布频率，延续旧节点最低 1 Hz 的语义 | — |
 | `teleop.tty_device` | `string` | — | default: `"/dev/tty"` | — | 单独打开的交互终端，独立于 launch 的 stdin；只用于终端，不能指向底盘串口 | — |
 
+## `david_system_env`
+
+No parameters declared.
+
 ## `nav_bringup`
 
 | Key | Type | Unit | Required / default | Constraints | Description | Tuning |

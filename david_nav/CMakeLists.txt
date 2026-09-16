@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.8)
 project(david_nav)
 
 find_package(ament_cmake REQUIRED)
+find_package(david_system_env REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(ament_cmake_gtest REQUIRED)
 find_package(ament_cmake_pytest REQUIRED)
@@ -59,7 +60,6 @@ ament_target_dependencies(
 
 install(DIRECTORY
   behavior_trees
-  config
   scripts
   launch
   meshes
@@ -67,6 +67,19 @@ install(DIRECTORY
   urdf
   DESTINATION share/${PROJECT_NAME}
 )
+
+# Source compatibility links cross package roots. Resolve the shared assets
+# before installation so isolated non-symlink installs cannot create dangling links.
+install(DIRECTORY config/ DESTINATION share/${PROJECT_NAME}/config
+  PATTERN "ros_env.conf" EXCLUDE
+  PATTERN "load_ros_env.sh" EXCLUDE
+  PATTERN "fastdds_david.xml" EXCLUDE
+)
+foreach(env_asset ros_env.conf load_ros_env.sh fastdds_david.xml)
+  get_filename_component(shared_env_file
+    "${david_system_env_DIR}/../config/${env_asset}" REALPATH)
+  install(FILES "${shared_env_file}" DESTINATION share/${PROJECT_NAME}/config)
+endforeach()
 
 install(DIRECTORY
   include/

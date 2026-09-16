@@ -8,6 +8,8 @@
   <license>Apache-2.0</license>
   <exec_depend>nav_tasks</exec_depend>
   <exec_depend>nav_executor</exec_depend>
+  <exec_depend>david_system_env</exec_depend>
+  <build_depend>david_system_env</build_depend>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>

@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  ════════════════════════════════════════════════════════════════════════════
+  David 全栈 Fast DDS 传输配置 —— 把 ROS 2 发现层锁在机内 + 内网，
+  切断实验室 wifi(wlP1p1s0 172.16.22.51/22)上的跨机器人串扰。
+
+  2026-09-04 起因（实测取证）：
+    实验室网段是 172.16.20.0/22（172.16.20.x-23.x 同一个二层广播域），
+    ROS_DOMAIN_ID=0 的 DDS 组播毫无隔离，172.16.20.127 那台机器人的整套
+    nav 栈混进了 David 的 ROS 图：
+      - /map        对方 map_server 发 /root/maps/map.yaml (616x650)，
+                    和 David 的 daolan_map (948x813) 抢同一个 latch 话题。
+                    ★ 09:37 实况抓到：/map publisher count=1 且就是对方那个
+                      (GID 前缀 01.0f.60.72)，David 自己的 /local_costmap
+                      (GID 01.0f.02.10) 正订阅着它 —— 这就是"costmap 贴在
+                      错误的地图上"的直接现场。
+      - /scan       对方 pointcloud_to_laserscan 在发(David scan_bridge 没起时
+                    publisher count 仍为 1)，会被 costmap 的 obstacle_layer 吃进去
+      - /initialpose David rviz 点一下 2D Pose Estimate 会顺手重定位对方的车
+      - /tf         对方 amcl 是 lifecycle active 且在 /tf 上有 publisher，
+                    随时可能和 lightning 抢发 map->odom。
+                    ⚠ 未证实它当时真的在发：排查时一度以为抓到两簇 translation.x
+                      (0.0 / 25.42)，实为 `grep -A9` 把四元数的 rotation.x 一起
+                      抓进来了，用 -A4 复测只有一簇。隔离之后这条已成为无关项。
+
+    ★ 判别本机/外来的手段：Fast DDS GID 前缀第 3-4 字节是 host id。
+      本机 01.0f.02.10.…，172.16.20.127 是 01.0f.60.72.…
+    ★ 排查陷阱：ros2 CLI 的 daemon 会用它自己启动时的环境建参与者。改完
+      FASTRTPS_DEFAULT_PROFILES_FILE 必须 `ros2 daemon stop`，否则 node list /
+      topic info 仍是旧视角(不受白名单约束)，会让人误判白名单没生效。
+
+  为什么不是改 ROS_DOMAIN_ID：
+    2026-06-27 试过切 domain 1，2026-07-07 又因为要对齐传感器生态改回 0
+    (见 config/ros_env.conf 注释)。换 domain 要同步机械臂 SDK / wheeltec /
+    lightning / foxglove-bridge / launch-manager，漏一个就 map->odom 串不起来。
+    锁传输层不需要跟任何人协调，且顺带砍掉 wifi 上的 DDS 广播流量。
+
+  ── 白名单 ──────────────────────────────────────────────────────────────────
+  只放行 lo + 有线内网，**故意不放行 wlP1p1s0(实验室 wifi)和 docker0**。
+  这些地址是静态配置的；wifi 是 DHCP，本来也不该进白名单。
+    127.0.0.1        lo            机内(SHM 是主路径，这条是兜底)
+    192.168.123.102  eno1          机器人内网(上位机 192.168.123.186 在这个网段)
+    192.168.1.102    eno1          镭神 C16 雷达网段(雷达 192.168.1.200)
+    192.168.160.200  eno1
+    192.168.123.19   enx00e01b63540a
+    192.168.55.2     enx00e01b63540a
+
+  ⚠ 副作用：从笔记本经 wifi 直连 David 的 ROS 2 话题不再可行。
+     现行工作流是 Remote-SSH + 机上跑 rviz，不受影响；
+     foxglove-bridge 走 websocket，也不受影响。
+     真要临时放开：本次运行 `unset FASTRTPS_DEFAULT_PROFILES_FILE` 即可。
+
+  ⚠ 网卡地址变了必须同步改这里，否则对应网段的 DDS 直接不通。
+     核对命令：ip -4 -o addr show | grep -v " lo "
+
+  Fast DDS 2.6.11 语法（<interfaceWhiteList>）。2.11+ 的 <interfaces>/
+  <netmask_filter> 写法在这个版本上无效，别照抄新文档。
+  useBuiltinTransports=false 会同时关掉内置 SHM，所以下面必须显式加回 SHM，
+  不然机内大话题(lightning 的 grid_map / map_cloud)全走 UDP 会掉性能。
+  ════════════════════════════════════════════════════════════════════════════
+-->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+
+  <transport_descriptors>
+    <!-- Keep UDP discovery on loopback so Wi-Fi cannot join the ROS graph. -->
+
+    <!--
+      Local ROS 2 processes also need a reliable same-host transport.  Without
+      SHM, short-lived CLI participants (used by the startup readiness check)
+      intermittently see only part of the graph and miss bt_navigator.
+    -->
+    <transport_descriptor>
+      <transport_id>david_shm</transport_id>
+      <type>SHM</type>
+    </transport_descriptor>
+
+    <transport_descriptor>
+      <transport_id>david_udp_lan</transport_id>
+      <type>UDPv4</type>
+      <interfaceWhiteList>
+        <address>127.0.0.1</address>
+      </interfaceWhiteList>
+    </transport_descriptor>
+  </transport_descriptors>
+
+  <participant profile_name="david_default" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>david_shm</transport_id>
+        <transport_id>david_udp_lan</transport_id>
+      </userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+    </rtps>
+  </participant>
+
+</profiles>
