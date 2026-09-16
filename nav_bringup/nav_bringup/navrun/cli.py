@@ -39,6 +39,20 @@ def build_parser() -> argparse.ArgumentParser:
         prog='navrun', description='Navigation run supervisor and recorder.')
     subparsers = parser.add_subparsers(dest='subcommand', required=True)
 
+    check_parser = subparsers.add_parser('check', help='validate a prepared run; ROS is opt-in')
+    selection = check_parser.add_mutually_exclusive_group()
+    selection.add_argument('--run-dir', type=Path, help='explicit prepared run directory')
+    selection.add_argument('--runs-root', type=Path, help='select latest under this runs root')
+    check_parser.add_argument('--source-root', type=Path, help='source schema discovery root')
+    check_parser.add_argument('--schema', action='append', type=Path,
+                              help='explicit schema file; repeat to override discovery')
+    check_parser.add_argument('--live', action='store_true', help='explicitly observe ROS')
+    check_parser.add_argument('--strict', action='store_true', help='fail on live check errors')
+    check_parser.add_argument('--wait-timeout', type=float, default=0.0,
+                              help='localization wait bound; zero waits indefinitely')
+    check_parser.add_argument('--sample-sec', type=float, default=1.0)
+    check_parser.add_argument('--parameter-timeout', type=float, default=5.0)
+
     for command in ('ls', 'show'):
         record_parser = subparsers.add_parser(command, help='inspect saved runs as JSON')
         record_parser.add_argument('--runs-root', type=Path,
@@ -225,6 +239,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     args.invocation = ('navrun', *(sys.argv[1:] if argv is None else list(argv)))
+    if args.subcommand == 'check':
+        from nav_bringup.navrun import check
+
+        return check.run(args)
     if args.subcommand in ('ls', 'show'):
         from nav_bringup.navrun import records
 

@@ -31,7 +31,8 @@ This package is robot independent: robot-specific values live in a
 Workspace [architecture](../docs/architecture.md) and [runbook](../docs/runbook.md)
 distinguish implemented code from deployment and the remaining CLI work.
 The read-only `ls/show` interfaces and frozen parameter/overlay exports are available.
-PLAN's down/status/check/gc interfaces are not yet registered (P7.A1);
+`navrun check` revalidates a prepared run offline, with opt-in live observation.
+PLAN's down/status/gc interfaces are not yet registered (P7.A1);
 navcfg's robot selector (P7.A2) and closed-loop selftest (P3.5) are also pending.
 Existing retention/live-check helpers do not constitute those public commands.
 
@@ -70,6 +71,38 @@ validated `latest` selector), and files must be regular with one hard link.
 Directory descriptors prevent path replacement from redirecting an open record.
 Concurrent writes can still yield incomplete or mixed-generation evidence;
 every report explicitly declares `snapshot_atomic: false`.
+
+### Check a prepared run
+
+```bash
+navrun check --runs-root ~/nav_runs
+navrun check --run-dir /absolute/prepared/run --live --strict --wait-timeout 10
+```
+
+Selection is explicit `--run-dir`, explicit `--runs-root` plus its direct `latest`
+link, `$NAVRUN_RUN_DIR`, then the default runs root plus `latest`, in that order.
+The two explicit selectors are mutually exclusive. Input directories must be
+trusted supervisor-prepared runs, not arbitrary archives. No record or event log
+is created. Offline validation calls the actual launch reader (required files and
+lifecycle order), verifies frozen robot/mode/site identity, and re-runs schema and
+cross-file safety rules on the saved profile, mode, Nav2 tree, map metadata, BTs
+and URDF. Teleop includes its saved explicit selector overrides and hard-limit
+checks. Source profiles are not reloaded; `checks.yaml` is not taken as proof.
+Schemas come from `--schema FILE` (repeatable), `--source-root SRC`, or the current
+installed schemas. This is not an atomic snapshot, whole-bundle hash verification,
+external map-image/POI availability check, executable check or hardware acceptance.
+
+Only `--live` calls the shared `navcfg` ROS observer and interface-contract check.
+It never starts localization, sets an initial pose, sends a goal or velocity, or
+changes parameters. Navigation modes support live checks; chassis/teleop return
+2 rather than introducing a localization dependency. Offline safety errors always
+return 1. Live findings retain the existing diagnostic policy: errors return 1
+with `--strict`, otherwise they are printed with exit 0; warnings alone pass.
+Invalid inputs/dependencies return 2; bounded pending localization returns 3;
+interruption returns 128+signal after observer cleanup. `--wait-timeout 0` (default)
+waits indefinitely for manual localization. `--sample-sec` and
+`--parameter-timeout` must be positive finite values. The shared live output keeps
+the `navcfg check` label; no second implementation of its ROS lifecycle exists.
 
 ## Layout
 
