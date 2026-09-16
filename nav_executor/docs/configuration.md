@@ -48,7 +48,7 @@ reusable runtime classes do not embed robot-specific frames/topics.
 `ExecutorConfig.task_config()` maps explicitly to the public RuntimeConfig;
 `ws_options()` maps transport timings. Loop-closure threshold overrides now reach
 the supervised observer; status cadence reaches the outer root. Dock IDs remain
-explicit and the outer root rejects them before ROS/storage I/O until integration.
+explicit; IDs without complete Dock configuration are rejected before ROS/storage I/O.
 
 ## Explicit Dock configuration bridge
 
@@ -82,8 +82,8 @@ it still fail before ROS/storage. The host declares all sixteen parameters and
 validates actual ROS overrides before task construction. Its startup audit contains
 the final policy and endpoint (changed endpoint provenance is `ros:action_name`).
 The loader alone leaves ROS arguments untouched. Backend and ingress names are
-checked after expansion/remapping to reject recursive wiring. Legacy entry points
-and launch graphs remain unchanged.
+checked after expansion/remapping to reject recursive wiring. Refactor legacy shims
+and precise launch now delegate to this shared root; production is unchanged.
 
 `executor.websocket_enabled` defaults to boolean true. YAML/profile false or
 `--no-websocket` selects a ROS-only process; `--websocket` explicitly enables it.
@@ -101,5 +101,5 @@ replacement for the whole robot profile or its navcfg validation.
 Tests compare help/defaults and supported legacy flags against the unchanged old
 executor, verify precedence/provenance/immutable results, alternative robot
 frames and topics, headless reads and invalid configuration rejection. Installed
-CLI and graceful signals have separate no-goal sandbox checks; the old executable
-shim remains pending. See [outer-runtime.md](outer-runtime.md) for ownership limits.
+CLI and graceful signals have separate no-goal sandbox checks; retained executable
+shims are connected. See [outer-runtime.md](outer-runtime.md) for ownership limits.

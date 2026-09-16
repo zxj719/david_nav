@@ -54,7 +54,39 @@ Existing deployment/CLI defaults are unchanged; production and alias 3 are not
 modified. See [migration.md](docs/migration.md) and
 [task-adapter.md](docs/task-adapter.md) for runtime ownership contracts.
 
-## Before committing
+## 30-second inspection, reuse and extension
+
+After loading the refactor environment, `ros2 run nav_executor navigation_executor --help`
+prints the frozen CLI help without starting ROS or motion. A real launch additionally
+requires the robot profile, site data and safe operator startup; this is not a command
+to launch localization or send a test goal. See [configuration](docs/configuration.md),
+the [generated parameter table](../docs/parameters.md) and
+[outer runtime](docs/outer-runtime.md) for precedence, required Dock policy and ownership.
+
+```text
+WS codec/transport → nav_tasks.api → TaskManager → POI/Dock skills → Nav2 backend
+                               ↘ task events → persistent outbox → WS
+```
+
+The [WS contract/AsyncAPI](../docs/protocol/nav_ws_v1.md),
+[frozen log consumers](../docs/frozen_logs.md) and
+[architecture/ADRs](../docs/architecture.md) describe compatibility boundaries.
+For another Humble/Python 3.10 robot, supply a profile/site and the task/interface
+dependencies; copying only nav_executor is not sufficient after the package split.
+Keep body/navigation/POI-capture frames distinct. See [porting](../docs/porting.md).
+Waypoint reuse selects `--action-name /waypoint_follower/navigate`; ROS-only ingress
+uses `--no-websocket`. A non-WS client can implement/use `nav_tasks.api`; a backend
+replacement implements the `NavigationBackend` port and is injected by the task
+composition root. Future Foxy/Python 3.8 support is still TODO-V1.
+
+Adding a hypothetical `dock_to` command would require a message/codec and AsyncAPI
+definition, a task handler using existing skills, and registry wiring in the
+composition root. Update the explicit wire adapter dispatch as required; do not
+claim it is a universal dynamic command registry. Existing core state/transport
+need not grow command-specific logic. **No dock_to command is introduced here**:
+current Dock routing uses configured POI IDs in navigate_to.
+
+## Required package gate
 
 Build and test affected packages in the independent refactor workspace. Source
 only Humble before building, then the refactor overlay for tests; load the formal

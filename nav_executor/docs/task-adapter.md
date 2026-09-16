@@ -1,7 +1,7 @@
 # Task API ingress and reconnect ownership
 
-This is an integration building block, not a deployed replacement entry point.
-The old runtime, launch commands, ROS spin strategy and production code are unchanged.
+This adapter is connected to the refactor composition root and retained executable
+shims. Production entry points and the selected ROS spin strategy are unchanged.
 
 `TaskCommandAdapter` depends on `nav_tasks.api` only. Navigation submits an
 ALLOW-preemption task and returns after admission, not after arrival. Abort waits
@@ -9,12 +9,13 @@ for backend cleanup; its paused frame comes from the task event subscription,
 not the immediate response list. Mark/rename use the separate `PoiApi` and never
 take the motion slot. The existing parser and ordered wire builders remain intact.
 
-The eventual runtime must:
+The runtime ownership contract is:
 
 1. Construct one adapter and one `ReliableOutbox` on the task event loop for the
    process lifetime, not for each WebSocket connection.
 2. Own `adapter.pump_events(outbox.put)` in its task supervisor. Enqueue every
-   immediate response and any heartbeat into that same outbox.
+   immediate business response into that same outbox. JSON ping/pong messages
+   retain their direct, connection-scoped send path and are not replayed.
 3. Supervise a connection-scoped `outbox.drain(websocket.send)`. On disconnect,
    cancel/join that drainer, retain the adapter/outbox and start a fresh drainer
    after reconnect. Do not cancel navigation merely because transport disconnects.

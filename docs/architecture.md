@@ -60,7 +60,29 @@ monitor复用原节点订阅与发布；最终run_stopped晚于原监视器清�
 
 ## 兼容与未完成
 
+### 协议、决策与日志接口
+
+线协议定义见 [WS v1/v1.1](protocol/nav_ws_v1.md) 与
+[AsyncAPI](protocol/nav_ws_v1.asyncapi.yaml)，当前 codec/golden 保持不变。
+冻结的 NAV ERROR、STATUS、OUT sent/RESENT、NAV FAILURE 和全部 Dock 时间线
+前缀及消费者列于 [日志接口清单](frozen_logs.md)；尤其 dock_bench 的 `_RE_*`
+及判词规则仍依赖旧文字。日志器实际仍是兼容 print/注入 sink，不伪称已切标准 logging。
+
+背景与原注释保留于 [ADR-0001 后台任务](adr/0001-navigation-runs-as-background-task.md)、
+[ADR-0002 在途帧](adr/0002-reliable-outbox.md)、
+[ADR-0004 普通导航重试](adr/0004-navigation-retry.md)、
+[ADR-0007 导入真源](adr/0007-named-poses-source.md)。已有
+[扩圈决策](../nav_tasks/docs/adr-0003-goal-resolution.md)、
+[ROS future](../nav_tasks/docs/adr-0005-ros-futures.md)、
+[Dock worker](../nav_tasks/docs/adr-0006-dock-thread.md) 保留原链接和编号。
+
+业务事件/应答经进程级 outbox；JSON 心跳直接写当前连接，是原行为的明确例外。
+所有任务必须有 owner：技能/事件 pump 由 supervisor 持有，连接收/发/心跳由连接作用域
+强引用并在退出前 join。禁止无归属的 fire-and-forget，不把“每个 asyncio task 都必须
+同一个工厂创建”的概括误写成当前实现事实。
+
 旧executor/Dock入口转到共享root，旧模块保留导出身份，参数/协议/日志golden保留。
 环境三资产迁入 [david_system_env](../david_system_env/README.md)，原source路径软链兼容。
 旧候选文件只有 [隔离提案](legacy_isolation.md)，没有批准移动或删除。
-运维CLI补齐、自测闭环、剩余规范和现场验收仍独立待办；模块存在不等于目标已完成。
+运维CLI已补齐；自测协调器已实现且四组合无运动启动通过，实际POI/Dock闭环、
+完整schema工具校验、剩余规范和现场验收仍独立待办；模块存在不等于目标已完成。

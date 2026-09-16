@@ -1,0 +1,355 @@
+# Specification syntax: https://github.com/asyncapi/spec/blob/v2.6.0/spec/asyncapi.md
+# Canonical producer schemas; decoder compatibility is documented separately.
+asyncapi: "2.6.0"
+info:
+  title: "Navigation executor WS v1 / v1.1"
+  version: "1.1.0"
+  description: "记录规范生产者消息；兼容解码器还接受部分标量转换，见 nav_ws_v1.md。不是新增握手或版本协商。"
+defaultContentType: "application/json"
+servers:
+  agent:
+    url: "agent.invalid:8101"
+    protocol: "ws"
+    description: "仅示例；实际连接地址由 server_uri 配置，路径也以该配置为准。"
+channels:
+  "/":
+    description: "描述的 application 是导航执行器；一个双向 WS 连接，通道为示例 URI 路径。"
+    publish:
+      operationId: "receiveAgentMessages"
+      summary: "执行器接收 agent 命令/心跳"
+      message:
+        oneOf:
+          - {"$ref":"#/components/messages/NavigateTo"}
+          - {"$ref":"#/components/messages/MarkCurrentPoi"}
+          - {"$ref":"#/components/messages/AbortNavigation"}
+          - {"$ref":"#/components/messages/UpdatePoiList"}
+          - {"$ref":"#/components/messages/Ping"}
+          - {"$ref":"#/components/messages/Pong"}
+    subscribe:
+      operationId: "emitExecutorMessages"
+      summary: "执行器发出事件/心跳"
+      message:
+        oneOf:
+          - {"$ref":"#/components/messages/Progress"}
+          - {"$ref":"#/components/messages/Arrived"}
+          - {"$ref":"#/components/messages/Error"}
+          - {"$ref":"#/components/messages/MarkPoiAck"}
+          - {"$ref":"#/components/messages/MarkPoiSuccess"}
+          - {"$ref":"#/components/messages/MarkPoiError"}
+          - {"$ref":"#/components/messages/Ping"}
+          - {"$ref":"#/components/messages/Pong"}
+components:
+  messages:
+    NavigateTo:
+      name: "NavigateTo"
+      summary: "Agent → executor；只按 POI ID 导航，target_pose/label 不用于直达。"
+      payload:
+        "$ref": "#/components/schemas/NavigateTo"
+      examples:
+        - {"name":"canonical","payload":{"action":"navigate_to","request_id":"req_1","sub_id":1,"target_id":"POI_001"}}
+    MarkCurrentPoi:
+      name: "MarkCurrentPoi"
+      summary: "Agent → executor；捕获当前位姿并存储点位。"
+      payload:
+        "$ref": "#/components/schemas/MarkCurrentPoi"
+      examples:
+        - {"name":"canonical","payload":{"action":"mark_current_poi","request_id":"req_1","sub_id":1,"poi":{"id":"POI_001","name":"前台"}}}
+    AbortNavigation:
+      name: "AbortNavigation"
+      summary: "Agent → executor；按 request_id 取消，空闲/旧请求不产生新回执。"
+      payload:
+        "$ref": "#/components/schemas/AbortNavigation"
+      examples:
+        - {"name":"canonical","payload":{"action":"abort_navigation","request_id":"req_1"}}
+    UpdatePoiList:
+      name: "UpdatePoiList"
+      summary: "Agent → executor；更新已有 POI 名称，不导入坐标，无 ACK。"
+      payload:
+        "$ref": "#/components/schemas/UpdatePoiList"
+      examples:
+        - {"name":"canonical","payload":{"action":"update_poi_list","version":1,"poi_list":[{"id":"POI_001","name":"前台"}]}}
+    Progress:
+      name: "Progress"
+      summary: "Executor → agent；米，Python round(value, 3)，取消为 paused/0.0。"
+      payload:
+        "$ref": "#/components/schemas/Progress"
+      examples:
+        - {"name":"canonical","payload":{"event_type":"on_progress","request_id":"req_1","sub_id":1,"remaining_distance":2.346,"status":"running"}}
+    Arrived:
+      name: "Arrived"
+      summary: "Executor → agent；最终成功；不表示 schema 已证明实体位姿。"
+      payload:
+        "$ref": "#/components/schemas/Arrived"
+      examples:
+        - {"name":"canonical","payload":{"event_type":"on_arrived","request_id":"req_1","sub_id":1}}
+    Error:
+      name: "Error"
+      summary: "Executor → agent；保留中文错误文案。"
+      payload:
+        "$ref": "#/components/schemas/Error"
+      examples:
+        - {"name":"canonical","payload":{"event_type":"on_error","request_id":"req_1","sub_id":1,"error_message":"目标点不存在: POI_404"}}
+    MarkPoiAck:
+      name: "MarkPoiAck"
+      summary: "Executor → agent；逻辑 ACK，当前与标记完成结果一起入队。"
+      payload:
+        "$ref": "#/components/schemas/MarkPoiAck"
+      examples:
+        - {"name":"canonical","payload":{"event_type":"on_mark_poi_ack","request_id":"req_1","sub_id":1,"status":"accepted"}}
+    MarkPoiSuccess:
+      name: "MarkPoiSuccess"
+      summary: "Executor → agent；已保存的点位 ID/名称，不携带坐标。"
+      payload:
+        "$ref": "#/components/schemas/MarkPoiSuccess"
+      examples:
+        - {"name":"canonical","payload":{"event_type":"on_mark_poi_success","request_id":"req_1","sub_id":1,"poi":{"id":"POI_001","name":"前台"}}}
+    MarkPoiError:
+      name: "MarkPoiError"
+      summary: "Executor → agent；标记失败。"
+      payload:
+        "$ref": "#/components/schemas/MarkPoiError"
+      examples:
+        - {"name":"canonical","payload":{"event_type":"on_mark_poi_error","request_id":"req_1","sub_id":1,"error_message":"位姿不可用"}}
+    Ping:
+      name: "Ping"
+      summary: "双向应用层 JSON 心跳；不是 WebSocket 控制帧。"
+      payload:
+        "$ref": "#/components/schemas/Ping"
+      examples:
+        - {"name":"canonical","payload":{"type":"ping"}}
+    Pong:
+      name: "Pong"
+      summary: "双向应用层 JSON 心跳；不是 WebSocket 控制帧。"
+      payload:
+        "$ref": "#/components/schemas/Pong"
+      examples:
+        - {"name":"canonical","payload":{"type":"pong"}}
+  schemas:
+    NavigateTo:
+      type: "object"
+      description: "Agent → executor；只按 POI ID 导航，target_pose/label 不用于直达。"
+      required: ["action","request_id","target_id"]
+      properties:
+        action:
+          type: "string"
+          const: "navigate_to"
+        request_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+        sub_id:
+          type: "integer"
+          default: 0
+        target_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+      additionalProperties: true
+      x-wire-keys: ["action","request_id","sub_id","target_id"]
+    MarkCurrentPoi:
+      type: "object"
+      description: "Agent → executor；捕获当前位姿并存储点位。"
+      required: ["action","request_id","sub_id","poi"]
+      properties:
+        action:
+          type: "string"
+          const: "mark_current_poi"
+        request_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+        sub_id:
+          type: "integer"
+        poi:
+          type: "object"
+          required: ["id","name"]
+          properties:
+            id:
+              type: "string"
+              minLength: 1
+              pattern: "\\S"
+            name:
+              type: "string"
+          additionalProperties: true
+      additionalProperties: true
+      x-wire-keys: ["action","request_id","sub_id","poi"]
+    AbortNavigation:
+      type: "object"
+      description: "Agent → executor；按 request_id 取消，空闲/旧请求不产生新回执。"
+      required: ["action","request_id"]
+      properties:
+        action:
+          type: "string"
+          const: "abort_navigation"
+        request_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+      additionalProperties: true
+      x-wire-keys: ["action","request_id"]
+    UpdatePoiList:
+      type: "object"
+      description: "Agent → executor；更新已有 POI 名称，不导入坐标，无 ACK。"
+      required: ["action"]
+      properties:
+        action:
+          type: "string"
+          const: "update_poi_list"
+        version:
+          type: "integer"
+          default: 0
+        poi_list:
+          type: "array"
+          default: []
+          items:
+            type: "object"
+            required: ["id","name"]
+            properties:
+              id:
+                type: "string"
+                minLength: 1
+                pattern: "\\S"
+              name:
+                type: "string"
+            additionalProperties: true
+      additionalProperties: true
+      x-wire-keys: ["action","version","poi_list"]
+    Progress:
+      type: "object"
+      description: "Executor → agent；米，Python round(value, 3)，取消为 paused/0.0。"
+      required: ["event_type","request_id","sub_id","remaining_distance","status"]
+      properties:
+        event_type:
+          type: "string"
+          const: "on_progress"
+        request_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+        sub_id:
+          type: "integer"
+        remaining_distance:
+          type: "number"
+        status:
+          type: "string"
+          enum: ["running","paused"]
+      additionalProperties: false
+      x-wire-keys: ["event_type","request_id","sub_id","remaining_distance","status"]
+    Arrived:
+      type: "object"
+      description: "Executor → agent；最终成功；不表示 schema 已证明实体位姿。"
+      required: ["event_type","request_id","sub_id"]
+      properties:
+        event_type:
+          type: "string"
+          const: "on_arrived"
+        request_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+        sub_id:
+          type: "integer"
+      additionalProperties: false
+      x-wire-keys: ["event_type","request_id","sub_id"]
+    Error:
+      type: "object"
+      description: "Executor → agent；保留中文错误文案。"
+      required: ["event_type","request_id","sub_id","error_message"]
+      properties:
+        event_type:
+          type: "string"
+          const: "on_error"
+        request_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+        sub_id:
+          type: "integer"
+        error_message:
+          type: "string"
+      additionalProperties: false
+      x-wire-keys: ["event_type","request_id","sub_id","error_message"]
+    MarkPoiAck:
+      type: "object"
+      description: "Executor → agent；逻辑 ACK，当前与标记完成结果一起入队。"
+      required: ["event_type","request_id","sub_id","status"]
+      properties:
+        event_type:
+          type: "string"
+          const: "on_mark_poi_ack"
+        request_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+        sub_id:
+          type: "integer"
+        status:
+          type: "string"
+          const: "accepted"
+      additionalProperties: false
+      x-wire-keys: ["event_type","request_id","sub_id","status"]
+    MarkPoiSuccess:
+      type: "object"
+      description: "Executor → agent；已保存的点位 ID/名称，不携带坐标。"
+      required: ["event_type","request_id","sub_id","poi"]
+      properties:
+        event_type:
+          type: "string"
+          const: "on_mark_poi_success"
+        request_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+        sub_id:
+          type: "integer"
+        poi:
+          type: "object"
+          required: ["id","name"]
+          properties:
+            id:
+              type: "string"
+              minLength: 1
+              pattern: "\\S"
+            name:
+              type: "string"
+          additionalProperties: false
+      additionalProperties: false
+      x-wire-keys: ["event_type","request_id","sub_id","poi"]
+    MarkPoiError:
+      type: "object"
+      description: "Executor → agent；标记失败。"
+      required: ["event_type","request_id","sub_id","error_message"]
+      properties:
+        event_type:
+          type: "string"
+          const: "on_mark_poi_error"
+        request_id:
+          type: "string"
+          minLength: 1
+          pattern: "\\S"
+        sub_id:
+          type: "integer"
+        error_message:
+          type: "string"
+      additionalProperties: false
+      x-wire-keys: ["event_type","request_id","sub_id","error_message"]
+    Ping:
+      type: "object"
+      description: "双向应用层 JSON 心跳；不是 WebSocket 控制帧。"
+      required: ["type"]
+      properties:
+        type:
+          type: "string"
+          const: "ping"
+      additionalProperties: true
+      x-wire-keys: ["type"]
+    Pong:
+      type: "object"
+      description: "双向应用层 JSON 心跳；不是 WebSocket 控制帧。"
+      required: ["type"]
+      properties:
+        type:
+          type: "string"
+          const: "pong"
+      additionalProperties: true
+      x-wire-keys: ["type"]
