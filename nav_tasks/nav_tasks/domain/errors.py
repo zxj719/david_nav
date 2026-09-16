@@ -1,5 +1,7 @@
 """Typed domain and task-admission failures without transport dependencies."""
 
+from typing import Awaitable, Callable
+
 
 class NavTaskError(Exception):
     """Base class for expected navigation task failures."""
@@ -15,6 +17,22 @@ class PoiNotFoundError(NavTaskError):
 
 class ConfigError(NavTaskError):
     """Task configuration is invalid before execution begins."""
+
+
+class RuntimeAssemblyError(NavTaskError):
+    """Construction failed with resources still owned by a retryable cleanup handle."""
+
+    def __init__(
+        self, cause: BaseException, cleanup: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Retain cleanup until it succeeds, before destroying the external ROS node.
+
+        Args:
+            cause: Original construction failure, also retained as the exception cause.
+            cleanup: Retry failed destruction operations on the original event loop.
+        """
+        super().__init__(f'runtime construction cleanup is incomplete: {cause}')
+        self.cleanup = cleanup
 
 
 class BusyError(NavTaskError):

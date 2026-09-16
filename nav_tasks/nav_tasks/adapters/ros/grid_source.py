@@ -2,7 +2,7 @@
 
 import threading
 
-from nav_tasks.domain.errors import ClosedError
+from nav_tasks.domain.errors import ClosedError, RuntimeAssemblyError
 from nav_tasks.domain.grid import GridMapView
 
 
@@ -20,6 +20,9 @@ class RosGridSource:
             map_topic: Configured static occupancy topic.
             costmap_topic: Configured global costmap topic.
             occupancy_type: Optional fake type, otherwise lazily import OccupancyGrid.
+
+        Raises:
+            RuntimeAssemblyError: Partial creation cleanup failed; retain and retry its handle.
         """
         if occupancy_type is None:
             from nav_msgs.msg import OccupancyGrid
@@ -35,9 +38,15 @@ class RosGridSource:
                     occupancy_type, topic,
                     lambda message, slot=index: self._receive(slot, message), 10)
                 self._subscriptions.append(subscription)
-        except Exception:
-            self.close()
+        except Exception as error:
+            try:
+                self.close()
+            except Exception:
+                raise RuntimeAssemblyError(error, self._retry_close) from error
             raise
+
+    async def _retry_close(self) -> None:
+        self.close()
 
     def _receive(self, index: int, message: object) -> None:
         with self._lock:

@@ -14,7 +14,9 @@ its fake-action integration tests exercise the new chain's G1–G15 wire scenari
 Public snapshots include skill-supplied target/phase labels, fenced against stale
 callbacks. Optional immutable retry observations drive the frozen RetryAudit
 logger outside pure policy. New-chain tests cover G16 STATUS and G8/G15 audit
-text; actual runtime assembly and G16 CLI/help integration remain pending.
+text. The public [runtime factory](docs/runtime.md) now assembles ordinary POI
+services with retryable cleanup. CLI/help, WS lifecycle and Dock integration
+remain pending; the legacy entry point has not been switched.
 
 ```python
 from nav_tasks.api import PoseRecord

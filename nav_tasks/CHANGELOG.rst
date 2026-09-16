@@ -18,3 +18,6 @@ nav_tasks
   frames, unchanged file format, byte comparisons and persistence fault injection.
 * Add configured TF/odometry and grid subscriptions plus loop-closure observation;
   preserve legacy quaternion bits, sample semantics and owned-resource cleanup.
+* Assemble ordinary POI services through a lazy public factory; retain cleanup
+  ownership across canceled callers, deadlines and partial construction failures.
+  Reject Dock configurations until integrated; do not switch legacy entry points.

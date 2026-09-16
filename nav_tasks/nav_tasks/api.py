@@ -6,14 +6,17 @@ This API does not start ROS or a transport and does not change legacy entry poin
 """
 
 import asyncio
-from typing import Iterable, Protocol
+import time
+from typing import Callable, Iterable, Protocol
 
 from nav_tasks.core.handlers.poi_commands import MarkPoiResult
+from nav_tasks.core.ports import PoseSource
 from nav_tasks.core.registry import CommandRegistry, TaskContext
 from nav_tasks.core.state import TaskManager
 from nav_tasks.domain.errors import (
-    BusyError, ClosedError, ConfigError, NavTaskError, PoseUnavailableError,
+    BusyError, ClosedError, ConfigError, NavTaskError, PoseUnavailableError, RuntimeAssemblyError,
 )
+from nav_tasks.domain.runtime_config import RuntimeConfig
 from nav_tasks.domain.tasks import (
     EventKind, NavOutcome, NavStatus, PreemptPolicy, TaskEvent, TaskRequest,
     TaskSnapshot, TaskState,
@@ -99,10 +102,65 @@ class PoiApi(Protocol):
         ...
 
 
+class TaskRuntimeApi(Protocol):
+    """In-process assembled task services; ROS node/spin and ingress remain external."""
+
+    tasks: TaskApi
+    pois: PoiApi
+    poses: PoseSource
+
+    def start_loop_closure(self) -> None:
+        """Start or reuse the supervised connection-lifetime POI watcher."""
+        ...
+
+    async def stop_loop_closure(self) -> None:
+        """Cancel/join the watcher without canceling motion."""
+        ...
+
+    async def close(self) -> None:
+        """Settle motion then release owned resources; failure remains retryable."""
+        ...
+
+
+def _runtime_log(message: str) -> None:
+    print(f'[navigation_executor] {message}', flush=True)
+
+
+async def create_runtime(
+    config: RuntimeConfig, node: object, tf_buffer: object, *,
+    log: Callable[[str], None] = _runtime_log, now: Callable[[], float] = time.time,
+) -> TaskRuntimeApi:
+    """Lazily assemble task services without importing implementation through ingress.
+
+    Importing this public API remains free of ROS, YAML and transport imports.
+    The caller owns node/listener/spin; keep them alive until runtime.close succeeds.
+    Dock modes are refused until their skill is integrated, not silently downgraded.
+
+    Args:
+        config: Explicit immutable robot/mode runtime values.
+        node: Externally created ROS node.
+        tf_buffer: Externally owned TF buffer.
+        log: Unprefixed startup/POI log sink.
+        now: Pose-compatible timestamp reader for freshness checks.
+
+    Returns:
+        Public task/admin/observation and resource-lifetime handle.
+
+    Raises:
+        ConfigError: Configuration cannot be safely assembled.
+        RuntimeAssemblyError: Retain this exception and await its cleanup before node teardown.
+        Exception: Resource construction or rollback failed; no task has been admitted.
+    """
+    from nav_tasks.app.runtime import assemble_runtime
+
+    return await assemble_runtime(config, node, tf_buffer, log=log, now=now)
+
+
 __all__ = [
     'BusyError', 'CapturedPose', 'ClosedError', 'CommandRegistry', 'ConfigError',
     'EventKind', 'MarkPoiResult', 'NavOutcome', 'NavStatus', 'NavTaskError', 'PoiApi',
     'PoseRecord', 'PoseUnavailableError', 'PreemptPolicy', 'StoredPoi', 'TaskApi',
     'TaskContext', 'TaskEvent',
     'TaskManager', 'TaskRequest', 'TaskSnapshot', 'TaskState', 'Transform2D',
+    'PoseSource', 'RuntimeAssemblyError', 'RuntimeConfig', 'TaskRuntimeApi', 'create_runtime',
 ]
