@@ -17,7 +17,6 @@ import traceback
 from typing import Callable
 from uuid import uuid4
 
-from nav_tasks.app.dock_config import workflow_config
 from nav_tasks.core.supervisor import TaskSupervisor
 from nav_tasks.domain.errors import BusyError, ClosedError, ConfigError
 from nav_tasks.domain.runtime_config import DockNodeConfig
@@ -25,6 +24,7 @@ from nav_tasks.domain.tasks import (
     DockGoal, EventKind, NavStatus, TaskRequest, TaskSnapshot, TaskState,
 )
 from nav_tasks.domain.types import PoseRecord
+from nav_tasks.skills.docking.config import workflow_config
 
 _LOGGER = logging.getLogger(__name__)
 

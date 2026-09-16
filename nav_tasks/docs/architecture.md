@@ -139,7 +139,30 @@ documentation; this change does not add that command.
 The shared single-attempt NavigateToPose backend and ROS-future ownership helper
 are now implemented and tested with fake action clients; see
 [nav2-backend.md](nav2-backend.md) and [ADR-0005](adr-0005-ros-futures.md).
-Still pending: pose/storage/grid subscription adapters, Spin/Dock integration,
-event-to-wire mapping and the replacement G1–G16 suite.
-Only then can the old core be replaced. ROS task events, timeout/health integration
-and the WS assembly root follow their separately tracked plan tasks.
+Pose/storage/grid adapters, Spin/Dock integration, event-to-wire mapping, the
+replacement G1–G16 fake suite, ROS task events, health observations and the WS
+assembly root are implemented in the refactor branch. They do not establish
+production deployment or real POI/Dock closed-loop acceptance; those remain
+separately tracked in PROGRESS and REVIEW_PENDING.
+
+## Static dependency gates
+
+Both task and executor package tests call `nav_bringup.lint.architecture`, in
+addition to the existing direct-import and robot-literal checks. The AST graph
+resolves absolute/relative imports, imported submodules, package initializers,
+deferred imports and indirect paths through helper modules. It checks descending
+layers, protocol/skills independence, pure-layer I/O and adapter independence.
+
+The public `api` facade and `app` form the outer assembly layer. The retained
+`nav2_client.py` is a ROS adapter peer; `nav_site_data` is the storage adapter.
+Dock configuration conversion belongs to `skills/docking`; old `app` paths
+reexport the same functions without wrappers. Transport logging belongs to the
+transport adapter, with its original application import path also retained.
+
+Graphs expand only the inspected package. The executor may use `nav_tasks.api`
+values without traversing that facade's lazy runtime factories; pure layers
+cannot statically import its ROS factory functions. Computed dynamic imports and
+arbitrary calls through aliased facade objects are not resolved. This is not a
+claim of complete Python dependency analysis. TODO-I1 (import-linter installation
+and execution) remains deferred under the no-install rule; no dependency skip or
+weakened test is used to conceal a failing static architecture gate.

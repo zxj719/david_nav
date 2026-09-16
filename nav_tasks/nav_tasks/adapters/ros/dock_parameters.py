@@ -2,8 +2,8 @@
 
 from typing import Mapping
 
-from nav_tasks.app.dock_parameters import from_parameters, PARAMETER_NAMES
 from nav_tasks.domain.runtime_config import DockNodeConfig
+from nav_tasks.skills.docking.parameters import from_parameters, PARAMETER_NAMES
 
 
 def declare_parameters(

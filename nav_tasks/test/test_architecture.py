@@ -3,9 +3,15 @@
 import ast
 from pathlib import Path
 
-from nav_bringup.lint import literals
+from nav_bringup.lint import architecture, literals
 
 PACKAGE = Path(__file__).resolve().parents[1] / 'nav_tasks'
+
+
+def test_transitive_architecture():
+    """Enforce logical layers and independent adapters including relative imports."""
+    violations = architecture.check_package(PACKAGE)
+    assert not violations, '\n'.join(violations)
 
 
 def test_import_boundaries():

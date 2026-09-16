@@ -7,7 +7,7 @@ import time
 from typing import AsyncContextManager, AsyncIterator, Awaitable, Callable, Protocol
 
 from nav_executor.adapters.transport.outbox import ReliableOutbox
-from nav_executor.app.logging import log_line
+from nav_executor.adapters.transport.logging import log_line
 from nav_executor.protocol.task_adapter import TaskCommandAdapter
 from nav_executor.protocol.messages import MalformedCommandError
 
