@@ -21,5 +21,6 @@ setup(
     entry_points={'console_scripts': [
         'navigation_executor = nav_executor.app.cli:main',
         'nav_task_manager = nav_executor.app.cli:main',
+        'nav_executor_profile = nav_executor.app.idle_profile:main',
     ]},
 )

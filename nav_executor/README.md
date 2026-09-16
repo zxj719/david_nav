@@ -1,5 +1,9 @@
 # nav_executor
 
+The passive [R6 idle profiler](docs/idle-profiling.md) records an explicit existing
+PID without ROS or process control. It checks window/identity/cadence completeness;
+no robot CPU conclusion or runtime architecture change has been made.
+
 Navigation WS v1 protocol and ingress adapters, separate from task ownership.
 The package includes pure commands/codecs, a public-task-API command adapter,
 and a reconnect-persistent outbox. The [WS lifecycle](docs/ws-client.md) now owns

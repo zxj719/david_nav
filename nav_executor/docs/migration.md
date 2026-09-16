@@ -18,4 +18,5 @@ retain the frozen wire contract. Historical supporting classes remain available
 for imports pending P7 legacy isolation. R1/R2 are implemented; R3 is verified
 against the synchronous feedback path introduced with the new backend (see
 nav_tasks ADR-0009). R8 now defaults standalone Dock to /dock_goal; explicit ROS
-overrides remain supported. R6 measurement follows separately.
+overrides remain supported. The R6 passive measurement tool is available; actual
+idle measurements and any architecture decision remain separate manual review.

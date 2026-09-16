@@ -3,6 +3,9 @@ nav_executor
 
 0.1.0 (2026-09-16)
 ------------------
+* Add R6 passive Linux PID profiling with raw counters, monotonic intervals,
+  weighted CPU, PID-reuse/error/interruption detection and explicit idle/window
+  eligibility. No new dependency, target startup, ROS I/O or spin-loop change.
 * Fix R8: standalone Dock robot data now defaults goal_topic to /dock_goal rather
   than Nav2 RViz /goal_pose. Preserve explicit overrides and the other fifteen
   policy values, including 0.05 rad/s settling; precise launch already used it.
