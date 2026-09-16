@@ -40,6 +40,7 @@ goal:                               # 到点判定；精确入位等模式在 mo
 chassis:
   cmd_topic: /cmd_vel
   odom_topic: /odom
+  odom_frame: odom_combined         # 轮式积分父帧，与定位 frames.odom 独立
   adapter:                          # = 导航时 david_move 的生效参数
     input_topic: cmd_vel_smoothed
     hard_max_linear_x: 0.20

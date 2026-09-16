@@ -1,6 +1,32 @@
 schema_version: 1
 package: nav_perception_iface
 parameters:
+  chassis.odom_frame:
+    type: string
+    description: 轮式积分Odometry的header父帧；与定位frames.odom独立，导航健康检查必须显式提供
+  localization_health.max_tf_age_sec:
+    type: float
+    unit: s
+    default: 0.5
+    range: [0.0, null]
+    description: 导航健康TF和配对底盘odom新鲜度阈值，运行时须严格大于零
+  localization_health.max_divergence_m:
+    type: float
+    unit: m
+    default: 1.0
+    range: [0.0, null]
+    description: 同一导航基准点的配对位移向量差阈值，须严格大于零
+  localization_health.divergence_window_sec:
+    type: float
+    unit: s
+    default: 2.0
+    range: [0.0, null]
+    description: 位移比较的最大滑动时间窗，须严格大于零
+  localization_health.action:
+    type: string
+    default: warn
+    choices: [warn]
+    description: 当前只观察告警；stop自动取消属于待现场启用的TODO-H1
   frames.body:
     type: string
     required: true

@@ -220,6 +220,9 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
         return LaunchGraph(options.mode, tuple(processes), (), options.supervisor_keyboard)
 
     tf = (('/tf', 'tf'), ('/tf_static', 'tf_static'))
+    processes.append(ProcessSpec(
+        'localization_monitor', 'nav_perception_iface', 'localization_monitor',
+        params('localization_health'), tf, delay_sec=delay, critical=False))
     lifecycle = []
     if options.map_server:
         lifecycle.append('map_server')

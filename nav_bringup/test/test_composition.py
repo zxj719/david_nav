@@ -176,7 +176,8 @@ def test_runtime_preserves_component_remaps_and_container_child_parameter_files(
             assert by_name[spec.name]['remappings'] == list(spec.remappings)
     assert loaders[0][0] == '/nav2_container'
     assert [node['name'] for node in nodes] == [
-        'wheeltec_robot', 'nav2_container', 'robot_state_publisher', 'dock_navigator']
+        'wheeltec_robot', 'nav2_container', 'localization_monitor',
+        'robot_state_publisher', 'dock_navigator']
 
 
 @pytest.mark.parametrize('mode', ['tour', 'chassis', 'teleop'])

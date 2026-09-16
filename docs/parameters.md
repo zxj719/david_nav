@@ -119,9 +119,14 @@ This file lists every robot-profile key declared by package schemas.
 
 | Key | Type | Unit | Required / default | Constraints | Description | Tuning |
 |---|---|---|---|---|---|---|
+| `chassis.odom_frame` | `string` | — | optional (unset) | — | 轮式积分Odometry的header父帧；与定位frames.odom独立，导航健康检查必须显式提供 | — |
 | `frames.body` | `string` | — | **required** | — | 定位输出的机身本体帧；与导航旋转中心分别配置 | — |
 | `frames.scan_target` | `string` | — | **required** | — | 点云转扫描的目标坐标系，应与配置的高度过滤基准一致 | — |
 | `localization.odom_topic` | `string` | — | **required** | — | 定位完成后实际发布的里程计话题；与 Nav2 现接线 nav2.odom_topic 独立 | — |
+| `localization_health.action` | `string` | — | default: `"warn"` | choices: `"warn"` | 当前只观察告警；stop自动取消属于待现场启用的TODO-H1 | — |
+| `localization_health.divergence_window_sec` | `float` | s | default: `2.0` | range: `0.0 .. inf` | 位移比较的最大滑动时间窗，须严格大于零 | — |
+| `localization_health.max_divergence_m` | `float` | m | default: `1.0` | range: `0.0 .. inf` | 同一导航基准点的配对位移向量差阈值，须严格大于零 | — |
+| `localization_health.max_tf_age_sec` | `float` | s | default: `0.5` | range: `0.0 .. inf` | 导航健康TF和配对底盘odom新鲜度阈值，运行时须严格大于零 | — |
 | `sensors.scan_from_cloud.angle_increment` | `float` | rad | **required** | range: `0.0 .. inf` | 扫描角分辨率，必须严格大于零 | — |
 | `sensors.scan_from_cloud.angle_max` | `float` | rad | **required** | — | 扫描结束角，必须大于 angle_min | — |
 | `sensors.scan_from_cloud.angle_min` | `float` | rad | **required** | — | 扫描起始角 | — |

@@ -21,5 +21,6 @@ setup(
     license='Apache-2.0', tests_require=['pytest'],
     entry_points={'console_scripts': [
         'nav_interface_check = nav_perception_iface.contract_cli:main',
+        'localization_monitor = nav_perception_iface.health_node:main',
     ]},
 )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
@@ -79,6 +80,24 @@ def node_parameters(
     if options.mode not in NAVIGATION_MODES:
         raise ValueError('unsupported navigation mode')
     output['nav2'] = navigation['nav2']
+    health_keys = ('max_tf_age_sec', 'max_divergence_m', 'divergence_window_sec', 'action')
+    health = {name: render.profile_value(profile, 'localization_health.' + name)
+              for name in health_keys}
+    if any(type(health[name]) not in (int, float) or not math.isfinite(health[name])
+           or health[name] <= 0 for name in (
+               'max_tf_age_sec', 'max_divergence_m', 'divergence_window_sec')):
+        raise ValueError('localization_health thresholds must be positive finite numbers')
+    if health['action'] != 'warn':
+        raise ValueError('localization_health automatic stop is uncommissioned TODO-H1')
+    health.update(map_frame=render.profile_value(profile, 'frames.map'),
+                  odom_frame=render.profile_value(profile, 'frames.odom'),
+                  nav_frame=render.profile_value(profile, 'frames.nav_base'),
+                  chassis_odom_frame=render.profile_value(profile, 'chassis.odom_frame'),
+                  chassis_odom_topic=render.profile_value(profile, 'chassis.odom_topic'))
+    if any(not isinstance(health[name], str) or not health[name].strip() for name in (
+            'map_frame', 'odom_frame', 'nav_frame', 'chassis_odom_frame', 'chassis_odom_topic')):
+        raise ValueError('localization_health frame/topic names must be explicit')
+    output['localization_health'] = _node('localization_monitor', health)
     output['lifecycle'] = _node('lifecycle_manager_navigation', {
         'use_sim_time': False, 'autostart': True, 'node_names': list(graph.lifecycle_nodes)})
     if options.map_server:

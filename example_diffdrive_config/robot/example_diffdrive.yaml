@@ -16,6 +16,7 @@ goal: {xy_tolerance: 0.2, yaw_tolerance: 6.2832}
 chassis:
   cmd_topic: /demo/command
   odom_topic: /demo/wheel_odom
+  odom_frame: demo_encoder
   adapter:
     input_topic: /demo/smoothed
     hard_max_linear_x: 0.2
@@ -53,6 +54,11 @@ localization:
   provider: fake
   odom_topic: /demo/localized_odom
   aligned_cloud_topic: /demo/cloud
+localization_health:
+  max_tf_age_sec: 0.5
+  max_divergence_m: 1.0
+  divergence_window_sec: 2.0
+  action: warn
 nav2:
   odom_topic: /demo/localized_odom
   scan_topic: /demo/scan
