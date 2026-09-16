@@ -1,7 +1,11 @@
+import json
 import os
 from pathlib import Path
+import select
+import shlex
 import signal
 import subprocess
+import sys
 import time
 
 import pytest
@@ -11,50 +15,53 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "start_navigation_headless.sh"
 
 
+def test_headless_fixture_uses_current_private_overrides(tmp_path):
+    env = _prepare_env(tmp_path)
+    for key in (
+        "DAVID_WS_DIR", "DAVID_ROS_SETUP_FILE", "DAVID_INSTALL_SETUP_FILE",
+        "DAVID_ROS2_BIN", "DAVID_PYTHON_BIN", "DAVID_EXECUTOR_BIN",
+        "POSE_FILE", "BAG_ROOT", "WHEELTEC_WS_DIR",
+    ):
+        assert Path(env[key]).is_relative_to(tmp_path), key
+    assert env["ROS_DOMAIN_ID"] == "99"
+    assert env["DAVID_SKIP_PREFLIGHT_CLEANUP"] == "true"
+
+
 def _write_file(path: Path, content: str = "#!/usr/bin/env bash\n"):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
 
-def _prepare_env(tmp_path: Path, *, websockets_available: bool = True):
+def _prepare_env(tmp_path: Path):
     ros_setup = tmp_path / "opt/ros/humble/setup.bash"
-    lightning_workspace = tmp_path / "lightning_ws"
     auto_workspace = tmp_path / "ros2_ws"
     fake_python = tmp_path / "bin/fake_python3"
     fake_ifconfig = tmp_path / "bin/ifconfig"
     named_poses = tmp_path / "semantic_map/named_poses.json"
-    localization_config = lightning_workspace / "src/hoslam_lightning_lm/config/default_c16.yaml"
-
-    _write_file(ros_setup)
-    _write_file(lightning_workspace / "install/setup.bash")
-    # 2026-07-27: 脚本 START_CHASSIS 默认 true，require_path wheeltec 安装文件
+    # The real shell sources this after assigning its legacy lock constant.
+    # Redirect only the path, keeping the actual lock cleanup function intact.
+    _write_file(ros_setup, (
+        'EXECUTOR_LOCK_FILE=' + shlex.quote(str(tmp_path / 'executor.lock')) + '\n'
+        'printf "%s" "$$" > ' + shlex.quote(str(tmp_path / 'shell.pid')) + '\n'))
     _write_file(
         tmp_path
         / "wheelhumanoidrobot/workspace_wheeltec/wheeltec_robot_ros2/install/setup.bash"
     )
-    _write_file(localization_config, "dummy: true\n")
     _write_file(auto_workspace / "install/setup.bash")
     _write_file(
         named_poses,
-        '[{"id":"POI_001","name":"1","frame_id":"map","position":{"x":1.0,"y":2.0,"z":0.0},"yaw":0.5}]\n',
+        '[{"id":"POI_001","name":"1","frame_id":"map",'
+        '"position":{"x":1.0,"y":2.0,"z":0.0},"yaw":0.5}]\n',
     )
-    _write_file(
-        fake_python,
-        f"""#!/usr/bin/env bash
-set -euo pipefail
-if [[ "${{1:-}}" == "-c" ]]; then
-  code="${{2:-}}"
-  if [[ "$code" == "import yaml" ]]; then
-    exit 0
-  fi
-  if [[ "$code" == "import websockets" ]]; then
-    {"exit 0" if websockets_available else "exit 1"}
-  fi
-fi
-exec python3 "$@"
-""",
-    )
-    fake_python.chmod(0o755)
+    helper = Path(__file__).with_name('headless_process_fixture.py')
+    for name, role in (
+        ('fake_python3', 'python'), ('ros2', 'ros2'),
+        ('navigation_executor.py', 'executor'), ('pgrep', 'pgrep'),
+    ):
+        path = tmp_path / 'bin' / name
+        _write_file(path, '#!/bin/bash\nexec ' + shlex.join(
+            [sys.executable, str(helper), role]) + ' "$@"\n')
+        path.chmod(0o755)
     _write_file(fake_ifconfig, "#!/usr/bin/env bash\nexit 0\n")
     fake_ifconfig.chmod(0o755)
     # The script runs stop_stale_executor (pgrep + kill) and pin_jetson_clocks
@@ -65,7 +72,6 @@ exec python3 "$@"
         ("sudo", 1),
         ("nvpmodel", 0),
         ("jetson_clocks", 0),
-        ("pgrep", 1),
     ):
         shim = fake_ifconfig.parent / name
         _write_file(shim, f"#!/usr/bin/env bash\nexit {exit_code}\n")
@@ -74,15 +80,28 @@ exec python3 "$@"
     env = os.environ.copy()
     env.update(
         {
-            "HOME": str(tmp_path),
             "PATH": f"{fake_ifconfig.parent}:{env.get('PATH', '')}",
-            "ROS_SETUP": str(ros_setup),
-            "LIGHTNING_WORKSPACE": str(lightning_workspace),
-            "LOCALIZATION_CONFIG": str(localization_config),
-            "AUTO_WORKSPACE": str(auto_workspace),
-            "NAMED_POSES_FILE": str(named_poses),
+            "DAVID_WS_DIR": str(auto_workspace),
+            "DAVID_ROS_SETUP_FILE": str(ros_setup),
+            "DAVID_INSTALL_SETUP_FILE": str(auto_workspace / 'install/setup.bash'),
+            "DAVID_ROS2_BIN": str(tmp_path / 'bin/ros2'),
+            "DAVID_PYTHON_BIN": str(fake_python),
+            "DAVID_EXECUTOR_BIN": str(tmp_path / 'bin/navigation_executor.py'),
+            "DAVID_CONFIG_HELPER_BIN": str(REPO_ROOT / 'scripts/navigation_headless_config.py'),
+            "DAVID_HEADLESS_CONFIG_FILE": str(REPO_ROOT / 'config/navigation_headless.yaml'),
+            "DAVID_HEADLESS_PROFILE": "navigation_no_explore",
+            "POSE_FILE": str(named_poses),
+            "BAG_ROOT": str(tmp_path / 'bags'),
+            "WHEELTEC_WS_DIR": str(tmp_path / 'wheelhumanoidrobot/workspace_wheeltec/'
+                                   'wheeltec_robot_ros2'),
+            "HEADLESS_TEST_PACKAGE": str(REPO_ROOT),
+            "HEADLESS_TEST_ROOT": str(tmp_path),
+            "HEADLESS_TEST_STAGE": "executor",
+            "ROS_DOMAIN_ID": "99",
+            "ZERO_CMD_VEL_ON_SHUTDOWN": "false",
+            "SHUTDOWN_GRACE_SECONDS": "1",
+            "BRINGUP_LIVENESS_INTERVAL_SEC": "0.1",
             "ENABLE_CPU_ONLINE": "false",
-            "PYTHON_BIN": str(fake_python),
             # 2026-07-27: 非 dry-run 测试在真机上跑时，禁止 pre-flight 的
             # pgrep 清理误杀真实运行中的 nav2/wheeltec 栈
             "DAVID_SKIP_PREFLIGHT_CLEANUP": "true",
@@ -91,24 +110,24 @@ exec python3 "$@"
     return env
 
 
-def _run_script(tmp_path: Path, *args: str, websockets_available: bool = True):
+def _run_script(tmp_path: Path, *args: str):
     return subprocess.run(
         ["bash", str(SCRIPT_PATH), *args],
         capture_output=True,
         check=False,
         cwd=str(REPO_ROOT),
-        env=_prepare_env(tmp_path, websockets_available=websockets_available),
+        env=_prepare_env(tmp_path),
         text=True,
+        timeout=10,
     )
 
 
 def _run_script_async(
     tmp_path: Path,
     *args: str,
-    websockets_available: bool = True,
     extra_env: dict[str, str] | None = None,
 ):
-    env = _prepare_env(tmp_path, websockets_available=websockets_available)
+    env = _prepare_env(tmp_path)
     if extra_env:
         env.update(extra_env)
     return subprocess.Popen(
@@ -117,7 +136,7 @@ def _run_script_async(
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        start_new_session=True,
     )
 
 
@@ -127,6 +146,54 @@ def _pid_exists(pid: int) -> bool:
     except ProcessLookupError:
         return False
     return True
+
+
+def _remember_children(tmp_path, handles):
+    for label in ('detached', 'nav'):
+        if label in handles:
+            continue
+        try:
+            pid = int((tmp_path / (label + '.pid')).read_text())
+            handle = os.pidfd_open(pid)
+        except (OSError, ValueError):
+            continue
+        try:
+            expected = ('HEADLESS_TEST_ROOT=' + str(tmp_path)).encode()
+            belongs = expected in Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
+        except OSError:
+            os.close(handle)
+            continue
+        if not belongs:
+            os.close(handle)
+            continue
+        handles[label] = handle
+
+
+@pytest.mark.parametrize('role,args,code', [
+    ('ros2', ['daemon', 'stop'], 97),
+    ('ros2', ['topic', 'pub', '/cmd_vel'], 97),
+    ('ros2', ['launch', 'turn_on_wheeltec_robot', 'anything.launch.py'], 97),
+    ('python', ['-c', 'import rclpy'], 97),
+    ('python', ['/tmp/not-a-test-program.py'], 97),
+    ('pgrep', ['-f', 'navigation_executor.py'], 1),
+    ('pgrep', ['-P', str(os.getpid())], 1),
+])
+def test_headless_fixture_refuses_unrecognized_host_operations(tmp_path, role, args, code):
+    env = _prepare_env(tmp_path)
+    helper = Path(__file__).with_name('headless_process_fixture.py')
+    result = subprocess.run([sys.executable, str(helper), role, *args],
+                            env=env, capture_output=True, text=True, timeout=3)
+    assert result.returncode == code, result.stderr
+    assert result.stdout == ''
+
+
+def test_headless_fixture_rejects_non_sandbox_domain(tmp_path):
+    env = _prepare_env(tmp_path)
+    env['ROS_DOMAIN_ID'] = '0'
+    result = subprocess.run([env['DAVID_ROS2_BIN'], 'daemon', 'stop'],
+                            env=env, capture_output=True, text=True, timeout=3)
+    assert result.returncode == 98
+    assert not (tmp_path / 'calls.jsonl').exists()
 
 
 # 2026-07-27 测试现代化：原有 5 个测试写于"脚本自启 IMU/lidar/loc + 老 URI +
@@ -162,50 +229,51 @@ def test_headless_navigation_no_chassis_skips_wheeltec(tmp_path):
     assert "2d_david_nav2_bringup.launch.py" in result.stdout
 
 
-@pytest.mark.skip(
-    reason="2026-07-27: 现行脚本已无 IMU_COMMAND/NAV2_COMMAND 等注入钩子，"
-    "无法在沙箱里替身启动；分离进程清理需要新的测试 harness 再覆盖"
-)
-def test_headless_navigation_ctrl_c_kills_detached_descendants(tmp_path):
+@pytest.mark.parametrize('stage', ['startup', 'probe', 'executor'])
+def test_headless_navigation_ctrl_c_kills_detached_descendants(tmp_path, stage):
     detached_pid_file = tmp_path / "detached.pid"
-    detached_launcher = tmp_path / "detached_launcher.sh"
-    _write_file(
-        detached_launcher,
-        f"""#!/usr/bin/env bash
-set -euo pipefail
-setsid bash -lc "echo \\$\\$ > '{detached_pid_file}'; exec sleep 1000" >/dev/null 2>&1 &
-child=$!
-wait "$child"
-""",
-    )
-    detached_launcher.chmod(0o755)
-
     process = _run_script_async(
         tmp_path,
-        extra_env={
-            "ENABLE_CPU_ONLINE": "false",
-            "SLAM_START_DELAY": "0",
-            "IMU_COMMAND": "exec sleep 1000",
-            "LIDAR_COMMAND": "exec sleep 1000",
-            "LOCALIZATION_COMMAND": "exec sleep 1000",
-            "NAV2_COMMAND": f"exec {detached_launcher}",
-            "EXECUTOR_COMMAND": "exec sleep 1000",
-        },
+        '--no-chassis', '--no-bag', '--skip-runtime-config-check',
+        extra_env={'HEADLESS_TEST_STAGE': stage},
     )
-
+    child_handles = {}
+    early_output = b''
     try:
-        deadline = time.time() + 10.0
-        while time.time() < deadline and not detached_pid_file.exists():
-            time.sleep(0.1)
-
+        deadline = time.monotonic() + 10.0
+        ready = tmp_path / ('detached.pid' if stage == 'startup' else stage + '.pid')
+        marker = b'Nav2 bringup started with pid'
+        while time.monotonic() < deadline:
+            _remember_children(tmp_path, child_handles)
+            assert process.poll() is None, process.communicate(timeout=2)
+            if ready.exists() and marker in early_output:
+                break
+            readable, _, _ = select.select([process.stdout], [], [], 0.05)
+            if readable:
+                early_output += os.read(process.stdout.fileno(), 4096)
+        assert ready.exists(), 'foreground test replacement did not start'
+        assert marker in early_output, 'script did not register the managed child'
         assert detached_pid_file.exists(), "detached child process did not start"
-
         detached_pid = int(detached_pid_file.read_text(encoding="utf-8").strip())
         assert _pid_exists(detached_pid)
-
-        process.send_signal(signal.SIGINT)
+        nav_pid = int((tmp_path / 'nav.pid').read_text())
+        assert os.getpgid(detached_pid) == detached_pid
+        assert os.getpgid(nav_pid) == nav_pid
+        assert len({process.pid, detached_pid, nav_pid}) == 3
+        # pidfds make failure-only cleanup immune to PID reuse. Open before
+        # signalling; normal success must be established before this fallback.
+        _remember_children(tmp_path, child_handles)
+        assert set(child_handles) == {'detached', 'nav'}
+        if stage == 'startup':
+            # Retain the old single-PID injection while the script starts up.
+            assert not (tmp_path / 'executor.pid').exists()
+            process.send_signal(signal.SIGINT)
+        else:
+            # Terminal Ctrl+C reaches both the shell and foreground pipeline.
+            os.killpg(process.pid, signal.SIGINT)
         stdout, stderr = process.communicate(timeout=15)
-
+        stdout = (early_output + stdout).decode()
+        stderr = stderr.decode()
         assert process.returncode == 130
         assert "Received INT" in stdout
         assert not _pid_exists(detached_pid), (
@@ -213,11 +281,28 @@ wait "$child"
             f"stdout:\n{stdout}\n"
             f"stderr:\n{stderr}\n"
         )
+        assert not _pid_exists(nav_pid)
+        calls = [json.loads(line) for line in (tmp_path / 'calls.jsonl').read_text().splitlines()]
+        assert ['pgrep', '-P', str(nav_pid)] in calls
+        assert ['pgrep', '-g', str(detached_pid)] in calls
+        assert [call[1:4] for call in calls if call[0] == 'ros2'] == [
+            ['launch', 'david_nav', '2d_david_nav2_bringup.launch.py']]
     finally:
+        _remember_children(tmp_path, child_handles)
+        for handle in child_handles.values():
+            try:
+                signal.pidfd_send_signal(handle, signal.SIGINT)
+            except ProcessLookupError:
+                pass
+        # Allow the fake Nav2 parent to reap the detached child before forcing
+        # anything. The assertions above never rely on this fallback cleanup.
+        time.sleep(0.2)
         if process.poll() is None:
-            process.kill()
+            os.killpg(process.pid, signal.SIGKILL)
             process.communicate(timeout=5)
-        if detached_pid_file.exists():
-            detached_pid = int(detached_pid_file.read_text(encoding="utf-8").strip())
-            if _pid_exists(detached_pid):
-                os.kill(detached_pid, signal.SIGKILL)
+        for handle in child_handles.values():
+            try:
+                signal.pidfd_send_signal(handle, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            os.close(handle)
