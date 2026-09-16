@@ -68,7 +68,9 @@ follow successful cleanup. Failure retains ERROR ownership for explicit retry;
 no busy retry loop or new motion is started. A later abort after a reported crash
 does not append a misleading paused event. See [ADR-0008](adr-0008-crash-recovery.md)
 for cancellation races and the distinction between the original crash and a new
-cleanup error. R3 remains a separate feedback-ownership audit.
+cleanup error. R3 feedback ownership is covered by
+[ADR-0009](adr-0009-feedback-ownership.md): queued synchronous callbacks retain
+messages without creating unowned tasks; GC and stale-attempt checks guard it.
 
 ## Backend, retry and geometry
 

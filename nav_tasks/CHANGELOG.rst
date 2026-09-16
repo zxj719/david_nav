@@ -3,6 +3,9 @@ nav_tasks
 
 0.1.0 (2026-09-16)
 ------------------
+* Verify R3 feedback ownership already provided by ActionSession synchronous
+  loop callbacks: add GC/thread/burst/stale-callback and no-unowned-task guards,
+  with a read-only legacy-source red comparison. Do not change feedback timing.
 * Fix R2: supervise skill crashes, report one internal-error event and serialize
   automatic backend cleanup with abort/preempt/close. Release ownership and issue
   a FAILED receipt only after cleanup succeeds; preserve ERROR on cleanup failure.

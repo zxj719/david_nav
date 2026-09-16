@@ -51,6 +51,12 @@ from fake action results or these software ownership tests.
 
 ## Compatibility and timing
 
+R3 feedback ownership uses the event loop's strongly owned callback queue, not
+unreferenced asyncio tasks. The mechanism was introduced with this backend and
+is now protected by GC/thread/late-feedback tests and a no-bare-task-spawn check.
+See [ADR-0009](adr-0009-feedback-ownership.md) for the old-source red/new-path green
+comparison and the boundaries of this verification.
+
 The wrapper retains legacy pose/quaternion conversion and detailed error text
 for unavailable server, rejection and ABORTED, with no retry prefix. Retry and
 feedback-report throttling belong to NavigateToPoi, not the backend. Latest raw
