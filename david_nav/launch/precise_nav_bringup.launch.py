@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""alias 0 专用：高精度两段式入位导航（2026-08-31）。
+"""Compatibility precise-navigation launch with a single shared task owner.
 
 重构分支：以下历史两个入口现合并为一个任务管理器。开启 WS 时，Dock 与 WS
 一起在 Nav2 就绪后开放；禁用 WS 时仍提供本地 Dock。已有任一任务管理器则拒绝
@@ -86,7 +86,7 @@ DEFAULT_ROS_SETUP = '/opt/ros/humble/setup.bash'
 
 
 def _pgrep(pattern):
-    """pgrep -f 的 pid 列表。无匹配时 pgrep 退出码 1，这里统一返回空表。"""
+    """Return pgrep PIDs, treating unavailable probes and no matches as empty."""
     try:
         proc = subprocess.run(
             ['pgrep', '-f', '--', pattern],
@@ -110,12 +110,12 @@ def _as_bool(value):
 
 
 def _source_package_dir():
-    """本 launch 所在的源码包目录（install 里的 launch 目录是指向源码的软链）。"""
+    """Return the source package directory behind the installed launch symlink."""
     return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
 
 def build_executor_script(executor, probe, executor_args, nav_ready_timeout_sec):
-    """等 nav2 就绪后再 exec navigation_executor 的 bash 脚本（与 headless 的启动顺序一致）。"""
+    """Wait for Nav2 readiness, then exec the retained executor entry."""
     timeout = int(float(nav_ready_timeout_sec))
     return (
         'deadline=$((SECONDS + {timeout})); '

@@ -23,7 +23,6 @@ from david_nav.navigation_executor_core import ExecutorState
 from david_nav.navigation_executor_core import NavigationExecutorCore
 from david_nav.navigation_types import CapturedPose
 from david_nav.navigation_types import PoseRecord
-from david_nav.navigation_types import StoredPoi
 from david_nav.poi_store import LocalPoiStore
 
 navigation_executor = load_entry('navigation_executor')
@@ -430,7 +429,8 @@ def test_frozen_log_line_nav_error(capsys):
 def test_frozen_log_line_status():
     core = SimpleNamespace(
         state=ExecutorState.NAVIGATING,
-        active_task=SimpleNamespace(target_id='POI_001', phase='to_anchor', remaining_distance=1.234),
+        active_task=SimpleNamespace(
+            target_id='POI_001', phase='to_anchor', remaining_distance=1.234),
     )
     pose_provider = SimpleNamespace(
         current_map_pose=lambda: PoseRecord('map', 1.0, 2.0, 0.0, 0.5, 0.0)
