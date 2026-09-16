@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""Deprecated standalone semantic navigator retained for compatibility.
+
+DEPRECATED: 此旧入口保留历史参数、文件路径和 base 坐标系默认值，不作为新导航入口。
+普通 POI 导航请使用配置了机器人/场地数据的 nav_executor nav_task_manager;
+进程内复用请使用 nav_tasks.api，由外层提供 ROS 宿主与完整 RuntimeConfig。
+替代入口不会自动翻译本脚本的命令行，也不授权启动定位或发送导航目标。
+"""
 
 from dataclasses import dataclass
 from builtins import open

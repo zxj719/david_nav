@@ -31,8 +31,10 @@ Current SPEC R1-R10 status (refactor workspace, not production deployment)
   baseline (93676a5); generated clutter is ignored (4388e37). Production's
   branch, index and worktree were not cleaned or rewritten.
 * R10: system onboarding and configuration documentation were corrected
-  (61b444d, f31b3d2). Audit still found stale legacy waypoint/dead-reckoning
-  descriptions; their focused text repair remains pending, not silently done.
+  (61b444d, f31b3d2). The retained waypoint launch message now says nav WS v1;
+  dead-reckoning documentation names the actual waypoint default and explicit
+  opt-in backend. The old semantic navigator is marked DEPRECATED with current
+  public API guidance; historical parameters and executable behavior are retained.
 
 Development history
 ~~~~~~~~~~~~~~~~~~~

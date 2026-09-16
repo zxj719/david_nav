@@ -323,7 +323,7 @@ main() {
   kill_conflicting_tf_publishers
   start_tf_guard
 
-  log '前台起 navigation_executor(v2 坐标协议)。Ctrl+C 全栈退出。'
+  log '前台起 navigation_executor(nav WS v1 协议)。Ctrl+C 全栈退出。'
   "${executor_cmd[@]}"
 }
 

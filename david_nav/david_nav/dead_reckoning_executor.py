@@ -8,9 +8,9 @@
 全程只看 /odom(wheeltec 纯轮速)闭里程,直接发 /cmd_vel。到点 succeed。
 
 不依赖 nav2 / planner / map / TF map→odom。与 navigation_executor.py 的
-WebSocket 协议**完全无关**:协议层把 target_pose 透到 NavigateToPose action,
-本节点作为 action 端点把它丢掉,改跑死序列(start_waypoint_nav_headless.sh
-当前默认这个 action)。
+WebSocket 消息格式独立:nav WS v1 根据 POI 标识解析目标位姿后调用导航动作;
+本节点作为 action 端点忽略 target_pose,改跑固定序列。start_waypoint_nav_headless.sh
+默认 /waypoint_follower/navigate,只有显式选择 /dead_reckoning/navigate 才使用本后端。
 
 参数(rosparam,皆有默认):
   action_name              str   动作名(绝对)默认 /dead_reckoning/navigate
