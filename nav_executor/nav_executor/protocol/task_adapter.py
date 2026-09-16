@@ -85,7 +85,7 @@ class TaskCommandAdapter:
         if isinstance(command, NavigateToCommand):
             request = TaskRequest(
                 command.request_id, command.action, {'target_id': command.target_id},
-                command.sub_id, PreemptPolicy.ALLOW)
+                command.sub_id, PreemptPolicy.ALLOW, source='websocket')
             try:
                 await self._tasks.submit(request)
             except NavTaskError as error:
@@ -113,7 +113,10 @@ class TaskCommandAdapter:
         raise ValueError(f'unsupported command: {command.action}')
 
     async def next_event(self) -> dict:
-        """Wait for and encode the next task event without sending it directly.
+        """Encode the next WS/legacy-source task event without sending it directly.
+
+        Other ingress events stay visible to general TaskApi subscribers, but are
+        not responses to agent-server requests and must not enter the WS outbox.
 
         Returns:
             One event mapping for the reliable outbox.
@@ -123,7 +126,13 @@ class TaskCommandAdapter:
         """
         if self._closed:
             raise ClosedError('task command adapter is closed')
-        return event_to_frame(await self._events.get())
+        while True:
+            event = await self._events.get()
+            # Shared task observability includes ROS ingress, but its generated
+            # identity is not an agent-server request. Empty source retains the
+            # original direct-API/protocol compatibility contract.
+            if event.source in ('', 'websocket'):
+                return event_to_frame(event)
 
     async def pump_events(self, emit: Callable[[dict], None]) -> None:
         """Forward task events into a synchronous reliable-outbox enqueue callback.

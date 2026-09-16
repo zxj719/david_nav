@@ -3,6 +3,9 @@ nav_executor
 
 0.1.0 (2026-09-16)
 ------------------
+* Correlate shared-manager events by ingress source so ROS Dock completions cannot
+  become unsolicited WebSocket arrival frames; preserve the old wire format and
+  legacy empty-source behavior. Exercise full ingress/worker/runtime with fake ROS I/O.
 * Load an explicit complete Dock parameter file from CLI/YAML/profile settings,
   preserving rendered mode tuning, endpoint precedence and separate capture/Dock
   frames. Bind the public task factory, retaining the outer Dock admission gate

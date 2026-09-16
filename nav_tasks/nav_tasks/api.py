@@ -18,8 +18,8 @@ from nav_tasks.domain.errors import (
 )
 from nav_tasks.domain.runtime_config import DockNodeConfig, DockRuntimeConfig, RuntimeConfig
 from nav_tasks.domain.tasks import (
-    DockGoal, EventKind, NavOutcome, NavStatus, PreemptPolicy, TaskEvent, TaskRequest,
-    TaskSnapshot, TaskState,
+    DockGoal, EventKind, NavOutcome, NavStatus, PreemptPolicy, TaskCompletion, TaskEvent,
+    TaskRequest, TaskSnapshot, TaskState,
 )
 from nav_tasks.domain.types import CapturedPose, PoseRecord, StoredPoi, Transform2D
 
@@ -27,22 +27,26 @@ from nav_tasks.domain.types import CapturedPose, PoseRecord, StoredPoi, Transfor
 class TaskApi(Protocol):
     """Loop-confined motion ownership API; administrative commands are separate."""
 
-    async def submit(self, task: TaskRequest) -> TaskSnapshot:
+    async def submit(
+        self, task: TaskRequest, *, on_settled: Callable[[TaskCompletion], None] | None = None,
+    ) -> TaskSnapshot:
         """Admit a task without waiting for its motion result.
 
         Args:
             task: Domain request and ingress preemption policy.
+            on_settled: Optional loop-thread receipt after task cleanup/ownership release.
 
         Returns:
             Accepted ownership snapshot.
         """
         ...
 
-    async def cancel(self, task_id: str | None = None) -> bool:
+    async def cancel(self, task_id: str | None = None, *, generation: int | None = None) -> bool:
         """Wait for cancellation of a matching or current task.
 
         Args:
             task_id: Matching ID, or None for current ownership.
+            generation: Optional admission generation, checked atomically with the ID.
 
         Returns:
             Whether a matching task was canceled.
@@ -76,6 +80,64 @@ class TaskApi(Protocol):
     async def close(self) -> None:
         """Seal admission and wait for cleanup of owned motion."""
         ...
+
+
+class DockIngressApi(Protocol):
+    """Empty ROS ingress owner; callbacks/cleanup require a live multithreaded host."""
+
+    def open(self, node: object) -> None:
+        """Create ingress resources; retain this owner if construction fails.
+
+        Args:
+            node: Caller-owned node, destroyed only after ingress teardown.
+        """
+        ...
+
+    def stop(self) -> None:
+        """Seal admission on the task loop without stopping ROS callbacks."""
+        ...
+
+    async def close(self) -> None:
+        """Wait for owned task cleanup, keeping ROS alive and resources retained."""
+        ...
+
+    def destroy(self) -> None:
+        """Release retained ROS resources after close and host executor quiescence."""
+        ...
+
+    def on_feedback(self, goal: DockGoal, raw: object, extra_distance: float) -> None:
+        """Forward complete loop-thread Dock feedback for a matching live action only.
+
+        Args:
+            goal: Correlated Dock owner identity and generation.
+            raw: Unmodified original ROS navigation feedback wrapper.
+            extra_distance: Remaining later-stage distance.
+        """
+        ...
+
+
+def create_dock_ingress(
+    tasks: TaskApi, config: DockNodeConfig, *, cleanup_retry_sec: float = 1.0,
+) -> DockIngressApi:
+    """Create a no-I/O ingress owner on the task loop before opening its ROS resources.
+
+    The caller must keep a MultiThreadedExecutor with at least two threads alive
+    through close, then quiesce it before destroy. No new motion client is created.
+
+    Args:
+        tasks: Public shared task manager on the current running loop.
+        config: Explicit Dock ingress names and runtime policy.
+        cleanup_retry_sec: Delay between failed task cleanup attempts.
+
+    Returns:
+        Empty owner to retain across open failures and retryable teardown.
+
+    Raises:
+        ConfigError: Configuration or cleanup retry interval is invalid.
+    """
+    from nav_tasks.adapters.ros.dock_ingress import DockIngress
+
+    return DockIngress(tasks, config, cleanup_retry_sec=cleanup_retry_sec)
 
 
 class PoiApi(Protocol):
@@ -209,11 +271,13 @@ async def create_runtime(
 
 __all__ = [
     'BusyError', 'CapturedPose', 'ClosedError', 'CommandRegistry', 'ConfigError',
-    'DockGoal', 'DockNodeConfig', 'DockRuntimeConfig', 'EventKind', 'MarkPoiResult',
+    'DockGoal', 'DockIngressApi', 'DockNodeConfig', 'DockRuntimeConfig', 'EventKind',
+    'MarkPoiResult',
     'NavOutcome', 'NavStatus', 'NavTaskError', 'PoiApi',
     'PoseRecord', 'PoseUnavailableError', 'PreemptPolicy', 'StoredPoi', 'TaskApi',
-    'TaskContext', 'TaskEvent',
+    'TaskCompletion', 'TaskContext', 'TaskEvent',
     'TaskManager', 'TaskRequest', 'TaskSnapshot', 'TaskState', 'Transform2D',
     'PoseSource', 'RuntimeAssemblyError', 'RuntimeConfig', 'TaskRuntimeApi', 'create_runtime',
     'declare_dock_parameters', 'dock_config_from_parameters',
+    'create_dock_ingress',
 ]

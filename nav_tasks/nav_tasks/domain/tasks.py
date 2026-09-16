@@ -38,6 +38,16 @@ class NavGoal:
 
 
 @dataclass(frozen=True)
+class TaskCompletion:
+    """One post-cleanup receipt, separate from legacy progress/terminal wire events."""
+
+    task_id: str
+    sub_id: int
+    generation: int
+    outcome: NavOutcome
+
+
+@dataclass(frozen=True)
 class SpinGoal:
     """Signed relative yaw and Nav2's own execution allowance, both in SI units.
 
@@ -92,6 +102,7 @@ class TaskRequest:
     Payload decoding is synchronous and completes before an existing task is
     preempted. Decoders must return a detached immutable domain object. Directory
     updates and POI marking are administrative operations, not motion requests.
+    Source is opaque ingress metadata preserved in events; empty retains legacy use.
     """
 
     task_id: str
@@ -99,6 +110,7 @@ class TaskRequest:
     payload: Mapping[str, object]
     sub_id: int = 0
     preempt: PreemptPolicy = PreemptPolicy.REJECT
+    source: str = ''
 
 
 @dataclass(frozen=True)
@@ -125,7 +137,7 @@ class EventKind(str, Enum):
 
 @dataclass(frozen=True)
 class TaskEvent:
-    """Correlated immutable event, with legacy paused/running progress semantics."""
+    """Correlated event with legacy progress semantics and opaque ingress source metadata."""
 
     kind: EventKind
     task_id: str
@@ -134,3 +146,4 @@ class TaskEvent:
     remaining_distance: float = 0.0
     status: str = 'running'
     detail: str = ''
+    source: str = ''

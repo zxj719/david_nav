@@ -3,6 +3,11 @@ nav_tasks
 
 0.1.0 (2026-09-16)
 ------------------
+* Add shared-manager ROS Dock ingress, preserving topic/action names, busy logs,
+  cancellation acknowledgement, complete feedback and retained cleanup ownership.
+* Add optional post-release completion receipts and generation-matched cancellation,
+  separately from unchanged legacy task events; preserve opaque ingress source metadata.
+* Retain ingress ROS resources through close until the host proves executor quiescence.
 * Bind complete legacy Dock parameters through a public immutable configuration
   API and a lazy ROS declaration adapter. Preserve all sixteen names and original
   launch/CLI overrides; require explicit robot/mode policy before construction.

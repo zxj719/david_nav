@@ -1,5 +1,10 @@
 # nav_tasks
 
+The [Dock ROS ingress](docs/dock-ingress.md) now routes topic/action requests
+through the shared manager, preserving busy rejection, cancellation and full
+feedback. Its public owner requires the multithreaded host shutdown sequence;
+the outer console gate and legacy entry points remain unchanged.
+
 The [Dock parameter bridge](docs/dock-parameters.md) accepts existing rendered
 ROS parameters and preserves their declaration/override contract. It does not
 yet switch the legacy Dock entry or enable the incomplete outer Dock host.

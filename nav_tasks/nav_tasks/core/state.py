@@ -9,7 +9,7 @@ from nav_tasks.core.registry import CommandRegistry, Handler, TaskContext
 from nav_tasks.core.supervisor import TaskSupervisor
 from nav_tasks.domain.errors import BusyError, ClosedError, ConfigError, NavTaskError
 from nav_tasks.domain.tasks import (
-    EventKind, NavOutcome, NavStatus, PreemptPolicy, TaskEvent, TaskRequest,
+    EventKind, NavOutcome, NavStatus, PreemptPolicy, TaskCompletion, TaskEvent, TaskRequest,
     TaskSnapshot, TaskState,
 )
 
@@ -20,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 class _Active:
     request: TaskRequest
     generation: int
+    on_settled: Callable[[TaskCompletion], None] | None = None
     worker: asyncio.Task | None = None
     remaining: float = 0.0
     cancel_requested: bool = False
@@ -62,11 +63,14 @@ class TaskManager:
         self._close_task: asyncio.Task | None = None
         self._subscribers: set[asyncio.Queue[TaskEvent]] = set()
 
-    async def submit(self, task: TaskRequest) -> TaskSnapshot:
+    async def submit(
+        self, task: TaskRequest, *, on_settled: Callable[[TaskCompletion], None] | None = None,
+    ) -> TaskSnapshot:
         """Decode and admit a motion task without awaiting its navigation result.
 
         Args:
             task: Domain request with explicit ingress preemption policy.
+            on_settled: Optional loop-thread receipt after ownership release, including preemption.
 
         Returns:
             Snapshot of the accepted task before its skill starts running.
@@ -83,16 +87,21 @@ class TaskManager:
             raise ConfigError('task_id must be a nonempty string')
         if not isinstance(task.preempt, PreemptPolicy):
             raise ConfigError('preempt must be a PreemptPolicy')
+        if not isinstance(task.source, str):
+            raise ConfigError('task source must be a string')
+        if on_settled is not None and not callable(on_settled):
+            raise ConfigError('on_settled must be callable')
         handler, payload = self._registry.prepare(task.action, task.payload)
         operation = self._supervisor.spawn(
-            self._submit(task, handler, payload), f'admit:{task.task_id}')
+            self._submit(task, handler, payload, on_settled), f'admit:{task.task_id}')
         return await asyncio.shield(operation)
 
-    async def cancel(self, task_id: str | None = None) -> bool:
+    async def cancel(self, task_id: str | None = None, *, generation: int | None = None) -> bool:
         """Cancel current ownership, waiting for backend and skill cleanup.
 
         Args:
             task_id: Matching task ID, or None to cancel the current owner.
+            generation: Optional admission generation, checked inside the transition lock.
 
         Returns:
             True when a matching task was canceled; False for no match.
@@ -101,7 +110,7 @@ class TaskManager:
             Exception: Backend cleanup failed; ownership remains in ERROR.
         """
         self._check_loop()
-        operation = self._supervisor.spawn(self._cancel(task_id), 'cancel-task')
+        operation = self._supervisor.spawn(self._cancel(task_id, generation), 'cancel-task')
         return await asyncio.shield(operation)
 
     def status(self) -> TaskSnapshot:
@@ -172,6 +181,7 @@ class TaskManager:
 
     async def _submit(
         self, request: TaskRequest, handler: Handler, payload: object,
+        on_settled: Callable[[TaskCompletion], None] | None,
     ) -> TaskSnapshot:
         async with self._transition_lock:
             self._check_open()
@@ -182,7 +192,7 @@ class TaskManager:
                 # close() can seal admission while cancellation is awaiting I/O.
                 self._check_open()
             self._generation += 1
-            active = _Active(request, self._generation)
+            active = _Active(request, self._generation, on_settled)
             self._active = active
             self._state = TaskState.STARTING
             active.worker = self._supervisor.spawn(
@@ -226,6 +236,17 @@ class TaskManager:
         self._emit(active, kind, detail=outcome.detail)
         self._active = None
         self._state = TaskState.IDLE
+        self._settled(active, outcome)
+
+    def _settled(self, active: _Active, outcome: NavOutcome) -> None:
+        callback, active.on_settled = active.on_settled, None
+        if callback is not None:
+            receipt = TaskCompletion(active.request.task_id, active.request.sub_id,
+                                     active.generation, outcome)
+            try:
+                callback(receipt)
+            except Exception as error:
+                self._on_crash('task-completion-observer', error)
 
     def _is_current(self, active: _Active) -> bool:
         return self._active is active and not active.cancel_requested
@@ -253,7 +274,7 @@ class TaskManager:
     ) -> None:
         event = TaskEvent(
             kind, active.request.task_id, active.request.sub_id, active.generation,
-            active.remaining, status, detail)
+            active.remaining, status, detail, active.request.source)
         for queue in self._subscribers:
             queue.put_nowait(event)
 
@@ -284,12 +305,14 @@ class TaskManager:
             raise cleanup_error
         self._active = None
         self._state = TaskState.IDLE
+        self._settled(active, NavOutcome(NavStatus.CANCELED))
         return active
 
-    async def _cancel(self, task_id: str | None) -> bool:
+    async def _cancel(self, task_id: str | None, generation: int | None) -> bool:
         async with self._transition_lock:
             active = self._active
-            if active is None or (task_id is not None and task_id != active.request.task_id):
+            if (active is None or (task_id is not None and task_id != active.request.task_id)
+                    or (generation is not None and generation != active.generation)):
                 return False
             canceled = await self._cancel_active()
             self._emit(canceled, EventKind.PROGRESS, status='paused')
