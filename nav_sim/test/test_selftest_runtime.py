@@ -28,7 +28,8 @@ def test_runtime_refuses_before_preparation_or_ros(tmp_path, monkeypatch, fault)
 
 
 def _fakes(tmp_path, monkeypatch, fault):
-    state = SimpleNamespace(closed=False, drained=False, server_closed=False, task=None)
+    state = SimpleNamespace(closed=False, drained=False, server_closed=False, task=None,
+                            cleanup_started=False, pumps=0)
 
     class Server:
         sockets = [SimpleNamespace(getsockname=lambda: ('127.0.0.1', 18101))]
@@ -50,18 +51,25 @@ def _fakes(tmp_path, monkeypatch, fault):
                 await asyncio.sleep(0.02)
 
     class Observer:
-        def __init__(self, *_args):
+        def __init__(self, _scene, trace):
+            self.trace = trace
             if fault == 'observer_start':
                 raise RuntimeError('observer could not start')
 
         def step(self):
-            pass
+            if fault == 'late_event' and state.cleanup_started:
+                state.pumps += 1
+                if state.pumps == 3:
+                    event = dict(self.trace.nav[-1], event_id='a' * 32 + ':999',
+                                 event_type='task_cleanup_failed', severity='error')
+                    self.trace.receive('nav', json.dumps(event))
 
         def close(self):
             state.closed = True
 
     async def cleanup(_child):
-        await asyncio.sleep(0)
+        state.cleanup_started = True
+        await asyncio.sleep(0.08 if fault == 'late_event' else 0)
         state.drained = True
         return 143 if fault == 'bad_exit' else 0
 
@@ -91,7 +99,7 @@ def _fakes(tmp_path, monkeypatch, fault):
     return state, scene
 
 
-@pytest.mark.parametrize('fault', [None, 'drive', 'observer_start', 'bad_exit'])
+@pytest.mark.parametrize('fault', [None, 'drive', 'observer_start', 'bad_exit', 'late_event'])
 def test_runtime_result_depends_on_execution_and_owned_cleanup(tmp_path, monkeypatch, fault):
     """The real orchestration cannot promote a failed phase to a complete result."""
     state, scene = _fakes(tmp_path, monkeypatch, fault)
@@ -101,6 +109,9 @@ def test_runtime_result_depends_on_execution_and_owned_cleanup(tmp_path, monkeyp
     assert state.server_closed
     if fault != 'observer_start':
         assert state.closed and state.drained
+    if fault == 'late_event':
+        assert state.pumps >= 3
+        assert any('nonhealthy_task_observation' in error for error in result['errors'])
 
 
 @pytest.mark.parametrize('fault', ['cancel', 'cancel_during_ws_close'])

@@ -23,9 +23,24 @@ from nav_sim.selftest_trace import audit_processes, EvidenceTrace
 async def _cleanup(scene, child, observer, server, peer, result):
     peer.stopping = True
     clean = child is not None
+    observing = observer is not None
+
+    def observe():
+        nonlocal observing
+        if observing:
+            try:
+                observer.step()
+            except Exception as error:
+                observing = False
+                result['errors'].append('observer_' + type(error).__name__)
+
     try:
         if child is not None:
-            code = await close_fixture(child)
+            ending = asyncio.create_task(close_fixture(child))
+            while not ending.done():
+                observe()
+                await asyncio.wait({ending}, timeout=0.02)
+            code = ending.result()
             if code not in (0, 130, -2):
                 raise RuntimeError('abnormal launcher exit')
             audit_processes(scene, final=True)
@@ -41,10 +56,11 @@ async def _cleanup(scene, child, observer, server, peer, result):
             result['errors'].append('server_close_' + type(error).__name__)
         finally:
             if observer is not None:
-                try:
-                    observer.step()
-                except Exception as error:
-                    result['errors'].append('observer_' + type(error).__name__)
+                # Continue draining after child/WS closure. One spin budget can
+                # otherwise be exhausted by TF before the final task event runs.
+                for _ in range(10):
+                    observe()
+                    await asyncio.sleep(0.02)
                 try:
                     observer.close()
                 except Exception as error:
