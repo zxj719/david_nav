@@ -52,3 +52,23 @@ def test_wrap_end_to_end_returns_command_status(tmp_path, capfd):
     assert 'inside' in captured.out
     assert 'navrun: run record' in captured.err
     assert '(failed, exit 4)' in captured.err
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+def test_wrap_cli_selects_tail_only_with_monitor(tmp_path, monkeypatch, enabled):
+    """Actual CLI binding opts in explicitly; parser tests never initialize ROS."""
+    from types import SimpleNamespace
+
+    captured = []
+
+    def wrapped(options):
+        captured.append(options)
+        return SimpleNamespace(run=SimpleNamespace(path=tmp_path),
+                               exit_code=3, exit_reason='failed')
+
+    monkeypatch.setattr(cli.wrap, 'run_wrapped', wrapped)
+    argv = ['wrap', '--mode', 'tour']
+    if enabled:
+        argv += ['--monitor-base-frame', 'robot']
+    assert cli.main(argv + ['--', 'fixture']) == 3
+    assert bool(captured[0].event_flush_command) == enabled

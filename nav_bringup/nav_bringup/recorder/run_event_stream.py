@@ -71,6 +71,11 @@ class RunEventStream:
         return 'navrun:' + self._identity + ':'
 
     @property
+    def closed(self) -> bool:
+        """bool: Whether publication is sealed, including detected timeline mutation."""
+        return self._closed
+
+    @property
     def offset(self) -> int:
         """int: Bytes processed locally, not an acknowledgement from any DDS subscriber."""
         return self._offset

@@ -88,6 +88,25 @@ def test_failing_command_propagates_exit_code(tmp_path):
     assert (result.exit_code, result.exit_reason) == (3, 'failed')
 
 
+def test_wrapper_flushes_final_events_without_changing_child_exit(tmp_path, monkeypatch):
+    """The final publisher sees the actual exit record, not a provisional success."""
+    from nav_bringup.navrun import event_tail
+
+    calls = []
+
+    def flush(command, path, environ, log):
+        rows = events.read_events(log.path)[0]
+        assert rows[-1].event_type == 'run_stopped' and rows[-1].data['exit_code'] == 3
+        calls.append(command)
+
+    monkeypatch.setattr(event_tail, 'flush_tail', flush)
+    result = wrap.run_wrapped(
+        _options(tmp_path, _python('raise SystemExit(3)'),
+                 event_flush_command=('fixture-final-events',)),
+        now=_clock(), runner=_no_git, terminal=io.BytesIO())
+    assert calls == [('fixture-final-events',)] and result.exit_code == 3
+
+
 def test_command_killed_by_signal_maps_to_shell_status(tmp_path):
     """A command killed by SIGKILL exits the wrapper with 137."""
     result = wrap.run_wrapped(

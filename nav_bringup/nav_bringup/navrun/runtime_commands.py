@@ -12,6 +12,7 @@ import yaml
 from nav_bringup.launching.executables import resolve_executable
 from nav_bringup.launching.graph import NAVIGATION_MODES
 from nav_bringup.navcfg import render
+from nav_bringup.navrun import event_tail
 from nav_bringup.navrun.startup_lifecycle import StartupCommands, StartupGate
 from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
 from nav_bringup.navrun.up_planning import UpPlan
@@ -121,4 +122,4 @@ def bind_commands(
         terminal = render.profile_value(profile, 'teleop.tty_device')
     return StartupCommands(launch, tuple(gates), record, monitor, zero,
                            (navrun, 'dump-params', '--run-dir', run_dir), keyboard, terminal,
-                           tuple(prelaunch), executor_launch)
+                           tuple(prelaunch), executor_launch, event_tail.command(python))

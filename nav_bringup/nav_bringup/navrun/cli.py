@@ -18,7 +18,7 @@ from typing import Dict, Optional, Sequence
 
 from nav_bringup.doctor import checks
 from nav_bringup.doctor import live
-from nav_bringup.navrun import wrap
+from nav_bringup.navrun import event_tail, wrap
 from nav_bringup.recorder import events
 from nav_bringup.recorder import linked_process
 from nav_bringup.recorder import monitor
@@ -344,6 +344,7 @@ def _wrap(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         sample_interval_sec=args.sample_interval,
         gc=not args.no_gc,
         monitor_command=monitor_command,
+        event_flush_command=event_tail.command() if monitor_command else None,
         linked=linked,
     )
     try:

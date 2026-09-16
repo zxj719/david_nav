@@ -53,6 +53,7 @@ class StartupCommands:
         tty_device: Profile-selected terminal, captured by the outer recorded owner.
         prelaunch_gates: Checks completed before any launch or executor timers begin.
         executor_launch: Optional launch-managed WS phase, started only after all gates.
+        event_flush: Optional final diagnostic, owned by the outer recorder after cleanup.
     """
 
     launch: Tuple[str, ...]
@@ -65,6 +66,7 @@ class StartupCommands:
     tty_device: str = ''
     prelaunch_gates: Tuple[StartupGate, ...] = ()
     executor_launch: Tuple[str, ...] = ()
+    event_flush: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -363,7 +365,7 @@ def validate_commands(
         raise ValueError('expected an absolute existing run directory with logs')
     _timeout(stop_timeout)
     reserved = {'launch', 'executor_launch', 'record', 'monitor', 'parameter_dump', 'keyboard',
-                'zero_before', 'zero_after', 'ros'}
+                'zero_before', 'zero_after', 'ros', 'event_flush'}
     argv_list = [commands.launch, commands.zero]
     for gate in commands.prelaunch_gates + commands.gates:
         if not re.fullmatch('[a-z][a-z0-9_]*', gate.name) or gate.name in reserved:
@@ -374,7 +376,7 @@ def validate_commands(
         argv_list.append(gate.argv)
     argv_list.extend(argv for argv in (
         commands.record, commands.monitor, commands.parameter_dump, commands.keyboard,
-        commands.executor_launch) if argv)
+        commands.executor_launch, commands.event_flush) if argv)
     if bool(commands.keyboard) != bool(commands.tty_device):
         raise ValueError('keyboard and terminal must be selected together')
     if commands.tty_device and (

@@ -573,7 +573,46 @@ not a general secret detector for values intentionally placed in allowed fields.
 
 Only one outward publisher may own a run. Publisher failure does not disable
 the independent incoming recorder. This does not promise multi-monitor exactly-once
-ingestion. Parent events written after monitor shutdown, and a backlog beyond
-the final bounded batch, are not yet drained by orchestration: that lifecycle
-work remains in P6.6. Do not infer DDS delivery, physical stopping, task success,
-production deployment or completion of the full event chain from these tests.
+ingestion. Do not infer physical stopping, task success or production deployment
+from these diagnostic records.
+
+### Final parent events
+
+Recorded `navrun up` now binds a short-lived final event publisher. After normal
+cleanup has drained the original children and restored the terminal, the parent
+collects linked logs and records the actual `run_stopped` result. Only then does
+it start `python -m nav_bringup.recorder.event_flush`, keeping the navigation lease
+until this helper is also drained and the manifest/summary are finalized.
+The helper's exclusive run-local publisher lease is acquired **before** ROS init;
+it cannot overlap a still-owning original monitor. It creates just one temporary
+NavEvent publisher, no TF listener, subscriptions, timer, motion clients or daemon.
+This is sequential teardown overhead, not another permanent DDS participant.
+
+The helper resumes the monitor's cursor and persistent IDs, allows up to 0.5 s
+for discovery, processes bounded batches toward its initial file-size snapshot,
+and waits for reliable-writer acknowledgements within a total 3 s cooperative
+budget. The parent imposes a separate 5 s execution deadline, then uses its
+owned-process-group cleanup (1 s grace, escalation and retry if still owned).
+Native SDK stalls cannot turn into a detached background process. Cleanup retries
+can exceed the publication budget: ownership is not released on an unproven stop.
+Failures remain diagnostics; the original navigation exit status is unchanged.
+No-subscriber success, cursor progress and DDS acknowledgements still do not prove
+application processing or disk persistence. Failed delivery does not roll back an
+already advanced cursor or promise automatic durable replay.
+
+The helper log is `logs/event_flush.log`. Its own final status is a local-only
+`source=event_flush` event and appears in the summary if it warns; it is not fed
+into another publisher. This explicitly ends the diagnostic lifecycle instead
+of falsely reporting helper termination before it happens. Original local JSONL
+records retain their format. Early configuration/host-preflight rejection keeps
+only the local record and does **not** initialize ROS just to report the rejection.
+
+CLI `navrun wrap --monitor-base-frame ...` also selects this tail after its normal
+monitor-stop step and true final parent record. Direct/custom `WrapOptions` and
+`StartupCommands` remain opt-in through `event_flush_command` / `event_flush`;
+unmonitored wrap and dry-run start no helper. This preserves arbitrary custom
+monitor commands. The existing wrap session-stop limitations are not replaced by
+the stronger up supervisor; the final publisher independently refuses a live
+publisher lease. Volatile early task events before monitor discovery can still
+be missed: this is an observation channel, not an exactly-once audit transport.
+Real ROS delivery/performance acceptance remains a separate safe-site check.

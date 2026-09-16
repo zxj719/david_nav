@@ -31,6 +31,7 @@ import sys
 import threading
 from typing import Any, Callable, Dict, IO, List, Mapping, Optional, Sequence, Tuple
 
+from nav_bringup.navrun import event_tail
 from nav_bringup.recorder import linked_process
 from nav_bringup.recorder import manifest as manifest_lib
 from nav_bringup.recorder import retention
@@ -75,6 +76,7 @@ class WrapOptions:
             command, or ``None``; see :func:`monitor_command`.
         linked: Separately started processes, such as localization, whose
             state is recorded at start and whose logs are excerpted at the end.
+        event_flush_command: Optional bounded final publisher after monitor cleanup.
     """
 
     command: Sequence[str]
@@ -91,6 +93,7 @@ class WrapOptions:
         default_factory=retention.RetentionPolicy)
     monitor_command: Optional[Sequence[str]] = None
     linked: Sequence[linked_process.LinkSpec] = ()
+    event_flush_command: Optional[Sequence[str]] = None
 
 
 @dataclass(frozen=True)
@@ -226,6 +229,7 @@ def run_wrapped(
         })
     events.append(EVENT_SOURCE, 'run_stopped', data={
         'exit_code': exit_code, 'exit_reason': exit_reason})
+    event_tail.flush_tail(options.event_flush_command or (), run.path, child_env, events)
 
     finalized = manifest_lib.finalize_manifest(record, now(), exit_code, exit_reason)
     manifest_lib.write_manifest(run.manifest, finalized)
