@@ -355,6 +355,8 @@ def test_retention_only_prunes_completed_private_history(tmp_path, successful_li
     for stamp, text in [('000001', 'ended_at: "2026-09-15T23:00:00"\n'),
                         ('000002', 'ended_at: null\n'), ('000003', '[broken:')]:
         run = create_run_directory(options.runs_root, '20260916_' + stamp + '_chassis_nogit')
+        if stamp != '000003':
+            text = f'schema_version: 1\nrun_id: {run.run_id}\n' + text
         run.manifest.write_text(text, encoding='utf-8')
         run.summary.write_text('fixture summary', encoding='utf-8')
         (run.logs / 'history.log').write_text('private fixture', encoding='utf-8')

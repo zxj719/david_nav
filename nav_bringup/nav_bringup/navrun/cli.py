@@ -41,6 +41,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     from nav_bringup.navrun.locking import DEFAULT_LOCK_PATH
 
+    gc_parser = subparsers.add_parser('gc', help='prune completed run artifacts; keep summaries')
+    gc_parser.add_argument('--runs-root', type=Path)
+    gc_parser.add_argument('--lock-path', type=Path, default=DEFAULT_LOCK_PATH)
+    gc_parser.add_argument('--dry-run', action='store_true', help='read-only preview; no locks')
+    gc_parser.add_argument('--max-runs', type=int, default=30)
+    gc_parser.add_argument('--max-total-bytes', type=int, default=20 * 1024 ** 3)
+    gc_parser.add_argument('--bag-max-age-days', type=float, default=7.0)
+
     for command in ('status', 'down'):
         control_parser = subparsers.add_parser(command, help='contact the current managed owner')
         control_parser.add_argument('--lock-path', type=Path, default=DEFAULT_LOCK_PATH)
@@ -249,6 +257,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     args.invocation = ('navrun', *(sys.argv[1:] if argv is None else list(argv)))
+    if args.subcommand == 'gc':
+        from nav_bringup.navrun import gc
+
+        return gc.run(args)
     if args.subcommand in ('status', 'down'):
         from nav_bringup.navrun import control_client
 

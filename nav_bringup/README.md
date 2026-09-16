@@ -33,9 +33,41 @@ distinguish implemented code from deployment and the remaining CLI work.
 The read-only `ls/show` interfaces and frozen parameter/overlay exports are available.
 `navrun check` revalidates a prepared run offline, with opt-in live observation.
 `navrun status/down` contact the current cooperative `up` owner under its lease.
-PLAN's gc interface is not yet registered (P7.A1);
-navcfg's robot selector (P7.A2) and closed-loop selftest (P3.5) are also pending.
-Existing retention/live-check helpers do not constitute those public commands.
+`navrun gc` previews or applies the shared completed-record retention policy.
+navcfg's robot selector (P7.A2) and closed-loop selftest (P3.5) are still pending.
+
+### Collect completed records
+
+```bash
+navrun gc --runs-root ~/nav_runs --dry-run
+navrun gc --runs-root ~/nav_runs
+```
+
+The second command deletes replaceable artifacts: inspect the preview first.
+Defaults retain the newest 30 complete runs within 20 GiB of logical file bytes,
+and remove nonempty bags older than seven days (measured from run start).
+`--max-runs`, `--max-total-bytes` and `--bag-max-age-days` override those limits;
+zero is valid and may select all completed payloads. `manifest.yaml` and
+`summary.md` are permanently retained, unchanged; `latest` is not rewritten.
+Unfinished, malformed, missing-summary or unsafe records are conservatively
+skipped, so the limits are not a guarantee on total disk usage. No ROS is started.
+
+Dry-run acquires no lease and writes nothing. Application requires the navigation
+lease (`--lock-path`, same path as the managed up) and a per-root `.gc.lock`;
+concurrent collectors or active managed up fail closed. Legacy/manual processes
+do not own that navigation lease: completion evidence, not PID discovery, protects
+their unfinished records. Startup and wrap use the same safer planner/remover;
+up still excludes its current record from the historical budget, while wrap's
+protected current record still counts as before.
+
+Traversal/deletion is descriptor-relative on Linux, rejects symlink run roots,
+and never follows payload symlinks. Selected root ancestors are trusted. This is
+not a transaction or a defense against an administrator changing mounts or a
+same-user writer racing the final unlink. Replacement detected during collection
+aborts; earlier deletions may already have occurred and have no built-in recovery.
+JSON reports planned targets and logical removed bytes, not physical space freed.
+Exit codes: 0 completed/no-op/preview, 2 invalid/busy/failure, 130 interrupted;
+on failure, `applied: false` does not prove that nothing was deleted.
 
 ### Inspect saved runs
 

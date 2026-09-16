@@ -66,13 +66,16 @@ logs、metrics、bag和summary.md；latest指向最新记录，但不单凭链�
 任务/恢复/Dock/健康事件语义与尾部临时发布成本见 [events.md](events.md)。
 原console/legacy脚本日志可能含敏感数据，输出或分享前过滤，不把完整环境广播为事件。
 
-## 明确未完成的接口（继续AUTO，不包装成文档已解决）
+## 运维接口与剩余AUTO
 
 - P7.A1：`ls/show` 已接入，只读JSON导出，支持 `--params/--diff/--events`；
   `check` 默认重新校验冻结配置，显式 `--live` 才调用共享ROS只读观测；
   `status/down` 已接当前up实例合作控制：核对租约/本地peer/代次，不按PID杀进程；
   停止请求接受不等于收尾完成，超时返回未完成/未知，不强杀。旧wrap/手工栈不归此锁管理。
-  `gc` 仍待实现，不能用底层helper代替CLI验收。
+  `gc --runs-root DIR --dry-run` 只读预览；去掉dry-run才应用，默认30份/20GiB/7天bag。
+  显式清理获取up租约和每root维护锁；仅清理完成可证的记录，永久保留manifest/summary。
+  损坏/未结束记录跳过，容量不保证覆盖这些数据；失败或中断可能已部分删除，无法自动恢复。
+  不跟随子项符号链接；根路径祖先需可信，不承诺对同用户并发写入提供事务隔离。
   `--diff` 是冻结robot→robot+mode的差异，另列Nav2/遥控覆盖，不是运行参数自动回写。
   `unfinished` 不证明进程存活；读目录可能与写入并发，输出明确非原子快照。
 - P7.A2：PLAN§12.6的 `navcfg validate --robot <robot> --mode tour` 便利选择器未接入，

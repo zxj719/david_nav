@@ -367,17 +367,10 @@ def _retry_pause():
 
 
 def _gc(options, run, started, events):
-    complete = []
-    for previous in run_dir_lib.list_runs(run.root):
-        if previous.run_id == run.run_id:
-            continue
-        try:
-            if manifest_lib.read_manifest(previous.manifest).get('ended_at') is not None:
-                complete.append(previous)
-        except (OSError, ValueError, yaml.YAMLError):
-            continue
+    history = [previous for previous in run_dir_lib.list_runs(run.root)
+               if previous.run_id != run.run_id]
     local_time = started.astimezone().replace(tzinfo=None) if started.tzinfo else started
-    plan = retention.plan_gc(complete, options.retention_policy, local_time,
+    plan = retention.plan_gc(history, options.retention_policy, local_time,
                              protected_run_id=run.run_id)
     removed = retention.apply_gc(plan, run.root)
     events.append('navrun', 'gc_finished', data={'removed_bytes': removed})

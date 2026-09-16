@@ -170,7 +170,10 @@ def test_gc_prunes_old_runs_but_not_the_new_one(tmp_path):
     root = tmp_path / 'runs'
     for stamp in ('20260910_120000', '20260911_120000'):
         old = run_dir.create_run_directory(root, f'{stamp}_tour_nogit')
-        old.manifest.write_text('run_id: old\n', encoding='utf-8')
+        old.manifest.write_text(
+            f'schema_version: 1\nrun_id: {old.run_id}\nended_at: "2026-09-12T12:00:00"\n',
+            encoding='utf-8')
+        old.summary.write_text('permanent summary', encoding='utf-8')
         (old.logs / 'launch.log').write_text('x' * 100, encoding='utf-8')
     policy = wrap.retention.RetentionPolicy(max_runs=2)
 
@@ -179,7 +182,7 @@ def test_gc_prunes_old_runs_but_not_the_new_one(tmp_path):
         now=_clock(), runner=_no_git, terminal=io.BytesIO())
 
     oldest = root / '20260910_120000_tour_nogit'
-    assert sorted(entry.name for entry in oldest.iterdir()) == ['manifest.yaml']
+    assert sorted(entry.name for entry in oldest.iterdir()) == ['manifest.yaml', 'summary.md']
     assert (root / '20260911_120000_tour_nogit' / 'logs' / 'launch.log').exists()
     assert result.run.logs.is_dir()
     assert 'gc_applied' in _event_types(result.run)

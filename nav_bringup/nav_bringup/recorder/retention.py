@@ -12,10 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import field
 import datetime
+import math
 import os
 from pathlib import Path
-import shutil
-from typing import Callable, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from nav_bringup.recorder.run_dir import RUN_ID_RE
 from nav_bringup.recorder.run_dir import RunDirectory
@@ -39,6 +39,18 @@ class RetentionPolicy:
     max_total_bytes: int = 20 * 1024 ** 3
     bag_max_age_days: float = 7.0
 
+    def __post_init__(self) -> None:
+        """Reject malformed or negative limits before inspecting any record.
+
+        Raises:
+            ValueError: A limit has the wrong type or is negative/non-finite.
+        """
+        if (type(self.max_runs) is not int or self.max_runs < 0
+                or type(self.max_total_bytes) is not int or self.max_total_bytes < 0
+                or type(self.bag_max_age_days) not in (int, float)
+                or not math.isfinite(self.bag_max_age_days) or self.bag_max_age_days < 0):
+            raise ValueError('retention limits must be finite and nonnegative')
+
 
 @dataclass(frozen=True)
 class GcPlan:
@@ -47,10 +59,14 @@ class GcPlan:
     Attributes:
         prune_runs: Runs to reduce to :data:`KEPT_FILES`.
         delete_bags: ``bag/`` directories to delete from runs that stay complete.
+        identities: Planned device/inode pairs, rechecked before deletion.
+        skipped: Records whose completion or safe traversal could not be proved.
     """
 
     prune_runs: List[RunDirectory] = field(default_factory=list)
     delete_bags: List[Path] = field(default_factory=list)
+    identities: Dict[str, Tuple[int, int]] = field(default_factory=dict, compare=False, repr=False)
+    skipped: Dict[str, str] = field(default_factory=dict, compare=False)
 
 
 def directory_size(path: Union[str, Path]) -> int:
@@ -109,25 +125,37 @@ def plan_gc(
     Returns:
         The plan. Nothing is deleted here.
     """
+    from nav_bringup.recorder.safe_retention import inspect_run
+
     plan = GcPlan()
     kept_count = 0
     kept_bytes = 0
     for run in sorted(runs, key=lambda item: item.run_id, reverse=True):
-        if is_pruned(run):
+        try:
+            snapshot = inspect_run(run)
+        except (OSError, ValueError) as error:
+            plan.skipped[run.run_id] = type(error).__name__
+            continue
+        if snapshot.pruned:
             continue
         protected = run.run_id == protected_run_id
-        size = size_of(run.path)
+        if not protected and not snapshot.complete:
+            plan.skipped[run.run_id] = 'completion_unproven'
+            continue
+        size = snapshot.size if size_of is directory_size else size_of(run.path)
         over_budget = kept_count >= policy.max_runs or kept_bytes + size > policy.max_total_bytes
         if over_budget and not protected:
             plan.prune_runs.append(run)
+            plan.identities[run.run_id] = snapshot.identity
             continue
         kept_count += 1
         kept_bytes += size
-        if protected or not run.bag.is_dir() or not any(run.bag.iterdir()):
+        if protected or not snapshot.has_bag:
             continue
         age_days = (now - run.started_at).total_seconds() / _SECONDS_PER_DAY
         if age_days > policy.bag_max_age_days:
             plan.delete_bags.append(run.bag)
+            plan.identities[run.run_id] = snapshot.identity
     return plan
 
 
@@ -140,37 +168,50 @@ def apply_gc(plan: GcPlan, root: Union[str, Path]) -> int:
             directly under it.
 
     Returns:
-        Number of bytes freed.
+        Removed logical regular-file bytes, not physical disk blocks reclaimed.
 
     Raises:
-        ValueError: If the plan references a path outside ``root``.
+        ValueError: A target is unsafe, replaced or no longer provably complete.
+        OSError: Inspection or deletion fails. Earlier deletions are not rolled back.
+        LockBusy: Another collector holds the per-root maintenance lease.
     """
-    root_path = Path(root).resolve()
+    from nav_bringup.navrun.locking import RunLock
+    from nav_bringup.recorder import safe_retention
+
+    root_path = Path(root).expanduser().absolute()
+    targets = {}
     for bag in plan.delete_bags:
         if Path(bag).name != 'bag':
-            raise ValueError(f'not a bag directory: {bag}')
+            raise ValueError('invalid bag target')
         _require_run_under(Path(bag).parent, root_path)
+        targets[Path(bag).parent.name] = True
     for run in plan.prune_runs:
         _require_run_under(run.path, root_path)
-
-    freed = 0
-    for bag in plan.delete_bags:
-        freed += directory_size(bag)
-        shutil.rmtree(bag)
-    for run in plan.prune_runs:
-        for entry in run.path.iterdir():
-            if entry.name in KEPT_FILES:
-                continue
-            if entry.is_dir() and not entry.is_symlink():
-                freed += directory_size(entry)
-                shutil.rmtree(entry)
-            else:
-                freed += entry.lstat().st_size
-                entry.unlink()
-    return freed
+        targets[run.run_id] = False
+    if not targets:
+        return 0
+    # The navigation lease and this per-root maintenance lease have different
+    # scopes: wraps do not own the former, but all collectors serialize here.
+    with safe_retention.open_root(root_path) as root_fd:
+        # Linux procfs resolves this already-owned descriptor, not a root path
+        # that another process might replace between inspection and locking.
+        with RunLock(Path(f'/proc/self/fd/{root_fd}') / '.gc.lock'):
+            snapshots = {}
+            for name in targets:
+                snapshot = safe_retention.inspect_at(root_fd, name)
+                expected = plan.identities.get(name)
+                if (not snapshot.complete or expected is not None
+                        and snapshot.identity != expected):
+                    raise ValueError('planned record changed or is not complete')
+                snapshots[name] = snapshot
+            removed = 0
+            for name, bag_only in targets.items():
+                removed += safe_retention.remove_at(root_fd, name, snapshots[name], bag_only)
+            return removed
 
 
 def _require_run_under(run_path: Path, root_path: Path) -> None:
-    resolved = run_path.resolve()
-    if resolved.parent != root_path or not RUN_ID_RE.match(resolved.name):
-        raise ValueError(f'refusing to touch {run_path}: not a run directory of {root_path}')
+    path = run_path.expanduser().absolute()
+    if ('..' in path.parts or path.parent != root_path
+            or RUN_ID_RE.fullmatch(path.name) is None):
+        raise ValueError('retention target is not directly under its selected root')

@@ -12,7 +12,9 @@ NOW = datetime.datetime(2026, 9, 20, 12, 0, 0)
 
 def _make_run(root, run_id, payload_bytes=100, bag_bytes=0):
     run = run_dir.create_run_directory(root, run_id)
-    run.manifest.write_text('run_id: x\n', encoding='utf-8')
+    run.manifest.write_text(
+        f'schema_version: 1\nrun_id: {run_id}\nended_at: "2026-09-20T12:00:00"\n',
+        encoding='utf-8')
     run.summary.write_text('# summary\n', encoding='utf-8')
     (run.logs / 'launch.log').write_bytes(b'x' * payload_bytes)
     if bag_bytes:
