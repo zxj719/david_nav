@@ -38,6 +38,18 @@ class NavGoal:
 
 
 @dataclass(frozen=True)
+class SpinGoal:
+    """Signed relative yaw and Nav2's own execution allowance, both in SI units.
+
+    The allowance is sent to the server, not a client cleanup deadline. A skill
+    may separately impose its attempt deadline and must then await cancellation.
+    """
+
+    target_yaw: float
+    time_allowance_sec: float
+
+
+@dataclass(frozen=True)
 class ResolvedGoal:
     """A navigable POI and whether it differs from the original anchor."""
 

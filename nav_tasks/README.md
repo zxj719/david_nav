@@ -6,8 +6,9 @@ ownership, retry and supervision. It does **not** start a task manager process o
 switch a runtime entry point; the old core remains active pending integration.
 Sequential POI navigation, pure snap search and administrative POI handlers are
 implemented against fake-testable ports, with no subscriptions or storage I/O.
-The shared [Nav2 backend](docs/nav2-backend.md) implements one navigation attempt
-and owns late-handle cleanup; it is not yet connected to legacy entry points.
+The shared [Nav2 backend](docs/nav2-backend.md) implements one navigation or opt-in
+Spin attempt on the same motion slot and owns late-handle cleanup; it is not yet
+connected to legacy entry points.
 `api.PoiApi` exposes mark/rename operations separately from exclusive motion
 ownership. The new `nav_executor` command adapter uses only this public module;
 its fake-action integration tests exercise the new chain's G1–G15 wire scenarios.
@@ -15,8 +16,9 @@ Public snapshots include skill-supplied target/phase labels, fenced against stal
 callbacks. Optional immutable retry observations drive the frozen RetryAudit
 logger outside pure policy. New-chain tests cover G16 STATUS and G8/G15 audit
 text. The public [runtime factory](docs/runtime.md) now assembles ordinary POI
-services with retryable cleanup. CLI/help, WS lifecycle and Dock integration
-remain pending; the legacy entry point has not been switched.
+services with retryable cleanup. nav_executor now supplies CLI/help, WS and an
+outer ROS lifetime for ordinary POIs; Dock orchestration/configuration and legacy
+entry-point switching remain pending.
 
 ```python
 from nav_tasks.api import PoseRecord

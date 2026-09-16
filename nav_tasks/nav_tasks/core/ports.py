@@ -2,7 +2,7 @@
 
 from typing import Callable, Iterable, Protocol
 
-from nav_tasks.domain.tasks import NavGoal, NavOutcome, ResolvedGoal
+from nav_tasks.domain.tasks import NavGoal, NavOutcome, ResolvedGoal, SpinGoal
 from nav_tasks.domain.types import CapturedPose, PoseRecord, StoredPoi, Transform2D
 
 FeedbackCallback = Callable[[float], None]
@@ -33,6 +33,29 @@ class NavigationBackend(Protocol):
         Completion means that it is safe to admit another goal. Implementations
         must not acknowledge cleanup before a late handle has been dealt with.
         """
+        ...
+
+
+class SpinBackend(Protocol):
+    """One relative rotation sharing the navigation backend's motion ownership."""
+
+    async def spin(self, goal: SpinGoal, on_feedback: FeedbackCallback) -> NavOutcome:
+        """Wait for one Spin outcome without applying docking retry or settling policy.
+
+        Args:
+            goal: Signed relative yaw and server-side time allowance.
+            on_feedback: Angular distance traveled in radians on the owning loop.
+
+        Returns:
+            Success, external cancellation, or one-attempt failure.
+
+        Raises:
+            asyncio.CancelledError: Caller cancellation propagates after arranging cleanup.
+        """
+        ...
+
+    async def cancel(self) -> None:
+        """Settle the shared motion slot, including any late accepted goal handle."""
         ...
 
 

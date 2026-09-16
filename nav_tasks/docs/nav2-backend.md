@@ -2,9 +2,10 @@
 
 `nav_tasks.nav2_client.Nav2Client` implements the one-attempt NavigationBackend
 port. It uses one `ActionSession` for ownership; additional action types used by
-Dock must share that session, never bypass its busy/cancel checks. The current
-wrapper implements NavigateToPose only. Spin/Dock and actual runtime assembly
-are still pending. No existing entry point is switched by installing this code.
+Dock must share that session, never bypass its busy/cancel checks. The wrapper
+now implements NavigateToPose and opt-in Spin on the same instance. The ordinary
+POI runtime is assembled; Dock orchestration/configuration remains pending.
+No existing legacy entry point is switched by installing this code.
 
 Construct on the task asyncio loop with an existing node, explicit action name
 and server timeout. Real rclpy/nav2_msgs imports occur only when no fake client
@@ -37,9 +38,14 @@ the slot remains fail-closed: neither a goal ID nor a cancellation acknowledgeme
 can be established safely from that exception alone. Runtime integration must
 surface that error for supervision rather than resuming navigation.
 
-`close` seals admission before cancellation. A backend-owned ROS client is
+`close` seals admission before cancellation. Backend-owned ROS clients are
 destroyed only after successful cleanup; injected clients remain their caller's
-responsibility. A failed close must not be followed by unconditional client/node
+responsibility. Destruction attempts every owned client in reverse order and
+retains failed stages for retry, without repeating completed stages. If Spin
+client construction fails, the already-created navigation client is rolled back;
+failed rollback raises RuntimeAssemblyError with a retained async cleanup handle.
+Construction rollback does not close an externally supplied shared ActionSession.
+A failed close must not be followed by unconditional client/node
 destruction in the eventual assembly root. No physical-stop guarantee follows
 from fake action results or these software ownership tests.
 
@@ -56,7 +62,34 @@ change the old runtime's ROS spin loop or make an R6 CPU optimization claim.
 All constructor intervals are explicit library arguments at this stage, not new
 ROS parameters or consumed profile keys; runtime schema ownership follows wiring.
 
+## Spin boundary
+
+Supply `spin_action_name` to construct the second ROS client, or leave it None
+to create no Spin resources. `spin_client` and `spin_goal_factory` may instead be
+injected as a pair, as with navigation. There is still one ActionSession, not one
+per action client. `cancel()` targets whichever action owns that slot; closing
+either while rotation is unresolved does not destroy either client.
+
+`spin(SpinGoal(target_yaw, time_allowance_sec), on_feedback)` implements the pure
+SpinBackend port. Yaw is signed and is not wrapped or clamped. NaN/infinite and
+non-float32-representable yaw, invalid duration, and booleans are rejected before
+claiming motion. Duration uses the same int(seconds * 1e9) conversion as Humble
+Duration, split into int32 seconds and nanoseconds. Feedback is angular distance
+traveled in radians; it must not be forwarded as POI remaining distance in meters.
+
+Readiness has an independent explicit `spin_server_timeout_sec` (default 5 s,
+matching the old Dock wait). The goal's time_allowance is the Nav2 server-side
+allowance; it is not a client-result or cleanup deadline. Dock's future migration
+must preserve its separate send/result deadlines, settling, retry budget and
+frozen `[dock]` audit lines. This wrapper adds no retry or implicit settle check,
+and its returned diagnostics are not substitutes for those frozen log lines.
+Normal statuses 4/5/6 map to success/canceled/failed. No-action admission failures
+release the slot; unresolved cleanup keeps both action types blocked.
+
 Tests use fake nodes/messages and callback futures only. They exercise the actual
-new TaskManager → NavigateToPoi → Nav2Client → ActionSession chain, including abort
-and a subsequent task, but do not yet prove real ROS integration or G1–G16 wire
-equivalence. Those remain mandatory before legacy replacement.
+TaskManager → skill → Nav2Client → ActionSession chain, including preemption from
+rotation to POI navigation, late handle/ack/result barriers, mixed injected/owned
+clients, and failed construction/teardown. Preemption remains silent for the old
+task; only explicit cancel emits paused. nav_executor separately tests G1–G16
+components and an installed no-goal ROS/WS outer lifecycle. Dock and complete
+legacy replacement acceptance are still required; no physical-stop proof follows.

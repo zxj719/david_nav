@@ -23,3 +23,8 @@ nav_tasks
   Reject Dock configurations until integrated; do not switch legacy entry points.
 * Pass explicitly configured loop-closure translation/yaw thresholds to the
   observer while retaining 0.05 m / 0.03 rad defaults.
+* Add opt-in Spin to the same Nav2Client/ActionSession as NavigateToPose, with
+  pure SpinGoal/SpinBackend contracts, signed angular feedback and explicit
+  server allowance. Preserve one-attempt policy and block cross-action overlap.
+* Retain multi-client construction rollback and failed teardown stages for retry;
+  never destroy either client while shared motion cleanup is unresolved.
