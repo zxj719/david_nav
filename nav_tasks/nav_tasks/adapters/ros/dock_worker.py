@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import logging
 import math
 import threading
-from typing import Callable
+from typing import Callable, Mapping
 
 from nav_tasks.adapters.ros.dock_motion import _DockMotion
 from nav_tasks.adapters.ros.futures import await_rclpy_future
@@ -54,6 +54,7 @@ class DockWorker:
         now_fn: Callable[[], float] | None = None,
         sleep_fn: Callable[[float], None] | None = None,
         on_raw_feedback: Callable[[DockGoal, object, float], None] | None = None,
+        on_event: Callable[[DockGoal, str, Mapping[str, object]], None] | None = None,
     ) -> None:
         """Bind explicit Dock policy and worker-safe ports without starting any thread.
 
@@ -69,6 +70,7 @@ class DockWorker:
             now_fn: Optional deterministic monotonic clock for finish tests.
             sleep_fn: Optional test sleeper; production uses interruptible Event.wait.
             on_raw_feedback: Optional complete feedback observer with task/generation identity.
+            on_event: Optional worker-thread observation sink with immutable task identity.
 
         Raises:
             ConfigError: A frame or admission budget is invalid.
@@ -90,6 +92,7 @@ class DockWorker:
         self._now = now_fn
         self._sleep = sleep_fn
         self._raw_feedback = on_raw_feedback
+        self._on_event = on_event
         self._supervisor = TaskSupervisor(self._on_crash)
         self._active: _WorkerAttempt | None = None
         self._closed = False
@@ -121,16 +124,20 @@ class DockWorker:
                 self._raw_feedback(goal, raw, extra)
 
         pose = goal.pose
-        return await self.execute((pose.x, pose.y, pose.yaw), feedback)
+        observe = None if self._on_event is None else lambda name, data: self._on_event(
+            goal, name, data)
+        return await self.execute((pose.x, pose.y, pose.yaw), feedback, on_event=observe)
 
     async def execute(
         self, goal: PlanarPose, on_feedback: Callable[[object, float], None] | None = None,
+        *, on_event: Callable[[str, Mapping[str, object]], None] | None = None,
     ) -> NavOutcome:
         """Run one blocking workflow and fence any verdict after cancellation starts.
 
         Args:
             goal: Already-decoded planar target; Dock deliberately bypasses snapping.
             on_feedback: Loop-only complete raw feedback plus approach-distance offset.
+            on_event: Optional synchronous worker-thread observation sink, fenced by this attempt.
 
         Returns:
             Workflow verdict, never success after explicit cancellation has begun.
@@ -150,8 +157,13 @@ class DockWorker:
         motion = _DockMotion(self._backend, self._frame, stop, self._supervisor,
                              self._logger, on_feedback, self._server_timeout, self._send_timeout)
         completion = Future()
+
+        def observe(name, data):
+            if on_event is not None and self._active is attempt and not stop.is_set():
+                on_event(name, data)
+
         thread = threading.Thread(
-            target=self._run, args=(completion, stop, motion, goal),
+            target=self._run, args=(completion, stop, motion, goal, observe),
             name='nav-dock-worker', daemon=False)
         attempt = _WorkerAttempt(stop, motion, thread)
         self._active = attempt
@@ -235,7 +247,7 @@ class DockWorker:
             if thread.ident is not None:
                 thread.join(timeout=0)
 
-    def _run(self, completion, stop, motion, goal):
+    def _run(self, completion, stop, motion, goal, observe):
         def check_stop():
             if stop.is_set():
                 raise _WorkerStopped
@@ -263,7 +275,7 @@ class DockWorker:
         try:
             check_stop()
             workflow = DockWorkflow(self._config, motion, pose, approach, self._logger,
-                                    now_fn=self._now, sleep_fn=sleep)
+                                    now_fn=self._now, sleep_fn=sleep, on_event=observe)
             result = workflow.execute(goal)
             completion.set_result('canceled' if stop.is_set() else result)
         except _WorkerStopped:

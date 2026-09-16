@@ -50,6 +50,7 @@ class _Rig:
         self.case, self.goal = case, goal
         self.clock, self.log = _Clock(), _Log()
         self.calls, self.checks = [], []
+        self.events = []
         self.rotations = 0
         self.config = _config()
         if case.startswith('spin_'):
@@ -131,7 +132,8 @@ class _Rig:
     def migrated(self):
         return DockWorkflow(
             self.config, self, self.pose, self.check, self.log,
-            now_fn=self.clock.now, sleep_fn=self.clock.sleep).execute(self.goal)
+            now_fn=self.clock.now, sleep_fn=self.clock.sleep,
+            on_event=lambda name, data: self.events.append((name, data))).execute(self.goal)
 
 
 @pytest.mark.parametrize('case,expected', [
@@ -148,6 +150,7 @@ def test_logs_actions_settle_timing_and_bench_verdict_match_legacy(case, expecte
     """All non-ROS workflow observations retain old values, including awkward finish cases."""
     old, new = _Rig(case, goal), _Rig(case, goal)
     assert old.legacy() == new.migrated() == expected
+    assert new.events[0][0] == 'started'
     assert old.calls == new.calls
     assert old.checks == new.checks
     assert old.clock.value == new.clock.value

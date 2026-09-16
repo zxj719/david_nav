@@ -49,6 +49,10 @@ propagate cancellation and clean up their actual goal.
 
 ## Events and compatibility
 
+The additive [task/Dock ROS observation stream](events.md) is separate from the
+legacy queues described below. Its hooks cannot acknowledge motion or replace
+completion receipts, and the runtime owns publishers through settlement.
+
 Events are immutable domain values, not serialized WS frames. A subscriber queue
 is allocated only on explicit subscription. Consumers must drain and unsubscribe;
 the core does not discard terminal events. Durable/reconnected delivery belongs

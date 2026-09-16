@@ -3,7 +3,7 @@
 import asyncio
 from dataclasses import dataclass
 import logging
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Mapping
 
 from nav_tasks.core.registry import CommandRegistry, Handler, TaskContext
 from nav_tasks.core.supervisor import TaskSupervisor
@@ -46,16 +46,19 @@ class TaskManager:
 
     def __init__(
         self, registry: CommandRegistry, cancel_backend: Callable[[], Awaitable[None]],
+        *, on_event: Callable[[str, Mapping[str, object]], None] | None = None,
     ) -> None:
         """Construct on the event loop that will own all task state.
 
         Args:
             registry: Skill decoders and handlers configured by the assembly root.
             cancel_backend: Cleanup operation for the single shared motion backend.
+            on_event: Optional synchronous observation sink, separate from legacy WS events.
         """
         self._loop = asyncio.get_running_loop()
         self._registry = registry
         self._cancel_backend = cancel_backend
+        self._on_event = on_event
         self._supervisor = TaskSupervisor(self._on_crash)
         self._transition_lock = asyncio.Lock()
         self._state = TaskState.IDLE
@@ -200,6 +203,7 @@ class TaskManager:
             active.worker = self._supervisor.spawn(
                 self._run(active, handler, payload),
                 f'skill:{request.task_id}:{active.generation}')
+            self._observe(active, 'task_admitted')
             return self.status()
 
     async def _run(self, active: _Active, handler: Handler, payload: object) -> None:
@@ -236,6 +240,8 @@ class TaskManager:
         self._settled(active, outcome)
 
     def _settled(self, active: _Active, outcome: NavOutcome) -> None:
+        self._observe(active, 'task_' + outcome.status.value,
+                      ownership_released=True, detail=outcome.detail)
         callback, active.on_settled = active.on_settled, None
         if callback is not None:
             receipt = TaskCompletion(active.request.task_id, active.request.sub_id,
@@ -258,6 +264,7 @@ class TaskManager:
         if self._is_current(active) and active.accept_feedback:
             active.target_id = target_id
             active.phase = phase
+            self._observe(active, 'task_phase')
 
     def _feedback(self, active: _Active, remaining: float) -> None:
         self._check_loop()
@@ -274,6 +281,23 @@ class TaskManager:
             active.remaining, status, detail, active.request.source)
         for queue in self._subscribers:
             queue.put_nowait(event)
+        if kind == EventKind.PROGRESS and self._active is active:
+            self._observe(active, 'task_paused' if status == 'paused' else 'task_progress')
+
+    def _observe(self, active, name, *, ownership_released=False, detail='', error_type=''):
+        if self._on_event is None:
+            return
+        request = active.request
+        data = dict(task_id=request.task_id, sub_id=request.sub_id,
+                    generation=active.generation, action=request.action,
+                    ingress_source=request.source, state=self._state.value,
+                    target_id=active.target_id, phase=active.phase,
+                    remaining_distance=active.remaining, ownership_released=ownership_released,
+                    detail=detail, error_type=error_type)
+        try:
+            self._on_event(name, data)
+        except Exception as error:
+            _LOGGER.warning('Task observation failed (%s)', type(error).__name__)
 
     async def _cancel_active(self) -> _Active:
         active = self._active
@@ -283,6 +307,7 @@ class TaskManager:
         reported_crash = active.crash
         active.cancel_requested = True
         self._state = TaskState.ABORTING
+        self._observe(active, 'task_cleanup_started')
         if active.worker is not None and not active.worker.done():
             active.worker.cancel()
         cleanup_error = None
@@ -302,6 +327,7 @@ class TaskManager:
                     cleanup_error = error
         if cleanup_error is not None:
             self._state = TaskState.ERROR
+            self._observe(active, 'task_cleanup_failed', error_type=type(cleanup_error).__name__)
             raise cleanup_error
         self._active = None
         self._state = TaskState.IDLE
@@ -350,6 +376,7 @@ class TaskManager:
         active.crash_outcome = NavOutcome(NavStatus.FAILED, detail)
         self._state = TaskState.ERROR
         self._emit(active, EventKind.FAILED, detail=detail)
+        self._observe(active, 'task_fault', error_type=type(error).__name__)
         self._supervisor.spawn(
             self._recover_crash(active),
             f'crash-cleanup:{active.request.task_id}:{active.generation}')

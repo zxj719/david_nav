@@ -9,6 +9,7 @@ from typing import Callable
 
 from nav_tasks.adapters.ros.dock_observations import DockObservations
 from nav_tasks.adapters.ros.dock_worker import DockWorker
+from nav_tasks.adapters.ros.event_publisher import NavigationEvents
 from nav_tasks.adapters.ros.grid_source import RosGridSource
 from nav_tasks.adapters.ros.tf_pose_source import TfPoseSource
 from nav_tasks.app.dock_config import workflow_config
@@ -80,7 +81,8 @@ class TaskRuntime:
     def __init__(
         self, tasks: TaskManager, pois: PoiCommands, poses: TfPoseSource,
         grids: RosGridSource, backend: Nav2Client, repository: YamlPoiRepository,
-        config: RuntimeConfig, *, dock_worker: DockWorker | None = None,
+        config: RuntimeConfig, *, events: NavigationEvents,
+        dock_worker: DockWorker | None = None,
         dock_observations: DockObservations | None = None,
     ) -> None:
         """Take ownership of fully constructed resources on their asyncio loop.
@@ -93,6 +95,7 @@ class TaskRuntime:
             backend: Owned single-attempt action backend.
             repository: Shared persistence port.
             config: Immutable assembly values.
+            events: Owned best-effort task and Dock observation publishers.
             dock_worker: Optional owned worker sharing the navigation backend.
             dock_observations: Optional retained-map/navigation-frame observations.
         """
@@ -103,6 +106,7 @@ class TaskRuntime:
         self._backend = backend
         self._repository = repository
         self._config = config
+        self._events = events
         self._dock_worker = dock_worker
         self._dock_observations = dock_observations
         self._loop = asyncio.get_running_loop()
@@ -194,6 +198,7 @@ class TaskRuntime:
             self._dock_observations.close()
         self._grids.close()
         self.poses.close()
+        self._events.close()
         self._closed = True
 
     def _check_loop(self) -> None:
@@ -255,6 +260,9 @@ async def assemble_runtime(
                 odom_frame=config.odom_frame, log=log)
             log(f'loaded {count} POIs from {config.pose_file}')
     async with _Rollback() as rollback:
+        events = NavigationEvents()
+        rollback.track(events.close)
+        events.open(node, dock=config.dock is not None)
         poses = TfPoseSource(
             node, tf_buffer, robot_base_frame=config.robot_base_frame,
             odom_topic=config.odom_topic, map_frame=config.map_frame, odom_frame=config.odom_frame,
@@ -286,7 +294,8 @@ async def assemble_runtime(
             rollback.track(dock_observations.close)
             dock_worker = DockWorker(
                 backend, dock_config.global_frame, dock_policy, dock_observations.pose,
-                dock_observations.check_approach, logger, on_raw_feedback=on_dock_feedback)
+                dock_observations.check_approach, logger, on_raw_feedback=on_dock_feedback,
+                on_event=events.dock)
             rollback.track(dock_worker.close)
             dock_skill = Dock(
                 dock_worker, progress_min_interval_sec=config.progress_min_interval_sec,
@@ -300,10 +309,10 @@ async def assemble_runtime(
                 await dock_worker.cancel()
             await backend.cancel()
 
-        tasks = TaskManager(registry, cancel_motion)
+        tasks = TaskManager(registry, cancel_motion, on_event=events.task)
         rollback.track(tasks.close)
         commands = PoiCommands(poses, repository, now, config.pose_stale_after_sec)
         runtime = TaskRuntime(
             tasks, commands, poses, grids, backend, repository, config,
-            dock_worker=dock_worker, dock_observations=dock_observations)
+            events=events, dock_worker=dock_worker, dock_observations=dock_observations)
         return runtime

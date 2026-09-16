@@ -8,8 +8,9 @@ belong outside this workflow.
 """
 
 from dataclasses import dataclass
+import logging
 import math
-from typing import Callable, Literal
+from typing import Callable, Literal, Mapping
 
 from nav_tasks.domain.footprint import FootprintCheck
 from nav_tasks.skills.docking.finish import DockTolerance, finish_docking
@@ -17,6 +18,7 @@ from nav_tasks.skills.docking.ports import DockLogger, DockMotionPort, PlanarPos
 from nav_tasks.skills.docking.settle import SettleSpec
 
 _FAILURE_REASONS = ('no_pose', 'not_settled', 'xy_out_of_tol', 'yaw_not_converged')
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,7 @@ class DockWorkflow:
         approach_check: Callable[[PlanarPose], FootprintCheck], logger: DockLogger, *,
         now_fn: Callable[[], float] | None = None,
         sleep_fn: Callable[[float], None] | None = None,
+        on_event: Callable[[str, Mapping[str, object]], None] | None = None,
     ) -> None:
         """Inject robot policy and effects without starting threads or ROS resources.
 
@@ -51,6 +54,7 @@ class DockWorkflow:
             logger: Thread-safe log sink; texts and levels retain legacy behavior.
             now_fn: Optional deterministic monotonic clock for finish tests.
             sleep_fn: Optional deterministic sleeper for finish tests.
+            on_event: Optional worker-safe observation sink; errors do not change Dock policy.
         """
         self._config = config
         self._motion = motion
@@ -59,6 +63,7 @@ class DockWorkflow:
         self._logger = logger
         self._now = now_fn
         self._sleep = sleep_fn
+        self._on_event = on_event
 
     def execute(self, goal: PlanarPose) -> Literal['succeeded', 'failed', 'canceled']:
         """Run stages, then settle and judge without changing retry or movement policy.
@@ -81,12 +86,15 @@ class DockWorkflow:
         gx, gy, gyaw = goal
         self._logger.info(
             '[dock] ===== 收到目标 (%.3f, %.3f) yaw=%.1f°' % (gx, gy, math.degrees(gyaw)))
+        self._observe('started', x=gx, y=gy, yaw=gyaw)
         px = gx - config.approach_dist * math.cos(gyaw)
         py = gy - config.approach_dist * math.sin(gyaw)
         self._logger.info(
             '[dock] 阶段1 预备点 (%.3f, %.3f) yaw=%.1f°（沿目标航向后退 %.2fm）'
             % (px, py, math.degrees(gyaw), config.approach_dist))
         check = self._approach_check((px, py, gyaw))
+        self._observe('approach_checked', clear=check.clear, reason=check.reason,
+                      occupied_cell=check.occupied_cell, x=px, y=py, yaw=gyaw)
         if not check.clear:
             detail = check.reason
             if check.occupied_cell is not None:
@@ -95,6 +103,7 @@ class DockWorkflow:
             self._report(False, '预备点车身轮廓静态地图校验失败: %s' % detail)
             return 'failed'
         self._logger.info('[dock] 预备点车身轮廓静态地图校验通过')
+        self._observe('stage_started', stage='approach', x=px, y=py, yaw=gyaw)
         stage1 = self._motion.navigate(
             (px, py, gyaw), '阶段1(预备点)', config.nav_timeout_sec, config.approach_dist)
         if not stage1.succeeded:
@@ -105,6 +114,7 @@ class DockWorkflow:
             return 'failed'
         self._logger.info('[dock] 阶段2 入位 -> (%.3f, %.3f) yaw=%.1f°'
                           % (gx, gy, math.degrees(gyaw)))
+        self._observe('stage_started', stage='final', x=gx, y=gy, yaw=gyaw)
         stage2 = self._motion.navigate(
             goal, '阶段2(入位)', config.nav_timeout_sec, 0.0)
         if stage2.canceled:
@@ -120,6 +130,7 @@ class DockWorkflow:
             if name == 'spin':
                 spin_index = values['index']
             self._log_event(name, **values)
+            self._observe(name, **values)
 
         def spin(yaw):
             nonlocal last_canceled
@@ -153,6 +164,13 @@ class DockWorkflow:
         if outcome.reason in _FAILURE_REASONS:
             return 'canceled' if last_canceled else 'failed'
         return 'succeeded'
+
+    def _observe(self, name, **values):
+        if self._on_event is not None:
+            try:
+                self._on_event(name, dict(values))
+            except Exception as error:
+                _LOGGER.warning('Dock observation failed (%s)', type(error).__name__)
 
     def _report(self, ok, message, pose=None, goal=None):
         if pose is not None and goal is not None:

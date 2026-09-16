@@ -3,6 +3,10 @@ nav_tasks
 
 0.1.0 (2026-09-16)
 ------------------
+* Publish additive task/Dock NavEvent observations on the existing runtime node
+  and dual-write Dock measurements to private JSON events (R7). Preserve frozen
+  logs, wire events, motion ownership and unrounded measurements; retain failed
+  publisher cleanup and fence stale worker observations without a new worker.
 * Verify R3 feedback ownership already provided by ActionSession synchronous
   loop callbacks: add GC/thread/burst/stale-callback and no-unowned-task guards,
   with a read-only legacy-source red comparison. Do not change feedback timing.

@@ -82,6 +82,30 @@ class _Node:
         self.fail_client = False
         self.fail_client_destroy = False
         self.fail_subscription_destroy = False
+        self.publishers = []
+        self.destroyed_publishers = []
+        self.fail_publisher_at = None
+        self.fail_publisher_destroy = False
+
+    def create_publisher(self, message_type, topic, qos):
+        if len(self.publishers) + 1 == self.fail_publisher_at:
+            raise RuntimeError('publisher construction failed')
+        publisher = NS(topic=topic, qos=qos, messages=[], fail=False)
+
+        def publish(message):
+            if publisher.fail:
+                raise RuntimeError('publisher unavailable')
+            publisher.messages.append(message)
+
+        publisher.publish = publish
+        self.publishers.append(publisher)
+        return publisher
+
+    def destroy_publisher(self, publisher):
+        if self.fail_publisher_destroy:
+            return False
+        self.destroyed_publishers.append(publisher)
+        return True
 
     def create_subscription(self, message_type, topic, callback, qos):
         if len(self.subscriptions) + 1 == self.fail_subscription_at:
@@ -140,6 +164,13 @@ def ros_io(monkeypatch):
                         ('rclpy', ros), ('rclpy.time', ros_time), ('rclpy.action', action),
                         ('nav2_msgs', nav_actions), ('nav2_msgs.action', actions)]:
         monkeypatch.setitem(sys.modules, key, module)
+    for package, name in [('david_nav_msgs', 'NavEvent'), ('std_msgs', 'String')]:
+        module = ModuleType(package + '.msg')
+        setattr(module, name, NS)
+        root = ModuleType(package)
+        root.msg = module
+        monkeypatch.setitem(sys.modules, package, root)
+        monkeypatch.setitem(sys.modules, package + '.msg', module)
 
 
 def _config(tmp_path, **overrides):

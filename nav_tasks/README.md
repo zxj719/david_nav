@@ -65,6 +65,9 @@ through the `david_nav.dock_approach` compatibility exports.
 `core/goal_resolution.py` preserves the legacy snap search under differential tests.
 No ROS, WebSocket, YAML or filesystem implementation is imported by these layers.
 Concrete ROS adapters are kept outside the pure layers and import ROS lazily.
+The assembled runtime publishes additive [task/Dock events](docs/events.md) on
+its existing node, without a new executor or observer thread. These do not change
+legacy task/WS events or frozen Dock logs and do not prove physical settlement.
 The [site data boundary](docs/site-data.md) now supplies an actual ROS-free YAML
 PoiRepository and read-only named-poses importer. It is physically hosted under
 `nav_tasks.nav_site_data` per PLAN, with byte-level old/new persistence tests;
