@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import sys
 import threading
+import time
 
 import pytest
 
@@ -45,6 +46,8 @@ def threaded_bindings(request, monkeypatch):
     state.node_name = 'dock_navigator'
     state.pools = []
     state.shutdown_threads = []
+    state.shutdown_delay = 0.0
+    state.on_shutdown = lambda: None
     bindings = sys.modules['rclpy.executors']
     single = bindings.SingleThreadedExecutor
 
@@ -61,8 +64,10 @@ def threaded_bindings(request, monkeypatch):
 
         def shutdown(self, timeout_sec=None):
             assert timeout_sec is None
+            time.sleep(state.shutdown_delay)
             state.events.append('executor shutdown')
             state.shutdown_threads.append(threading.get_ident())
+            state.on_shutdown()
             if state.fail == 'executor shutdown':
                 raise RuntimeError('shutdown failed')
             return state.shutdown_ok
@@ -75,15 +80,20 @@ def threaded_bindings(request, monkeypatch):
 
 
 @pytest.mark.parametrize('cancel_waiter', [False, True])
-def test_quiesce_joins_sdk_tail_without_blocking_loop(threaded_bindings, cancel_waiter):
+@pytest.mark.parametrize('shutdown_delay', [0.0, 0.08])
+def test_quiesce_joins_sdk_tail_without_blocking_loop(
+        threaded_bindings, cancel_waiter, shutdown_delay):
     """Action result tails may call the loop and must finish before ROS destruction."""
     state = threaded_bindings
+    state.shutdown_delay = shutdown_delay
 
     async def scenario():
         host = RosHost()
         host.open(['--ros-args'], dock=True)
         loop = asyncio.get_running_loop()
         callback_started = asyncio.Event()
+        shutdown_started = asyncio.Event()
+        state.on_shutdown = lambda: loop.call_soon_threadsafe(shutdown_started.set)
         tail_started = asyncio.Event()
         release = threading.Event()
         owner = threading.get_ident()
@@ -101,7 +111,7 @@ def test_quiesce_joins_sdk_tail_without_blocking_loop(threaded_bindings, cancel_
         await asyncio.wait_for(callback_started.wait(), 1)
         waiter = asyncio.create_task(host.quiesce())
         try:
-            await asyncio.sleep(0.03)
+            await asyncio.wait_for(shutdown_started.wait(), 2)
             assert state.shutdown_threads and state.shutdown_threads[0] != owner
             assert not waiter.done() and not running.done()
             assert 'node destroy' not in state.events
