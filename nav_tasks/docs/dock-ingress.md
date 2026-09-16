@@ -59,22 +59,23 @@ The wire format is unchanged; general event subscribers still observe all tasks.
 ## Required host shutdown order
 
 1. Call ingress.stop() on the manager loop; stop WS admission if enabled.
-2. Await ingress.close() and task-runtime.close() **with ROS and the loop alive**.
+2. Await ingress.close() and task-runtime.settle() **with ROS and the loop alive**.
 3. Stop/join the spin driver, then await successful executor shutdown/quiescence.
-4. Call ingress.destroy(); retry failed ROS destruction stages while retaining ownership.
+4. Call task-runtime.close() and ingress.destroy(); retry failed destruction stages.
 5. Destroy the external listener/node/context.
 
 Do not run a blocking executor shutdown on the manager loop: a ROS callback may
 still need to marshal its last operation onto that loop. Quiescence includes
-rclpy's action-result publication after our execute callback returns. `close()`
+rclpy's action-result/send tasks queued after our execute callback returns. `close()`
 therefore deliberately does **not** destroy the action server/subscription, and
 `destroy()` cannot itself prove the host's executor invariant. A host losing its
 context or a permanently stuck callback requires explicit recovery, not false
 completion or early node destruction. None of these receipts proves physical
 braking/settling beyond the existing motion and observation contracts.
 
-The outer console remains gated until that multithreaded host/cleanup sequence
-is wired. Legacy node/entry points remain unchanged. Current tests use actual
+The nav_executor outer console now wires this multithreaded sequence and optional
+WS in one process; a full explicit Dock parameter file is required. Legacy
+node/entry points remain unchanged. Current tests use actual
 callback threads, manager, DockWorker, runtime and protocol adapter with fake ROS
 constructors/clients/futures only; no ROS graph, action goals or velocity commands
 are published. Real host/no-goal lifetime verification and manual motion acceptance

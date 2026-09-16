@@ -77,12 +77,20 @@ the file path and endpoint override source remain in the provenance map.
 `ResolvedConfig.task_config()` binds `DockRuntimeConfig`; the old
 `ExecutorConfig.task_config()` is the ordinary-only projection.
 
-This bridge **does not enable the console Dock runtime**. Until ROS ingress and
-the multithreaded host are assembled, either Dock IDs or an explicit Dock file
-still stop the outer root before ROS/storage I/O. ROS CLI arguments are retained
-untouched; the configuration loader does not pretend to resolve them. The public
-declaration adapter separately validates the effective overrides and preserves
-all sixteen parameter names/default values. The old entry points are unchanged.
+The new console now composes Dock when this complete file is supplied; IDs without
+it still fail before ROS/storage. The host declares all sixteen parameters and
+validates actual ROS overrides before task construction. Its startup audit contains
+the final policy and endpoint (changed endpoint provenance is `ros:action_name`).
+The loader alone leaves ROS arguments untouched. Backend and ingress names are
+checked after expansion/remapping to reject recursive wiring. Legacy entry points
+and launch graphs remain unchanged.
+
+`executor.websocket_enabled` defaults to boolean true. YAML/profile false or
+`--no-websocket` selects a ROS-only process; `--websocket` explicitly enables it.
+CLI wins over YAML/profile, and string `"false"` is rejected instead of treated as
+truthy. Disabled mode imports no websockets, changes no proxy environment, and
+starts no WS heartbeat/connection/status/reprojection workers. Frozen legacy help
+stays unchanged; these new options are documented here.
 
 Schema ownership remains unique: shared frames and Nav2 odometry declarations
 stay with existing packages; reconnect_delay_sec stays with nav_bringup while

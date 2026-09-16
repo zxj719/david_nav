@@ -254,6 +254,17 @@ class Nav2Client:
         """
         await self._session.cancel()
 
+    async def settle(self) -> None:
+        """Seal and settle the action session while retaining its ROS clients.
+
+        Keep the ROS executor alive until this succeeds. The outer owner may
+        then quiesce callback threads before calling close to destroy clients.
+
+        Raises:
+            Exception: Cleanup is incomplete; session ownership is retained.
+        """
+        await self._session.close()
+
     async def close(self) -> None:
         """Settle shared work before destroying clients created by this backend.
 
@@ -262,7 +273,7 @@ class Nav2Client:
         Raises:
             Exception: Cleanup is incomplete; the client is deliberately not destroyed.
         """
-        await self._session.close()
+        await self.settle()
         self._destroy_owned_clients()
 
     def _destroy_owned_clients(self) -> None:

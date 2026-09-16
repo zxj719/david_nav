@@ -32,9 +32,8 @@ source of concrete robot values; the `executor.dock_config_file` schema describe
 the actual new file selector. Profile-native policy migration can be a separate
 change, without silently changing old launch behavior.
 
-This is a configuration bridge, not a replacement Dock node yet. The outer
-console still rejects explicit Dock configuration until its ROS ingress and
-multithreaded host are integrated. `/goal_pose` remains accepted when explicitly
+The new outer console binds this bridge before opening its shared Dock ingress;
+the legacy node/launch switch remains pending. `/goal_pose` remains accepted when explicitly
 supplied; the R8 standalone-default correction is a separate red/green task.
 Before replacing the old node, freeze the declaration-name reference used by
 `test_dock_parameters.py` together with the existing workflow/action log goldens.

@@ -109,6 +109,7 @@ class TaskRuntime:
         self._supervisor = TaskSupervisor(self._on_crash)
         self._watcher: asyncio.Task | None = None
         self._close_task: asyncio.Task | None = None
+        self._settle_task: asyncio.Task | None = None
         self._closing = False
         self._closed = False
 
@@ -162,11 +163,32 @@ class TaskRuntime:
             self._close_task = self._supervisor.spawn(self._close(), 'close-task-runtime')
         await asyncio.shield(self._close_task)
 
-    async def _close(self) -> None:
+    async def settle(self) -> None:
+        """Seal task admission and settle motion without destroying ROS resources.
+
+        Stop ingress first and keep ROS callbacks alive until success. A
+        multithreaded host can then quiesce its callbacks before close releases
+        clients/subscriptions. Repeated calls and canceled waiters retain cleanup.
+
+        Raises:
+            Exception: Motion cleanup failed; keep ROS alive and retry.
+        """
+        self._check_loop()
+        self._closing = True
+        if self._settle_task is None or (self._settle_task.done()
+                                         and self._settle_task.exception() is not None):
+            self._settle_task = self._supervisor.spawn(self._settle(), 'settle-task-runtime')
+        await asyncio.shield(self._settle_task)
+
+    async def _settle(self) -> None:
         await self.stop_loop_closure()
         await self.tasks.close()
         if self._dock_worker is not None:
             await self._dock_worker.close()
+        await self._backend.settle()
+
+    async def _close(self) -> None:
+        await self.settle()
         await self._backend.close()
         if self._dock_observations is not None:
             self._dock_observations.close()

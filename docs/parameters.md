@@ -87,9 +87,9 @@ This file lists every robot-profile key declared by package schemas.
 |---|---|---|---|---|---|---|
 | `executor.action_name` | `string` | — | default: `"/navigate_to_pose"` | — | NavigateToPose server; never a second motion owner. | — |
 | `executor.cancel_timeout_sec` | `float` | s | default: `5` | range: `0.0 .. inf` | Cleanup waiting deadline, not permission to discard pending action ownership. | — |
-| `executor.dock_action_name` | `string` | — | default: `"/dock_to_pose"` | — | Legacy docking endpoint name; shared Dock integration is pending. | — |
+| `executor.dock_action_name` | `string` | — | default: `"/dock_to_pose"` | — | Shared manager Dock ingress endpoint; ROS parameter/remap overrides apply. | — |
 | `executor.dock_config_file` | `string` | — | default: `null` | — | Complete old Dock parameters, flat or dock_navigator.ros__parameters YAML; null disables. | — |
-| `executor.dock_poi_ids` | `list[string]` | — | default: `[]` | — | Dock-only POI IDs; runtime currently rejects these until Dock integration. | — |
+| `executor.dock_poi_ids` | `list[string]` | — | default: `[]` | — | POI IDs routed directly to the shared Dock skill; requires a complete Dock file. | — |
 | `executor.global_costmap_topic` | `string` | — | default: `"/global_costmap/costmap"` | — | Global costmap observed by ordinary POI snapping. | — |
 | `executor.grid_map_topic` | `string` | — | default: `null` | — | Static grid observed by goal snapping, retaining the robot-specific default. | — |
 | `executor.heartbeat_interval` | `float` | s | default: `30` | range: `0.0 .. inf` | WS heartbeat interval; runtime requires strictly positive. | — |
@@ -112,6 +112,7 @@ This file lists every robot-profile key declared by package schemas.
 | `executor.slam_session_id` | `string` | — | default: `"live_session"` | — | POI session label; does not start or modify localization. | — |
 | `executor.source_poi_file` | `string` | — | default: `null` | — | Optional read-only source POI YAML beneath the writable local store. | — |
 | `executor.status_print_interval_sec` | `float` | s | default: `3.3333333333333335` | range: `0.0 .. inf` | Active-task status heartbeat; idle remains transition-only. | — |
+| `executor.websocket_enabled` | `bool` | — | default: `true` | — | Optional in-process WS ingress; --no-websocket disables transport and WS observers. | — |
 | `frames.poi_capture` | `string` | — | default: `null` | — | Point capture frame; distinct from the navigation rotation center. | — |
 
 ## `nav_perception_iface`

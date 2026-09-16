@@ -67,6 +67,9 @@ def parse_arguments(raw_args: Sequence[str]) -> tuple[dict, list[str]]:
     for field in fields(ExecutorConfig):
         if field.name == 'dock_poi_ids':
             parser.add_argument('--dock-poi-id', dest=field.name, action='append')
+        elif field.name == 'websocket_enabled':
+            parser.add_argument('--websocket', dest=field.name,
+                                action=argparse.BooleanOptionalAction)
         else:
             flag = '--' + field.name.replace('_', '-')
             if field.name == 'nav_retry_delay_sec':

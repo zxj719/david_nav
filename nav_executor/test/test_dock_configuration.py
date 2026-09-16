@@ -143,16 +143,17 @@ def test_missing_file_fails_at_configuration_time(tmp_path):
                            profile_path=PROFILE, environ={})
 
 
-def test_dock_ingress_gate_stays_closed_before_ros_or_storage_io(tmp_path):
-    """A valid config alone is not permission to run the incomplete outer Dock host."""
+def test_preexisting_stop_refuses_dock_before_ros_or_storage_io(tmp_path):
+    """A stop already requested must not construct or expose the Dock host."""
     result = load_configuration(['--dock-config-file', str(_file(tmp_path))],
                                 profile_path=PROFILE, environ={})
 
     def forbidden():
-        pytest.fail('ROS host opened before Dock ingress/host integration')
+        pytest.fail('ROS host opened despite preexisting stop')
 
     async def scenario():
-        with pytest.raises(ConfigError, match='Dock'):
-            await run(result, asyncio.Event(), host_factory=forbidden)
+        stop = asyncio.Event()
+        stop.set()
+        await run(result, stop, host_factory=forbidden)
 
     asyncio.run(scenario())

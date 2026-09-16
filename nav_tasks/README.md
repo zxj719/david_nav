@@ -3,11 +3,11 @@
 The [Dock ROS ingress](docs/dock-ingress.md) now routes topic/action requests
 through the shared manager, preserving busy rejection, cancellation and full
 feedback. Its public owner requires the multithreaded host shutdown sequence;
-the outer console gate and legacy entry points remain unchanged.
+the nav_executor composition root now provides that host. Legacy entries remain unchanged.
 
 The [Dock parameter bridge](docs/dock-parameters.md) accepts existing rendered
 ROS parameters and preserves their declaration/override contract. It does not
-yet switch the legacy Dock entry or enable the incomplete outer Dock host.
+switch the legacy Dock entry; the new outer host requires explicit complete policy.
 
 Transport-independent navigation domain and pure skills (Python 3.10+).
 The P6.1 core now provides a fake-testable `TaskManager`/`TaskApi`, ports, registry,
@@ -29,8 +29,8 @@ services with retryable cleanup. nav_executor now supplies CLI/help, WS and an
 outer ROS lifetime for ordinary POIs. The public factory now also assembles Dock
 from explicit DockRuntimeConfig, with independent static-map/navigation-frame
 observations and routing under the same task manager. Explicit rendered Dock
-files now bind through the CLI/public parameter bridge; ROS ingress and legacy
-entry-point switching remain pending.
+files now bind through the CLI/public parameter bridge and ROS ingress; legacy
+entry-point switching remains pending.
 
 ```python
 from nav_tasks.api import PoseRecord
@@ -49,8 +49,8 @@ The blocking [Dock workflow](docs/dock-workflow.md) now sequences approach
 admission, two navigation stages and settled-pose judgement behind worker ports.
 Its logs/results match legacy methods. DockWorker now owns and joins a real thread,
 bridges all actions to the same Nav2Client, preserves admission/result deadlines
-and fences canceled verdicts. Explicit factory configuration is available; outer
-ROS ingress and host integration remain pending. The
+and fences canceled verdicts. Explicit factory configuration, outer ROS ingress
+and host integration are available in nav_executor. The
 blocking policy must not run on the asyncio or ROS callback thread.
 `domain/footprint.py` owns the unchanged full-body static-map checker, also used
 through the `david_nav.dock_approach` compatibility exports.

@@ -3,6 +3,10 @@ package: nav_executor
 # Canonical frames.map/odom and nav2.odom_topic are declared by their existing owners.
 # executor.reconnect_delay_sec stays declared by nav_bringup while its binding consumes it.
 parameters:
+  executor.websocket_enabled:
+    type: bool
+    default: true
+    description: "Optional in-process WS ingress; --no-websocket disables transport and WS observers."
   executor.dock_config_file:
     type: string
     default: null
@@ -38,11 +42,11 @@ parameters:
   executor.dock_action_name:
     type: string
     default: "/dock_to_pose"
-    description: "Legacy docking endpoint name; shared Dock integration is pending."
+    description: "Shared manager Dock ingress endpoint; ROS parameter/remap overrides apply."
   executor.dock_poi_ids:
     type: list
     default: []
-    description: "Dock-only POI IDs; runtime currently rejects these until Dock integration."
+    description: "POI IDs routed directly to the shared Dock skill; requires a complete Dock file."
     items: string
   executor.global_costmap_topic:
     type: string

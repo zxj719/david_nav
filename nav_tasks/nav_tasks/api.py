@@ -179,6 +179,10 @@ class TaskRuntimeApi(Protocol):
         """Cancel/join the watcher without canceling motion."""
         ...
 
+    async def settle(self) -> None:
+        """Seal admission and settle motion with ROS alive, retaining clients/subscriptions."""
+        ...
+
     async def close(self) -> None:
         """Settle motion then release owned resources; failure remains retryable."""
         ...

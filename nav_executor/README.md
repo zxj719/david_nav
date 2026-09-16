@@ -5,8 +5,10 @@ The package includes pure commands/codecs, a public-task-API command adapter,
 and a reconnect-persistent outbox. The [WS lifecycle](docs/ws-client.md) now owns
 connection-scoped receive/heartbeat/send work through an injected connector.
 The [outer runtime](docs/outer-runtime.md) now provides an installed
-`ros2 run nav_executor navigation_executor` entry for ordinary POIs. Dock/Spin
-integration and the legacy executable shim remain pending; production is unchanged.
+`ros2 run nav_executor nav_task_manager` entry (also `navigation_executor`) for
+ordinary POIs and explicit `--dock-config-file` Dock composition. `--no-websocket`
+selects ROS-only ingress. The legacy launch/shim switch remains pending; production
+is unchanged and separate old/new motion owners must not be launched together.
 
 ```python
 from nav_executor.protocol.codec import parse_command, build_arrived_event

@@ -22,8 +22,8 @@ observer/shutdown methods. Ingress adapters must only import this public API.
 Nonempty `dock_poi_ids` without `RuntimeConfig.dock` is rejected before file or
 ROS I/O: Dock must never fall back to ordinary snapping. Explicit DockRuntimeConfig
 adds a retained map observer, worker and Spin on the same Nav2Client. The existing
-nav_executor CLI/outer host still refuses Dock until its configuration and ROS
-ingress are wired; enabling this factory is not switching that executable.
+nav_executor CLI/outer host now binds this policy from an explicit Dock parameter
+file; its multithreaded host shares ROS/WS ingress. Legacy entries are not switched.
 
 ## Connection and shutdown ownership
 
@@ -31,12 +31,15 @@ ingress are wired; enabling this factory is not switching that executable.
   `stop_loop_closure()` cancels/joins it without canceling navigation. A reconnect
   can restart it. Observer crashes are logged and do not block final teardown.
 - The outer root stops command ingress first and manages its event pump/outbox.
-  It keeps the ROS executor spinning and the node alive while awaiting `close()`.
+  It keeps ROS and the loop alive while awaiting `settle()`: this seals admission
+  and joins motion/worker/session cleanup without destroying ROS resources.
+  A multithreaded host can then quiesce callbacks before `close()` releases clients
+  and subscriptions. A single-thread caller can still just await `close()` with ROS alive.
 - Shutdown joins the observer, closes the task manager (including motion cleanup),
   joins/closes the optional Dock worker, closes the action backend, then removes
   Dock-map, ordinary-grid and odometry subscriptions.
   It never stops an external node, executor or localization stack.
-- Canceling a caller waiting for `close()` does not cancel the owned cleanup task.
+- Canceling a caller waiting for `settle()` or `close()` does not cancel owned cleanup.
   On a timeout or cleanup failure, retain the runtime and retry `close()`; no
   later resource is destroyed ahead of failed motion cleanup. Successful teardown
   stages are idempotent. Do not release a surrounding run lock or destroy the
@@ -64,10 +67,9 @@ Coverage includes startup/import logs, retries, observer restart/crash, canceled
 close waiters, late terminal results, shutdown timeouts, construction rollback,
 and repeated cleanup failures without double destruction.
 
-The ordinary POI CLI/WS outer lifecycle is implemented in nav_executor; legacy
-executables remain unchanged. Dock profile/CLI binding, ROS pose/action ingress,
-MultiThreadedExecutor host and same-process optional WS entry still need wiring.
-This factory alone is not complete runtime or hardware acceptance.
+The POI/Dock CLI/WS outer lifecycle is implemented in nav_executor, including
+ROS pose/action ingress and same-process optional WS. Legacy executable/launch
+switching, real-host no-goal checks and physical acceptance remain separate work.
 
 ## Explicit Dock assembly
 

@@ -11,7 +11,7 @@ from nav_executor.adapters.ros.host import RosHost
 @pytest.fixture
 def ros_bindings(monkeypatch):
     """Provide binding doubles recording construction, shutdown and failure stages."""
-    state = NS(events=[], fail=None, shutdown_ok=True)
+    state = NS(events=[], fail=None, shutdown_ok=True, node_name='navigation_executor')
 
     def operation(name):
         state.events.append(name)
@@ -31,7 +31,7 @@ def ros_bindings(monkeypatch):
 
     class Node:
         def __init__(self, name, context):
-            assert name == 'navigation_executor' and isinstance(context, Context)
+            assert name == state.node_name and isinstance(context, Context)
             operation('node create')
 
         def destroy_node(self):

@@ -3,6 +3,11 @@ nav_executor
 
 0.1.0 (2026-09-16)
 ------------------
+* Compose opt-in Dock and optional WS in one nav_task_manager process, applying
+  actual ROS parameter overrides before runtime construction and rejecting recursive
+  action endpoints. Preserve old executables, launch graphs and frozen help.
+* Add owned off-loop multithreaded host quiescence, including SDK result-send tasks;
+  retain resources on unproven shutdown and destroy only after two-phase settlement.
 * Correlate shared-manager events by ingress source so ROS Dock completions cannot
   become unsolicited WebSocket arrival frames; preserve the old wire format and
   legacy empty-source behavior. Exercise full ingress/worker/runtime with fake ROS I/O.

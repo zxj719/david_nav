@@ -53,6 +53,7 @@ class ExecutorConfig:
     pose_stale_after_sec: float = 0.5
     status_print_interval_sec: float = 1.0 / 0.3
     dock_config_file: str | None = None
+    websocket_enabled: bool = True
 
     def legacy_values(self) -> dict:
         """Project the original config mapping for compatibility checks.
@@ -65,7 +66,7 @@ class ExecutorConfig:
             'map_frame', 'odom_frame', 'source_poi_file', 'cancel_timeout_sec',
             'loop_closure_translation_m', 'loop_closure_yaw_rad', 'progress_min_interval_sec',
             'pose_stale_after_sec', 'status_print_interval_sec',
-            'dock_config_file',
+            'dock_config_file', 'websocket_enabled',
         ):
             del result[name]
         result['dock_poi_ids'] = list(self.dock_poi_ids)
@@ -190,7 +191,10 @@ def _normalize(values):
         raise ConfigError(f'unknown executor options: {sorted(unknown, key=str)}')
     for name, value in tuple(values.items()):
         expected = definitions[name].type
-        if expected in (int, float):
+        if expected is bool:
+            if not isinstance(value, bool):
+                raise ConfigError(f'{name} must be a boolean')
+        elif expected in (int, float):
             if (isinstance(value, bool) or not isinstance(value, (int, float))
                     or not math.isfinite(value) or value < 0
                     or (expected is int and not isinstance(value, int))):

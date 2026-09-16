@@ -2,10 +2,15 @@
 
 import asyncio
 from contextlib import suppress
+from dataclasses import replace
 import time
+from types import MappingProxyType
 from typing import Callable
 
-from nav_tasks.api import ConfigError, create_runtime, RuntimeAssemblyError
+from nav_tasks.api import (
+    ConfigError, create_dock_ingress, create_runtime, declare_dock_parameters,
+    RuntimeAssemblyError,
+)
 
 from nav_executor.adapters.ros.host import RosHost
 from nav_executor.adapters.transport.outbox import ReliableOutbox
@@ -51,21 +56,48 @@ async def _spin(host, fault, emit):
             await asyncio.sleep(0.01)
 
 
-async def _finish(host, runtime, rollback, adapter, workers, spin, emit, delay):
+async def _finish(host, runtime, rollback, adapter, ingress, dock, workers, spin, emit, delay):
+    if ingress is not None:
+        ingress.stop()
     await _join(workers)
     if adapter is not None:
         adapter.close()
+    if ingress is not None:
+        await _retry(ingress.close, 'Dock ingress', emit, delay)
     if runtime is not None:
-        await _retry(runtime.close, 'task runtime', emit, delay)
+        await _retry(runtime.settle if dock else runtime.close, 'task runtime', emit, delay)
     if rollback is not None:
         await _retry(rollback, 'task construction', emit, delay)
     if spin is not None:
         await _join([spin])
+    if dock:
+        await _retry(host.quiesce, 'ROS callbacks', emit, delay)
+        if runtime is not None:
+            await _retry(runtime.close, 'task resources', emit, delay)
+        if ingress is not None:
+            async def destroy_ingress():
+                ingress.destroy()
+            await _retry(destroy_ingress, 'Dock resources', emit, delay)
 
     async def close_host():
         host.close()
 
     await _retry(close_host, 'ROS host', emit, delay)
+
+
+def _bind_dock(resolved, node):
+    dock = declare_dock_parameters(
+        node, resolved.dock_parameters, spin_action_name=resolved.dock.runtime.spin_action_name,
+        pose_timeout_sec=resolved.dock.runtime.pose_timeout_sec)
+    ingress = node.resolve_topic_name(dock.action_name)
+    endpoints = (resolved.config.action_name, dock.runtime.spin_action_name)
+    if any(ingress == node.resolve_topic_name(name) for name in endpoints):
+        raise ConfigError('Dock ingress action must differ from backend action endpoints')
+    sources = dict(resolved.sources)
+    if dock.action_name != resolved.config.dock_action_name:
+        sources['dock_action_name'] = 'ros:action_name'
+    return replace(resolved, dock=dock, sources=MappingProxyType(sources),
+                   config=replace(resolved.config, dock_action_name=dock.action_name))
 
 
 async def run(
@@ -74,7 +106,7 @@ async def run(
     emit: Callable[[str], None] = log_line, now: Callable[[], float] = time.time,
     cleanup_retry_sec: float = 1.0,
 ) -> None:
-    """Own one ordinary-POI runtime and retain shutdown even if its caller is canceled.
+    """Own one POI/Dock runtime and retain shutdown even if its caller is canceled.
 
     The CLI owns signal-to-stop translation; embedding callers supply their own
     stop event. Repeated cancellation cannot interrupt owned cleanup. Failed
@@ -93,31 +125,44 @@ async def run(
         cleanup_retry_sec: Delay between failed cleanup attempts; production default one second.
 
     Raises:
-        ConfigError: Dock is not integrated; refused before opening ROS or storage.
+        ConfigError: Dock IDs lack full policy, or effective ROS wiring is invalid.
         asyncio.CancelledError: Caller canceled; raised only after cleanup succeeds.
         Exception: Construction or an essential background worker failed, after cleanup.
     """
     config = resolved.config
-    if config.dock_poi_ids or resolved.dock is not None:
-        raise ConfigError('Dock runtime assembly is not integrated yet; refusing ordinary routing')
+    dock = resolved.dock is not None
+    if (config.dock_poi_ids and not dock) or (dock and resolved.dock_parameters is None):
+        raise ConfigError('Dock runtime requires complete explicit Dock parameters')
     if stop.is_set():
         return
-    if connect is None:
+    if config.websocket_enabled and connect is None:
         import websockets
         emit(f'websockets version={websockets.__version__} file={websockets.__file__}')
         connect = websockets.connect
-    emit(resolved.log_line())
-    bypass_proxy_for_server(config.server_uri)
+    if not dock:
+        emit(resolved.log_line())
+    if config.websocket_enabled:
+        bypass_proxy_for_server(config.server_uri)
     host = host_factory()
-    runtime = adapter = rollback = spin = None
+    runtime = adapter = rollback = spin = ingress = None
     workers = []
     fault = asyncio.get_running_loop().create_future()
     try:
-        host.open(resolved.ros_args)
+        host.open(resolved.ros_args, **({'dock': True} if dock else {}))
+        if dock:
+            resolved = _bind_dock(resolved, host.node)
+            config = resolved.config
+            emit(resolved.log_line())
         spin = asyncio.create_task(_spin(host, fault, emit), name='executor-ros-spin')
+
+        def feedback(*values):
+            if ingress is not None:
+                ingress.on_feedback(*values)
+
         try:
             runtime = await runtime_factory(resolved.task_config(), host.node, host.tf_buffer,
-                                            log=emit, now=now)
+                                            log=emit, now=now,
+                                            **({'on_dock_feedback': feedback} if dock else {}))
         except RuntimeAssemblyError as error:
             rollback = error.cleanup
             raise
@@ -125,23 +170,13 @@ async def run(
             return
         if fault.done():
             raise fault.result()
-        adapter = TaskCommandAdapter(runtime.tasks, runtime.pois)
-        audit = OutboundAudit(emit)
-        outbox = ReliableOutbox(on_sending=audit.on_sending, on_sent=audit.on_sent)
-        emit(f'nav action: {config.action_name} '
-             '(nav WS v1.1: target_id + abort_navigation 随时中断→idle)')
-        emit(f'nav failure debounce: retry_count={config.nav_retry_count} '
-             f'retry_delay={config.nav_retry_delay_sec:.1f}s '
-             '(单次失败静默重发,连败才上报 on_error)')
-        workers.append(asyncio.create_task(
-            adapter.pump_events(outbox.put), name='executor-events'))
-        workers.append(asyncio.create_task(print_status_loop(
-            runtime.tasks, runtime.poses, config.status_print_interval_sec, emit),
-            name='executor-status'))
-        workers.append(asyncio.create_task(reconnect(
-            config.ws_options(), adapter, outbox, connect=connect,
-            on_connected=runtime.start_loop_closure, on_disconnected=runtime.stop_loop_closure,
-            emit=emit), name='executor-ws'))
+        if dock:
+            ingress = create_dock_ingress(runtime.tasks, resolved.dock,
+                                          cleanup_retry_sec=cleanup_retry_sec)
+            ingress.open(host.node)
+        if config.websocket_enabled:
+            adapter = TaskCommandAdapter(runtime.tasks, runtime.pois)
+            _start_websocket(runtime, config, connect, emit, adapter, workers)
         waiter = asyncio.create_task(stop.wait(), name='executor-stop')
         workers.append(waiter)
         done, _ = await asyncio.wait([fault, spin, *workers], return_when=asyncio.FIRST_COMPLETED)
@@ -153,8 +188,8 @@ async def run(
                 raise RuntimeError(f'essential runtime worker ended: {worker.get_name()}')
     finally:
         cleanup = asyncio.create_task(_finish(
-            host, runtime, rollback, adapter, workers, spin, emit, cleanup_retry_sec),
-            name='executor-cleanup')
+            host, runtime, rollback, adapter, ingress, dock, workers, spin, emit,
+            cleanup_retry_sec), name='executor-cleanup')
         canceled = False
         while not cleanup.done():
             try:
@@ -164,3 +199,23 @@ async def run(
         cleanup.result()
         if canceled:
             raise asyncio.CancelledError
+
+
+def _start_websocket(runtime, config, connect, emit, adapter, workers):
+    # Mutate the outer owner's list as each worker starts, including partial failure.
+    audit = OutboundAudit(emit)
+    outbox = ReliableOutbox(on_sending=audit.on_sending, on_sent=audit.on_sent)
+    emit(f'nav action: {config.action_name} '
+         '(nav WS v1.1: target_id + abort_navigation 随时中断→idle)')
+    emit(f'nav failure debounce: retry_count={config.nav_retry_count} '
+         f'retry_delay={config.nav_retry_delay_sec:.1f}s '
+         '(单次失败静默重发,连败才上报 on_error)')
+    workers.append(asyncio.create_task(
+        adapter.pump_events(outbox.put), name='executor-events'))
+    workers.append(asyncio.create_task(print_status_loop(
+        runtime.tasks, runtime.poses, config.status_print_interval_sec, emit),
+        name='executor-status'))
+    workers.append(asyncio.create_task(reconnect(
+        config.ws_options(), adapter, outbox, connect=connect,
+        on_connected=runtime.start_loop_closure, on_disconnected=runtime.stop_loop_closure,
+        emit=emit), name='executor-ws'))
