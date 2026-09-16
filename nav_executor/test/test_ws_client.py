@@ -33,6 +33,8 @@ class _Socket:
     async def __anext__(self):
         self.reading.set()
         value = await self.inbound.get()
+        if isinstance(value, BaseException):
+            raise value
         if value is None:
             raise StopAsyncIteration
         return value
@@ -84,8 +86,8 @@ def test_receive_keeps_wire_frames_and_legacy_ignore_logs():
 
 @pytest.mark.parametrize(
     'error', [ValueError('unsupported'), KeyError('missing'), TypeError('bad')])
-def test_receive_preserves_exception_boundary_until_separate_r1_change(error):
-    """Only the old ValueError family is ignored; malformed admin failures still escape."""
+def test_receive_isolates_application_failures_after_r1(error):
+    """Bad application messages are contained while the old unsupported log stays stable."""
     async def scenario():
         socket, lines = _Socket(['{}', None]), []
         operation = receive_messages(
@@ -94,8 +96,8 @@ def test_receive_preserves_exception_boundary_until_separate_r1_change(error):
             await operation
             assert lines == ['ignoring unsupported message: unsupported']
         else:
-            with pytest.raises(type(error)):
-                await operation
+            await operation
+            assert lines == [f'ignoring failed message: {type(error).__name__}: {error}']
 
     asyncio.run(scenario())
 
@@ -135,11 +137,11 @@ def test_reconnect_retains_outbox_and_joins_connection_children(failure):
         if failure == 'normal':
             first.inbound.put_nowait(None)
         elif failure == 'receive':
-            first.inbound.put_nowait('{}')
+            first.inbound.put_nowait(OSError('receive transport failed'))
         second = _Socket()
         sockets = iter([first, second])
         events, lines = [], []
-        adapter = _Adapter(KeyError('bad') if failure == 'receive' else None)
+        adapter = _Adapter()
         outbox = ReliableOutbox()
         outbox.put({'event_type': 'on_arrived', 'request_id': 'r', 'sub_id': 1})
 

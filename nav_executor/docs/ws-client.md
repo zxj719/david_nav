@@ -23,10 +23,14 @@ If receive and send finish together, all results are retrieved during cleanup.
 Heartbeat ping JSON, inbound ping/pong handling, silence-warning thresholds,
 connection/retry log wording and attempt-one/every-tenth failure logging retain
 their previous formats. In-flight count is exposed separately from total pending
-count to preserve the old reconnect banner. Only JSON/non-object/ValueError
-messages are ignored in this step; R1's broader malformed administrative-command
-handling remains a separate change. No protocol ACK or exactly-once delivery is
-introduced. See [task-adapter.md](task-adapter.md) for outbox limitations.
+count to preserve the old reconnect banner. R1 additionally isolates malformed
+administrative fields, invalid binary encoding and unexpected per-message handler
+exceptions. Correlated parser failures produce the existing on_error response;
+uncorrelated failures are logged. Socket iteration, ping-send, heartbeat and
+outbox-send failures still reconnect, and cancellation is never swallowed.
+No protocol ACK or exactly-once delivery is introduced. See
+[task-adapter.md](task-adapter.md) for outbox limitations and
+[ADR-0007](adr-0007-message-isolation.md) for the full message boundary.
 
 `proxy.bypass_proxy_for_server` explicitly appends the configured hostname to
 both `no_proxy` and `NO_PROXY`, preserving existing hosts and idempotence. It is
@@ -36,5 +40,8 @@ Tests use in-memory sockets and the actual public task factory with fake ROS I/O
 An additional localhost-only test uses the installed WebSocket library and an
 ephemeral port to exercise mark, navigate, abort and reconnect through actual
 task/storage/backend implementations; the action client remains in memory, with
-no ROS initialization or physical navigation goals. CLI/help, outer ROS lifetime,
-Dock/Spin integration and the legacy executable switch are still pending.
+no ROS initialization or physical navigation goals. R1's additional real-loopback
+scenario sends bad frames followed by navigation on one connection, through the
+actual runtime and temporary storage with fake action clients. CLI/help, shared
+Dock/Spin lifetime and legacy entry wiring are implemented; real ROS/physical
+acceptance remains separately gated.

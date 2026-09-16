@@ -3,6 +3,10 @@ nav_executor
 
 0.1.0 (2026-09-16)
 ------------------
+* Fix R1: normalize malformed commands with recoverable request context, isolate
+  per-message failures on the same WS connection, and validate entire POI batches
+  before mutation. Preserve valid wire bytes, unknown-action ignore behavior,
+  cancellation propagation and reconnect on actual transport failure.
 * Replace retained david_nav executor/Dock programs with forwarding shims and
   merge its compatibility precise launch into one shared owner. Keep standalone
   Dock defaults as installed robot data and preserve legacy algorithm tests with

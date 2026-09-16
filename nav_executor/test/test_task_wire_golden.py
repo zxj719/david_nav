@@ -10,6 +10,7 @@ import pytest
 
 from nav_executor.adapters.transport.outbox import ReliableOutbox
 from nav_executor.protocol.task_adapter import TaskCommandAdapter
+from nav_executor.protocol.messages import MalformedCommandError, UnsupportedActionError
 from nav_tasks.api import ClosedError, CommandRegistry, TaskManager, TaskState
 from nav_tasks.core.goal_resolution import DirectGoalResolver
 from nav_tasks.core.handlers.navigate_to import NavigateToPoi
@@ -501,18 +502,24 @@ def test_g15_arrival_retained_across_failed_send_before_later_admin_frames():
 
 
 @pytest.mark.parametrize('payload,error', [
-    ({'action': 'mark_current_poi', 'request_id': 'r'}, KeyError),
-    ({'action': 'abort_navigation'}, KeyError),
-    ({'action': 'update_poi_list', 'version': 'invalid'}, ValueError),
-    ({'action': 'navigate_to', 'target_id': 'POI_001'}, ValueError),
-    ({'action': 'unsupported'}, ValueError),
+    ({'action': 'mark_current_poi', 'request_id': 'r'}, None),
+    ({'action': 'abort_navigation'}, MalformedCommandError),
+    ({'action': 'update_poi_list', 'version': 'invalid'}, MalformedCommandError),
+    ({'action': 'navigate_to', 'target_id': 'POI_001'}, MalformedCommandError),
+    ({'action': 'unsupported'}, UnsupportedActionError),
+    ({'action': 'unsupported', 'request_id': 'r'}, UnsupportedActionError),
 ])
-def test_malformed_frame_behavior_is_not_silently_repaired_in_adapter(payload, error):
-    """R1 remains a separate repair; this adapter does not conceal decoder changes."""
+def test_r1_replies_only_to_correlated_malformed_commands_without_motion(payload, error):
+    """The explicit R1 change sends an error, never an accepted mark or invented task."""
     async def scenario():
         harness = _Harness([])
-        with pytest.raises(error):
-            await harness.adapter.handle_message(payload)
+        if error is None:
+            assert await harness.adapter.handle_message(payload) == [{
+                'event_type': 'on_error', 'request_id': 'r', 'sub_id': 0,
+                'error_message': "malformed command: 'poi'"}]
+        else:
+            with pytest.raises(error):
+                await harness.adapter.handle_message(payload)
         assert harness.client.goals == []
         assert harness.tasks.status().state == TaskState.IDLE
         await harness.close()

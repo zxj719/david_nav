@@ -9,6 +9,7 @@ from typing import AsyncContextManager, AsyncIterator, Awaitable, Callable, Prot
 from nav_executor.adapters.transport.outbox import ReliableOutbox
 from nav_executor.app.logging import log_line
 from nav_executor.protocol.task_adapter import TaskCommandAdapter
+from nav_executor.protocol.messages import MalformedCommandError
 
 
 class WebSocketLike(Protocol):
@@ -45,11 +46,12 @@ async def receive_messages(
     last_inbound: list[float], *, emit: Callable[[str], None] = log_line,
     now: Callable[[], float] = time.monotonic,
 ) -> None:
-    """Decode frames and enqueue command replies, preserving legacy exception policy.
+    """Decode frames and isolate a bad application message without dropping its socket.
 
-    R1's broader malformed-command isolation is deliberately a separate change.
-    JSON/non-object/unsupported frames are ignored; other handler failures escape
-    to reconnect. Protocol ping/pong frames are connection-local, not replayed.
+    JSON/non-object/unsupported frames retain their ignore policy. Malformed
+    commands with request context are answered by the adapter; uncorrelated
+    errors and unexpected per-message failures are logged and skipped. Socket
+    iteration/send errors and BaseException cancellation still reach the owner.
 
     Args:
         socket: Connected frame transport.
@@ -63,8 +65,11 @@ async def receive_messages(
         last_inbound[0] = now()
         try:
             payload = json.loads(raw)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeError):
             emit(f'ignoring non-JSON message: {raw[:200]!r}')
+            continue
+        except Exception as error:
+            emit(f'ignoring failed message: {type(error).__name__}: {error}')
             continue
         if not isinstance(payload, dict):
             emit(f'ignoring non-object message: {raw[:200]!r}')
@@ -76,11 +81,14 @@ async def receive_messages(
             continue
         try:
             frames = await adapter.handle_message(payload)
+            for frame in frames:
+                outbox.put(frame)
+        except MalformedCommandError as error:
+            emit(f'ignoring malformed message: {error}')
         except ValueError as error:
             emit(f'ignoring unsupported message: {error}')
-            continue
-        for frame in frames:
-            outbox.put(frame)
+        except Exception as error:
+            emit(f'ignoring failed message: {type(error).__name__}: {error}')
 
 
 async def send_heartbeat(

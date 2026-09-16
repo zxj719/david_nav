@@ -29,10 +29,12 @@ the original G1–G16 still exercise the legacy runtime. New status and audit he
 cover G16 STATUS and exact G8/G15 logs through the new chain. CLI/help and
 ordinary-runtime wiring are present, but this is not full Dock/runtime acceptance.
 
-Malformed non-navigation frames retain their old KeyError/TypeError/ValueError
-behavior in this relocation. R1 is a later separate red/green repair; do not
-mistake this migration for a robustness fix. No handshake or new wire command
-is introduced. The [configuration loader](docs/configuration.md) now resolves
+R1 now normalizes malformed fields into contextual MalformedCommandError and
+isolates individual bad messages without reconnecting. Correlated failures use
+the existing on_error frame; unknown actions remain log-and-ignore. Complete POI
+directory validation precedes mutation. See [the R1 decision](docs/adr-0007-message-isolation.md)
+for the malformed-batch policy and transport/cancellation boundaries. No handshake
+or new wire command is introduced. The [configuration loader](docs/configuration.md) resolves
 explicit robot data, YAML, NAV_WS_URL and CLI values with per-key provenance.
 Its schema declares consumed executor settings. The new entry owns its private
 ROS context and preserves it until task cancellation and resource cleanup finish;

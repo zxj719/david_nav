@@ -6,15 +6,14 @@ from dataclasses import dataclass
 from typing import Union
 
 
-class CommandParseError(ValueError):
-    """Report missing or malformed navigate_to fields with recoverable request context.
+class NavExecutorError(Exception):
+    """Base for executor-owned protocol failures, separate from public task errors."""
 
-    v1 checklist:"target_id 缺字段/类型不对 → 发 on_error,不要启车"。
-    带上 request_id/sub_id(尽力从 payload 提取),core 据此构造 on_error;
-    request_id 也拿不到时 core 只能记日志丢弃。
-    """
 
-    def __init__(self, message: str, request_id: str | None, sub_id: int) -> None:
+class ProtocolError(NavExecutorError, ValueError):
+    """Retain legacy ValueError compatibility and recoverable wire request context."""
+
+    def __init__(self, message: str, request_id: str | None = None, sub_id: int = 0) -> None:
         """Retain recoverable request context with the original error text.
 
         Args:
@@ -25,6 +24,18 @@ class CommandParseError(ValueError):
         super().__init__(message)
         self.request_id = request_id
         self.sub_id = sub_id
+
+
+class CommandParseError(ProtocolError):
+    """Compatibility base for contextual malformed-command errors at the old import path."""
+
+
+class MalformedCommandError(CommandParseError):
+    """A missing field or invalid shape/conversion; reply only with recoverable context."""
+
+
+class UnsupportedActionError(ProtocolError):
+    """An unknown action to log and ignore, without inventing a response frame."""
 
 
 @dataclass(frozen=True)

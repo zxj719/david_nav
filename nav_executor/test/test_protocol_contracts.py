@@ -23,13 +23,13 @@ def test_command_dataclasses_and_contextual_parse_errors_are_preserved():
 
 
 @pytest.mark.parametrize('payload,error', [
-    ({'action': 'mark_current_poi'}, KeyError),
-    ({'action': 'abort_navigation'}, KeyError),
-    ({'action': 'update_poi_list', 'poi_list': None}, TypeError),
-    ({'action': 'unknown'}, ValueError),
+    ({'action': 'mark_current_poi'}, messages.MalformedCommandError),
+    ({'action': 'abort_navigation'}, messages.MalformedCommandError),
+    ({'action': 'update_poi_list', 'poi_list': None}, messages.MalformedCommandError),
+    ({'action': 'unknown'}, messages.UnsupportedActionError),
 ])
-def test_relocation_does_not_bundle_decoder_robustness_repairs(payload, error):
-    """R1 remains a separately reviewed behavior change, not an accidental migration fix."""
+def test_r1_decoder_errors_are_typed_without_changing_valid_wire_contracts(payload, error):
+    """The explicit R1 repair normalizes malformed fields separately from unknown actions."""
     with pytest.raises(error):
         codec.parse_command(payload)
 

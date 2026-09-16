@@ -62,7 +62,7 @@ class TaskCommandAdapter:
         """Translate a decoded command without waiting for navigation completion.
 
         Args:
-            payload: Decoded WS mapping; legacy parser behavior is preserved.
+            payload: Decoded WS mapping; malformed fields are rejected before API calls.
 
         Returns:
             Immediate parse/admission/mark frames. Navigation progress and terminal
@@ -70,9 +70,9 @@ class TaskCommandAdapter:
 
         Raises:
             ClosedError: The adapter was detached during runtime shutdown.
-            CommandParseError: A navigation request lacks recoverable request identity.
+            CommandParseError: A malformed request lacks recoverable request identity.
             ValueError: Unsupported commands or invalid administrative outcomes.
-            Exception: Legacy malformed administrative input or storage/cleanup failure.
+            Exception: Storage/cleanup failure, isolated at the transport receive boundary.
         """
         if self._closed:
             raise ClosedError('task command adapter is closed')
@@ -95,8 +95,8 @@ class TaskCommandAdapter:
             await self._tasks.cancel(command.request_id)
             return []
         if isinstance(command, UpdatePoiListCommand):
-            self._pois.update_directory(
-                (str(item['id']), str(item['name'])) for item in command.poi_list)
+            pairs = [(str(item['id']), str(item['name'])) for item in command.poi_list]
+            self._pois.update_directory(pairs)
             return []
         if isinstance(command, MarkCurrentPoiCommand):
             frames = [build_mark_poi_ack(command.request_id, command.sub_id)]

@@ -5,37 +5,57 @@ from __future__ import annotations
 from nav_tasks.api import StoredPoi
 
 from nav_executor.protocol.messages import (
-    AbortNavigationCommand, Command, CommandParseError, MarkCurrentPoiCommand,
-    NavigateToCommand, UpdatePoiListCommand,
+    AbortNavigationCommand, Command, MalformedCommandError, MarkCurrentPoiCommand,
+    NavigateToCommand, ProtocolError, UnsupportedActionError, UpdatePoiListCommand,
 )
 
 
 def _extract_request_context(payload: dict) -> tuple[str | None, int]:
     request_id = payload.get("request_id")
-    request_id = str(request_id).strip() if request_id is not None else None
+    request_id = (str(request_id).strip()
+                  if isinstance(request_id, (str, int, float, bool)) else None)
     try:
         sub_id = int(payload.get("sub_id", 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         sub_id = 0
     return request_id or None, sub_id
 
 
-def parse_command(payload: dict) -> Command:
-    """Decode a legacy command without changing malformed-frame behavior.
+def parse_command(payload: object) -> Command:
+    """Decode a v1 command, normalizing malformed input before any side effects.
 
     Args:
-        payload: Already decoded JSON mapping.
+        payload: Already decoded JSON value; commands require a mapping.
 
     Returns:
         The corresponding command value object.
 
     Raises:
-        CommandParseError: A navigate_to request lacks required context or target.
-        ValueError: An action is unsupported or a legacy numeric conversion fails.
-        KeyError: A non-navigation command lacks a required field.
-        TypeError: A legacy field cannot be converted to its expected type.
+        MalformedCommandError: Missing/invalid fields, with best-effort request context.
+        UnsupportedActionError: An unknown action; retain log-and-ignore behavior.
     """
-    action = str(payload.get("action", "")).strip()
+    if not isinstance(payload, dict):
+        raise MalformedCommandError('command must be a JSON object')
+    try:
+        return _decode(payload)
+    except ProtocolError:
+        raise
+    except (KeyError, TypeError, ValueError, OverflowError) as error:
+        request_id, sub_id = _extract_request_context(payload)
+        raise MalformedCommandError(f'malformed command: {error}', request_id, sub_id) from error
+
+
+def _text(value, field, allow_empty=False):
+    if not isinstance(value, (str, int, float, bool)):
+        raise TypeError(f'{field} must be a string or scalar value')
+    result = str(value).strip()
+    if not result and not allow_empty:
+        raise ValueError(f'{field} must not be empty')
+    return result
+
+
+def _decode(payload):
+    action = _text(payload.get("action", ""), 'action', allow_empty=True)
     if action == "navigate_to":
         # nav 协议 v1(2026-07-22 回退定稿):只认 target_id(POI id 字符串)。
         # v2 的 target_pose/label 字段按协议要求直接忽略——即使还带着,也
@@ -43,10 +63,10 @@ def parse_command(payload: dict) -> Command:
         # core 回 on_error,不启车。
         request_id, sub_id = _extract_request_context(payload)
         if request_id is None:
-            raise CommandParseError("navigate_to 缺少 request_id", None, sub_id)
+            raise MalformedCommandError("navigate_to 缺少 request_id", None, sub_id)
         target_id = payload.get("target_id")
         if not isinstance(target_id, str) or not target_id.strip():
-            raise CommandParseError(
+            raise MalformedCommandError(
                 "navigate_to 缺少有效 target_id(v1 只认 POI id,target_pose 已废弃)",
                 request_id,
                 sub_id,
@@ -59,25 +79,37 @@ def parse_command(payload: dict) -> Command:
         )
     if action == "mark_current_poi":
         poi = payload["poi"]
+        if not isinstance(poi, dict):
+            raise TypeError('poi must be an object')
         return MarkCurrentPoiCommand(
             action="mark_current_poi",
-            request_id=str(payload["request_id"]).strip(),
+            request_id=_text(payload["request_id"], 'request_id'),
             sub_id=int(payload["sub_id"]),
-            poi_id=str(poi["id"]).strip(),
-            poi_name=str(poi["name"]).strip(),
+            poi_id=_text(poi["id"], 'poi.id'),
+            poi_name=_text(poi["name"], 'poi.name', allow_empty=True),
         )
     if action == "abort_navigation":
         return AbortNavigationCommand(
             action="abort_navigation",
-            request_id=str(payload["request_id"]).strip(),
+            request_id=_text(payload["request_id"], 'request_id'),
         )
     if action == "update_poi_list":
+        items = payload.get("poi_list", [])
+        if not isinstance(items, list):
+            raise TypeError('poi_list must be a list')
+        for item in items:
+            if not isinstance(item, dict):
+                raise TypeError('poi_list entries must be objects')
+            # Validate the whole batch, retaining the original values/whitespace
+            # for legacy directory conversion. No repository mutation happens here.
+            _text(item['id'], 'poi.id')
+            _text(item['name'], 'poi.name', allow_empty=True)
         return UpdatePoiListCommand(
             action="update_poi_list",
             version=int(payload.get("version", 0)),
-            poi_list=list(payload.get("poi_list", [])),
+            poi_list=list(items),
         )
-    raise ValueError(f"unsupported action: {action}")
+    raise UnsupportedActionError(f"unsupported action: {action}")
 
 
 def build_progress_event(

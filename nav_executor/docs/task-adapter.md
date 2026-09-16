@@ -62,12 +62,17 @@ as they did with the old synchronous logger. `app.logging.OutboundAudit` plugs
 into both ReliableOutbox callbacks to preserve pre-send errors and successful
 terminal/replay lines (including G15). Healthy progress remains quiet.
 
-G16 CLI/help migration is still pending. Actual WS lifecycle/ROS port assembly,
-Dock/Spin, observer wiring at the assembly root and entry-point shims
-remain pending; P6.1/P6.2/P6.4 must not be marked done based on these tests alone.
+G16 CLI/help, WS lifecycle/ROS port assembly, shared Dock/Spin, observer wiring
+and retained entry shims are connected. Full ROS/physical acceptance remains
+separate; pure tests alone do not establish that deployment acceptance.
 
-Legacy malformed administrative commands still raise KeyError/ValueError; R1
-is deliberately left for its separate red/green repair. External CANCELED keeps
+R1 rejects malformed administrative commands as MalformedCommandError before API
+calls. The compatibility CommandParseError base and ValueError ancestry remain.
+Recoverable request IDs receive on_error; absent context and unknown actions
+propagate to the receive loop's log-and-ignore boundary. Directory pairs are fully
+materialized before mutation; a malformed batch is rejected as a whole, including
+an unknown ID lacking a name. Valid unknown IDs still create no records. This does
+not roll back a later storage I/O failure. External CANCELED keeps
 the frozen G12 NAVIGATING owner and emits paused distance 0.0. Invalid new POI
 lookup preserves existing motion ownership, the intentional safety difference
 already documented with the new manager. Detaching the adapter never cancels
