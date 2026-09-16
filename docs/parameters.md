@@ -83,7 +83,35 @@ This file lists every robot-profile key declared by package schemas.
 
 ## `nav_executor`
 
-No parameters declared.
+| Key | Type | Unit | Required / default | Constraints | Description | Tuning |
+|---|---|---|---|---|---|---|
+| `executor.action_name` | `string` | — | default: `"/navigate_to_pose"` | — | NavigateToPose server; never a second motion owner. | — |
+| `executor.cancel_timeout_sec` | `float` | s | default: `5` | range: `0.0 .. inf` | Cleanup waiting deadline, not permission to discard pending action ownership. | — |
+| `executor.dock_action_name` | `string` | — | default: `"/dock_to_pose"` | — | Legacy docking endpoint name; shared Dock integration is pending. | — |
+| `executor.dock_poi_ids` | `list[string]` | — | default: `[]` | — | Dock-only POI IDs; runtime currently rejects these until Dock integration. | — |
+| `executor.global_costmap_topic` | `string` | — | default: `"/global_costmap/costmap"` | — | Global costmap observed by ordinary POI snapping. | — |
+| `executor.grid_map_topic` | `string` | — | default: `null` | — | Static grid observed by goal snapping, retaining the robot-specific default. | — |
+| `executor.heartbeat_interval` | `float` | s | default: `30` | range: `0.0 .. inf` | WS heartbeat interval; runtime requires strictly positive. | — |
+| `executor.loop_closure_poll_sec` | `float` | s | default: `1` | range: `0.0 .. inf` | POI reprojection poll interval; runtime requires strictly positive. | — |
+| `executor.loop_closure_translation_m` | `float` | m | default: `0.05` | range: `0.0 .. inf` | POI reprojection translational no-change threshold. | — |
+| `executor.loop_closure_yaw_rad` | `float` | rad | default: `0.03` | range: `0.0 .. inf` | POI reprojection raw-yaw no-change threshold. | — |
+| `executor.nav_goal_clearance_radius` | `float` | m | default: `0.1` | range: `0.0 .. inf` | Free-cell clearance radius around ordinary snapped goals. | — |
+| `executor.nav_goal_fallback_snap_radius` | `float` | m | default: `1` | range: `0.0 .. inf` | Legacy lower bound for maximum snap radius. | — |
+| `executor.nav_goal_max_snap_radius` | `float` | m | default: `3` | range: `0.0 .. inf` | Maximum ordinary snap radius before fallback lower bound. | — |
+| `executor.nav_goal_snap_radius` | `float` | m | default: `0.5` | range: `0.0 .. inf` | Initial ordinary goal snap search radius. | — |
+| `executor.nav_goal_snap_step` | `float` | m | default: `0.25` | range: `0.0 .. inf` | Snap ring increment; runtime requires strictly positive. | — |
+| `executor.nav_retry_count` | `int` | — | default: `1` | range: `0.0 .. inf` | Silent retries per ordinary navigation segment before final failure. | — |
+| `executor.nav_retry_delay_sec` | `float` | s | default: `1` | range: `0.0 .. inf` | Wait between failed ordinary navigation attempts. | — |
+| `executor.poi_store_file` | `string` | — | default: `null` | — | Standalone executor local POI store; site or CLI may override. | — |
+| `executor.pose_file` | `string` | — | default: `null` | — | Read-only named poses JSON imported at startup; null disables import. | — |
+| `executor.pose_stale_after_sec` | `float` | s | default: `0.5` | range: `0.0 .. inf` | Maximum pose age accepted for mark_current_poi. | — |
+| `executor.progress_min_interval_sec` | `float` | s | default: `1` | range: `0.0 .. inf` | Minimum navigation progress reporting interval. | — |
+| `executor.server_timeout` | `float` | s | default: `10` | range: `0.0 .. inf` | Maximum action server readiness wait. | — |
+| `executor.server_uri` | `string` | — | default: `"ws://127.0.0.1:8101"` | — | Agent WebSocket URI; overridden by NAV_WS_URL then CLI. | — |
+| `executor.slam_session_id` | `string` | — | default: `"live_session"` | — | POI session label; does not start or modify localization. | — |
+| `executor.source_poi_file` | `string` | — | default: `null` | — | Optional read-only source POI YAML beneath the writable local store. | — |
+| `executor.status_print_interval_sec` | `float` | s | default: `3.3333333333333335` | range: `0.0 .. inf` | Active-task status heartbeat; idle remains transition-only. | — |
+| `frames.poi_capture` | `string` | — | default: `null` | — | Point capture frame; distinct from the navigation rotation center. | — |
 
 ## `nav_perception_iface`
 

@@ -12,3 +12,6 @@ nav_executor
 * Extract proxy bypass, heartbeat, receive and reconnect components; join all
   connection children and reconnect promptly on sender failure without canceling
   motion or losing the shared outbox. Keep legacy entry points unchanged.
+* Add immutable configuration, CLI/environment/YAML/profile precedence, headless
+  section loading and frozen help. Keep robot literals in data and expose explicit
+  task/transport bindings and per-value provenance; entry-point switching is pending.

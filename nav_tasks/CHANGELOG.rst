@@ -21,3 +21,5 @@ nav_tasks
 * Assemble ordinary POI services through a lazy public factory; retain cleanup
   ownership across canceled callers, deadlines and partial construction failures.
   Reject Dock configurations until integrated; do not switch legacy entry points.
+* Pass explicitly configured loop-closure translation/yaw thresholds to the
+  observer while retaining 0.05 m / 0.03 rad defaults.

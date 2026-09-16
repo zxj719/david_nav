@@ -409,7 +409,7 @@ def test_crashed_observer_does_not_prevent_motion_resource_cleanup(ros_io, tmp_p
     async def scenario():
         failed = asyncio.Event()
 
-        async def broken(*args):
+        async def broken(*args, **kwargs):
             failed.set()
             raise OSError('watcher failure')
 
@@ -420,6 +420,29 @@ def test_crashed_observer_does_not_prevent_motion_resource_cleanup(ros_io, tmp_p
         await runtime.close()
         assert node.clients[0].destroy_count == 1
         assert len(node.destroyed) == 3
+
+    asyncio.run(scenario())
+
+
+def test_explicit_loop_closure_thresholds_reach_observer(ros_io, tmp_path, monkeypatch):
+    """The public factory passes threshold overrides through to its supervised watcher."""
+    async def scenario():
+        started = asyncio.Event()
+        received = []
+
+        async def observer(*args, **kwargs):
+            received.append((args[2], kwargs))
+            started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr('nav_tasks.app.runtime.watch_loop_closure', observer)
+        runtime, _, _ = await _runtime(
+            tmp_path, loop_closure_poll_sec=2.0,
+            loop_closure_translation_m=0.08, loop_closure_yaw_rad=0.06)
+        runtime.start_loop_closure()
+        await asyncio.wait_for(started.wait(), 1)
+        await runtime.close()
+        assert received == [(2.0, {'translation_threshold_m': 0.08, 'yaw_threshold_rad': 0.06})]
 
     asyncio.run(scenario())
 

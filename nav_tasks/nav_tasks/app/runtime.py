@@ -116,7 +116,9 @@ class TaskRuntime:
             raise ClosedError('task runtime is closing or closed')
         if self._watcher is None or self._watcher.done():
             self._watcher = self._supervisor.spawn(watch_loop_closure(
-                self.poses, self._repository, self._config.loop_closure_poll_sec), 'loop-closure')
+                self.poses, self._repository, self._config.loop_closure_poll_sec,
+                translation_threshold_m=self._config.loop_closure_translation_m,
+                yaw_threshold_rad=self._config.loop_closure_yaw_rad), 'loop-closure')
 
     async def stop_loop_closure(self) -> None:
         """Cancel/join the watcher without canceling motion or discarding its crash log.

@@ -37,5 +37,7 @@ class RuntimeConfig:
     nav_goal_max_snap_radius: float = 3.0
     nav_goal_snap_step: float = 0.25
     loop_closure_poll_sec: float = 1.0
+    loop_closure_translation_m: float = 0.05
+    loop_closure_yaw_rad: float = 0.03
     progress_min_interval_sec: float = 1.0
     pose_stale_after_sec: float = 0.5

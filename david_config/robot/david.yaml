@@ -113,6 +113,10 @@ startup:
   nav_ready_timeout_sec: 120.0
 executor:
   reconnect_delay_sec: 3.0
+  # Legacy standalone executor defaults; site/CLI can override the store path.
+  # POI capture uses frames.poi_capture, odometry keeps nav2.odom_topic (TODO-O1).
+  poi_store_file: ~/.ros/david_nav/poi_store.yaml
+  grid_map_topic: /lightning/grid_map
 
 sensors:
   scan_from_cloud:

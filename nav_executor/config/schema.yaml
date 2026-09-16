@@ -1,4 +1,145 @@
 schema_version: 1
 package: nav_executor
-# Pure contracts consume explicit arguments, not profile keys.
-parameters: {}
+# Canonical frames.map/odom and nav2.odom_topic are declared by their existing owners.
+# executor.reconnect_delay_sec stays declared by nav_bringup while its binding consumes it.
+parameters:
+  frames.poi_capture:
+    type: string
+    default: null
+    description: "Point capture frame; distinct from the navigation rotation center."
+  executor.poi_store_file:
+    type: string
+    default: null
+    description: "Standalone executor local POI store; site or CLI may override."
+  executor.grid_map_topic:
+    type: string
+    default: null
+    description: "Static grid observed by goal snapping, retaining the robot-specific default."
+  executor.server_uri:
+    type: string
+    default: "ws://127.0.0.1:8101"
+    description: "Agent WebSocket URI; overridden by NAV_WS_URL then CLI."
+  executor.pose_file:
+    type: string
+    default: null
+    description: "Read-only named poses JSON imported at startup; null disables import."
+  executor.source_poi_file:
+    type: string
+    default: null
+    description: "Optional read-only source POI YAML beneath the writable local store."
+  executor.action_name:
+    type: string
+    default: "/navigate_to_pose"
+    description: "NavigateToPose server; never a second motion owner."
+  executor.dock_action_name:
+    type: string
+    default: "/dock_to_pose"
+    description: "Legacy docking endpoint name; shared Dock integration is pending."
+  executor.dock_poi_ids:
+    type: list
+    default: []
+    description: "Dock-only POI IDs; runtime currently rejects these until Dock integration."
+    items: string
+  executor.global_costmap_topic:
+    type: string
+    default: "/global_costmap/costmap"
+    description: "Global costmap observed by ordinary POI snapping."
+  executor.slam_session_id:
+    type: string
+    default: "live_session"
+    description: "POI session label; does not start or modify localization."
+  executor.server_timeout:
+    type: float
+    default: 10
+    description: "Maximum action server readiness wait."
+    unit: s
+    range: [0.0, null]
+  executor.heartbeat_interval:
+    type: float
+    default: 30
+    description: "WS heartbeat interval; runtime requires strictly positive."
+    unit: s
+    range: [0.0, null]
+  executor.loop_closure_poll_sec:
+    type: float
+    default: 1
+    description: "POI reprojection poll interval; runtime requires strictly positive."
+    unit: s
+    range: [0.0, null]
+  executor.nav_retry_count:
+    type: int
+    default: 1
+    description: "Silent retries per ordinary navigation segment before final failure."
+    range: [0.0, null]
+  executor.nav_retry_delay_sec:
+    type: float
+    default: 1
+    description: "Wait between failed ordinary navigation attempts."
+    unit: s
+    range: [0.0, null]
+  executor.nav_goal_snap_radius:
+    type: float
+    default: 0.5
+    description: "Initial ordinary goal snap search radius."
+    unit: m
+    range: [0.0, null]
+  executor.nav_goal_fallback_snap_radius:
+    type: float
+    default: 1
+    description: "Legacy lower bound for maximum snap radius."
+    unit: m
+    range: [0.0, null]
+  executor.nav_goal_clearance_radius:
+    type: float
+    default: 0.1
+    description: "Free-cell clearance radius around ordinary snapped goals."
+    unit: m
+    range: [0.0, null]
+  executor.nav_goal_max_snap_radius:
+    type: float
+    default: 3
+    description: "Maximum ordinary snap radius before fallback lower bound."
+    unit: m
+    range: [0.0, null]
+  executor.nav_goal_snap_step:
+    type: float
+    default: 0.25
+    description: "Snap ring increment; runtime requires strictly positive."
+    unit: m
+    range: [0.0, null]
+  executor.cancel_timeout_sec:
+    type: float
+    default: 5
+    description: "Cleanup waiting deadline, not permission to discard pending action ownership."
+    unit: s
+    range: [0.0, null]
+  executor.loop_closure_translation_m:
+    type: float
+    default: 0.05
+    description: "POI reprojection translational no-change threshold."
+    unit: m
+    range: [0.0, null]
+  executor.loop_closure_yaw_rad:
+    type: float
+    default: 0.03
+    description: "POI reprojection raw-yaw no-change threshold."
+    unit: rad
+    range: [0.0, null]
+  executor.progress_min_interval_sec:
+    type: float
+    default: 1
+    description: "Minimum navigation progress reporting interval."
+    unit: s
+    range: [0.0, null]
+  executor.pose_stale_after_sec:
+    type: float
+    default: 0.5
+    description: "Maximum pose age accepted for mark_current_poi."
+    unit: s
+    range: [0.0, null]
+  executor.status_print_interval_sec:
+    type: float
+    default: 3.3333333333333335
+    description: "Active-task status heartbeat; idle remains transition-only."
+    unit: s
+    range: [0.0, null]

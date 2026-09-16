@@ -28,8 +28,10 @@ actual runtime wiring remain pending; this is not full runtime acceptance.
 Malformed non-navigation frames retain their old KeyError/TypeError/ValueError
 behavior in this relocation. R1 is a later separate red/green repair; do not
 mistake this migration for a robustness fix. No handshake or new wire command
-is introduced. Configuration schema is empty until the runtime starts consuming
-profile keys in P6.4.
+is introduced. The [configuration loader](docs/configuration.md) now resolves
+explicit robot data, YAML, NAV_WS_URL and CLI values with per-key provenance.
+Its schema declares consumed executor settings; CLI/help functions are available,
+but the installed entry point and outer ROS lifetime have not been switched.
 
 Only `nav_tasks.api` may be imported from the task package. The reverse dependency
 is forbidden. `TaskCommandAdapter` calls TaskApi and the administrative PoiApi,
