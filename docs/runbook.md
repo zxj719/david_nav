@@ -70,7 +70,9 @@ logs、metrics、bag和summary.md；latest指向最新记录，但不单凭链�
 
 - P7.A1：`ls/show` 已接入，只读JSON导出，支持 `--params/--diff/--events`；
   `check` 默认重新校验冻结配置，显式 `--live` 才调用共享ROS只读观测；
-  `down/status/gc` 仍待实现，不能用底层helper代替CLI验收。
+  `status/down` 已接当前up实例合作控制：核对租约/本地peer/代次，不按PID杀进程；
+  停止请求接受不等于收尾完成，超时返回未完成/未知，不强杀。旧wrap/手工栈不归此锁管理。
+  `gc` 仍待实现，不能用底层helper代替CLI验收。
   `--diff` 是冻结robot→robot+mode的差异，另列Nav2/遥控覆盖，不是运行参数自动回写。
   `unfinished` 不证明进程存活；读目录可能与写入并发，输出明确非原子快照。
 - P7.A2：PLAN§12.6的 `navcfg validate --robot <robot> --mode tour` 便利选择器未接入，

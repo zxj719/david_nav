@@ -6,7 +6,7 @@ import json
 import os
 import threading
 import time
-from typing import IO, List, Optional
+from typing import Callable, IO, List, Optional
 
 from nav_bringup.recorder.run_dir import RunDirectory
 
@@ -14,12 +14,14 @@ from nav_bringup.recorder.run_dir import RunDirectory
 class StartupObserver:
     """Own a short-lived recording thread, never a navigation child or ROS context."""
 
-    def __init__(self, run: RunDirectory, terminal: Optional[IO[bytes]]) -> None:
+    def __init__(self, run: RunDirectory, terminal: Optional[IO[bytes]],
+                 poll: Optional[Callable[[], None]] = None) -> None:
         """Describe a recorder without starting it or opening output files.
 
         Args:
             run: New directory owned by the startup supervisor.
             terminal: Optional binary output stream, including redirected stdout.
+            poll: Optional bounded nonblocking control callback on the existing thread.
         """
         self.run = run
         self.terminal = terminal
@@ -30,6 +32,7 @@ class StartupObserver:
         self._console = None
         self._event_offset = 0
         self._event_fragment = b''
+        self._poll = poll
 
     def start(self) -> None:
         """Start 1 Hz supervisor-tree sampling and forwarding of run-local logs.
@@ -84,6 +87,12 @@ class StartupObserver:
         next_sample = time.monotonic() + 1.0
         try:
             while not self._stop.is_set():
+                if self._poll is not None:
+                    try:
+                        self._poll()
+                    except Exception as error:
+                        self.errors.append('control: ' + type(error).__name__)
+                        self._poll = None
                 current = time.monotonic()
                 if self._sampling and current >= next_sample:
                     try:

@@ -12,7 +12,7 @@ import json
 import os
 from pathlib import Path
 import stat
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 
 DEFAULT_LOCK_PATH = Path('/tmp/navrun.lock')
@@ -86,6 +86,44 @@ class RunLock:
         if self._descriptor is None:
             raise RuntimeError('lock not acquired')
         return self._descriptor
+
+    def assert_owned(self) -> None:
+        """Verify this process still owns the pinned lease object and path identity.
+
+        Raises:
+            RuntimeError: Ownership was released or this is an inherited child copy.
+            ValueError: The persistent path no longer denotes the pinned owned file.
+            OSError: The descriptor or path is unavailable.
+        """
+        if self._descriptor is None or self._owner_pid != os.getpid():
+            raise RuntimeError('lease is not owned by this process')
+        info = os.fstat(self._descriptor)
+        current = self.path.lstat()
+        if (not stat.S_ISREG(current.st_mode) or current.st_uid != os.geteuid()
+                or current.st_nlink != 1 or current.st_mode & 0o022
+                or (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino)):
+            raise ValueError('lease path identity changed')
+
+    def annotate(self, control: Mapping[str, Any]) -> None:
+        """Publish bounded discovery metadata without granting PID signaling authority.
+
+        Args:
+            control: Cooperative endpoint identity and finalization diagnostics.
+
+        Raises:
+            ValueError: The metadata is oversized or ownership identity changed.
+            RuntimeError: This process no longer owns the lease.
+            OSError: The metadata cannot be written completely.
+        """
+        self.assert_owned()
+        payload = json.dumps({'pid': os.getpid(), 'control': dict(control)},
+                             allow_nan=False).encode('utf-8') + b'\n'
+        if len(payload) > 4096:
+            raise ValueError('lease metadata exceeds limit')
+        descriptor = self.fileno()
+        if os.pwrite(descriptor, payload, 0) != len(payload):
+            raise OSError('incomplete lease metadata write')
+        os.ftruncate(descriptor, len(payload))
 
     def release(self) -> None:
         """Close ownership without deleting the persistent lock inode.

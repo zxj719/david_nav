@@ -39,6 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
         prog='navrun', description='Navigation run supervisor and recorder.')
     subparsers = parser.add_subparsers(dest='subcommand', required=True)
 
+    from nav_bringup.navrun.locking import DEFAULT_LOCK_PATH
+
+    for command in ('status', 'down'):
+        control_parser = subparsers.add_parser(command, help='contact the current managed owner')
+        control_parser.add_argument('--lock-path', type=Path, default=DEFAULT_LOCK_PATH)
+        control_parser.add_argument('--timeout', type=float, default=2.0,
+                                    help='positive cooperative response deadline in seconds')
+        control_parser.add_argument('--wait-timeout', type=float, default=30.0,
+                                    help='down cleanup wait bound; expiry never forces a kill')
+
     check_parser = subparsers.add_parser('check', help='validate a prepared run; ROS is opt-in')
     selection = check_parser.add_mutually_exclusive_group()
     selection.add_argument('--run-dir', type=Path, help='explicit prepared run directory')
@@ -239,6 +249,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))
     args.invocation = ('navrun', *(sys.argv[1:] if argv is None else list(argv)))
+    if args.subcommand in ('status', 'down'):
+        from nav_bringup.navrun import control_client
+
+        return control_client.run(args)
     if args.subcommand == 'check':
         from nav_bringup.navrun import check
 

@@ -24,6 +24,7 @@ import yaml
 
 from nav_bringup.navcfg import render
 from nav_bringup.navrun import event_tail
+from nav_bringup.navrun.control_server import RunControl
 from nav_bringup.navrun.locking import RunLock
 from nav_bringup.navrun.keyboard_session import KeyboardSession
 from nav_bringup.navrun.preparation import write_bundle
@@ -97,6 +98,7 @@ class _Signals:
     def __init__(self):
         self.received = None
         self.previous = {}
+        self.remote_stop = threading.Event()
 
     def __enter__(self):
         if threading.current_thread() is not threading.main_thread():
@@ -114,7 +116,8 @@ class _Signals:
             self.received = number
 
     def __call__(self):
-        return self.received
+        return self.received if self.received is not None else (
+            signal.SIGTERM if self.remote_stop.is_set() else None)
 
     def __exit__(self, *args):
         for number, handler in self.previous.items():
@@ -173,11 +176,13 @@ def run_recorded_startup(
     _validate(options, steps)
     env = dict(os.environ if environ is None else environ)
     output = terminal if terminal is not None else getattr(sys.stdout, 'buffer', None)
-    with _Signals() as stopped, RunLock(options.lock_path) as lease:
+    with _Signals() as stopped, RunLock(options.lock_path) as lease, \
+            RunControl(lease, stopped.remote_stop.set) as control:
         started = now()
         git = manifest_lib.collect_git_info(options.repo_dir, runner)
         run_id = run_dir_lib.make_run_id(options.mode, git.commit, started)
         run = run_dir_lib.create_run_directory(options.runs_root, run_id)
+        control.identify(run_id, options.mode)
         env.update(ROS_LOG_DIR=str(run.logs / 'ros'), NAVRUN_RUN_DIR=str(run.path),
                    NAVRUN_RUN_ID=run_id, PYTHONUNBUFFERED='1')
         (run.logs / 'ros').mkdir()
@@ -188,7 +193,7 @@ def run_recorded_startup(
             environment=manifest_lib.collect_environment(env), alias=env.get('NAVRUN_ALIAS'))
         _write_manifest(run.manifest, record)
         events = EventLog(run.events)
-        observer = StartupObserver(run, output)
+        observer = StartupObserver(run, output, poll=control.poll)
         result = LifecycleResult(2, 'prepare_failed')
         stage = 'prepare'
         linked = None

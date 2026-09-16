@@ -32,7 +32,8 @@ Workspace [architecture](../docs/architecture.md) and [runbook](../docs/runbook.
 distinguish implemented code from deployment and the remaining CLI work.
 The read-only `ls/show` interfaces and frozen parameter/overlay exports are available.
 `navrun check` revalidates a prepared run offline, with opt-in live observation.
-PLAN's down/status/gc interfaces are not yet registered (P7.A1);
+`navrun status/down` contact the current cooperative `up` owner under its lease.
+PLAN's gc interface is not yet registered (P7.A1);
 navcfg's robot selector (P7.A2) and closed-loop selftest (P3.5) are also pending.
 Existing retention/live-check helpers do not constitute those public commands.
 
@@ -103,6 +104,50 @@ interruption returns 128+signal after observer cleanup. `--wait-timeout 0` (defa
 waits indefinitely for manual localization. `--sample-sec` and
 `--parameter-timeout` must be positive finite values. The shared live output keeps
 the `navcfg check` label; no second implementation of its ROS lifecycle exists.
+
+### Inspect or stop the managed owner
+
+```bash
+navrun status
+navrun down --timeout 2 --wait-timeout 30
+```
+
+These commands use the persistent `/tmp/navrun.lock` (or explicit `--lock-path`
+for a private/test lease). They never send OS signals or select processes by
+name/PID. Status reads the owned regular lock file without creating it and probes
+its advisory lease without rewriting metadata. A held lock alone is insufficient:
+the client requires a response from that incarnation's local cooperative endpoint,
+verifies kernel peer PID/UID before sending an operation, and checks the instance
+identity. Old PID-only locks, unsafe files, missing/unresponsive endpoints or
+changed identities produce `unknown` with exit 2, never a kill fallback.
+
+Each `navrun up` opens one Linux abstract UNIX sequence-packet endpoint with a
+random per-run identity. No socket file, additional daemon or thread is created.
+The existing recorder thread polls it at its existing 0.1-second cadence; at most
+eight clients/requests are handled per pass, with bounded packets and a two-second
+incomplete-client deadline. Requests are accepted only from the same user and
+while the creating lease object/path is still owned. Record identity is published
+before the observer starts. Slow or failed console/resource observation can make
+the endpoint unresponsive; this is reported as uncertainty, not process absence.
+
+`down` sets the supervisor's cooperative stop flag (existing SIGTERM-equivalent
+exit 143), allowing the normal startup/child cleanup/terminal restoration/record
+finalization sequence. Acknowledgment only means `stop_requested`. The client
+reports `finished` and `cleanup_complete: true` only after a normal finalized
+owner context and release of that same lease incarnation. A crashed owner,
+replacement inode or intervening new owner cannot be mistaken for proved cleanup;
+the client never retargets its request to the new owner. The abstract endpoint
+closes before the lease is released; all accepted connections are closed too.
+
+JSON exit statuses: 0 for verified status, finished cleanup, or an inactive managed
+lease; 2 for unknown/invalid/operational failure; 3 for an acknowledged stop whose
+cleanup remains pending at `--wait-timeout`; 130 if the client is interrupted.
+`--timeout` must be positive and finite; `--wait-timeout` nonnegative and finite.
+A response timeout does not prove that a stop request was never received.
+There is no force-stop option. `active` means the supervisor owns its run, not
+that Nav2 is ready. `inactive` does not prove that legacy `wrap`, manual navigation,
+localization, or arbitrary robot processes are stopped: these are not owned by
+this `up` lease. Neither outcome is a physical braking/safety certification.
 
 ## Layout
 
