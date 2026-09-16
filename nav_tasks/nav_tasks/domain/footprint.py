@@ -12,7 +12,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 import math
-from typing import Sequence, Tuple
+from typing import Any, Sequence, Tuple
 
 _EPS = 1e-9
 
@@ -42,7 +42,7 @@ class OccupancyGridView:
     data: Tuple[int, ...]
 
     @classmethod
-    def from_message(cls, message) -> 'OccupancyGridView':
+    def from_message(cls, message: Any) -> 'OccupancyGridView':
         """Copy the relevant fields from an OccupancyGrid-like message.
 
         Args:
