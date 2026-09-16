@@ -299,6 +299,11 @@ if(BUILD_TESTING)
     test/test_goal_resolution_migration.py
   )
 
+  ament_add_pytest_test(
+    poi_repository_migration_test
+    test/test_poi_repository_migration.py
+  )
+
 endif()
 
 ament_package()

@@ -14,3 +14,5 @@ nav_tasks
 * Export PoiApi and MarkPoiResult for transport-independent administrative commands.
 * Expose fenced target/phase observations and optional retry auditing without
   changing retry policy, motion ownership or legacy runtime entry points.
+* Add ROS-free YAML POI repository and read-only named-poses importer with explicit
+  frames, unchanged file format, byte comparisons and persistence fault injection.

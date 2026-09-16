@@ -34,6 +34,10 @@ rules; this relocation does not add origin rotation or new input validation.
 `core/goal_resolution.py` preserves the legacy snap search under differential tests.
 No ROS, WebSocket, YAML or filesystem implementation is imported by these layers.
 Concrete ROS adapters are kept outside the pure layers and import ROS lazily.
+The [site data boundary](docs/site-data.md) now supplies an actual ROS-free YAML
+PoiRepository and read-only named-poses importer. It is physically hosted under
+`nav_tasks.nav_site_data` per PLAN, with byte-level old/new persistence tests;
+legacy entry points are not switched yet.
 
 The default settling threshold remains **0.05 rad/s**, continuously satisfied for
 0.4 s with a 0.05 s polling interval. `DockTolerance` still has the old helper

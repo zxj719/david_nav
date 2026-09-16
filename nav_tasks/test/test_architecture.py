@@ -22,6 +22,10 @@ def test_import_boundaries():
                 targets = [node.module or '']
             for target in targets:
                 root = target.split('.')[0]
+                if relative.parts[0] == 'nav_site_data' and (
+                        root == 'rclpy' or root.endswith('_msgs') or
+                        target.startswith('nav_tasks.adapters')):
+                    violations.append(f'{relative}: ROS dependency in site data: {target}')
                 if root == 'david_nav':
                     violations.append(f'{relative}: reverse legacy dependency {target}')
                 if pure and (root in ('rclpy', 'websockets', 'yaml') or root.endswith('_msgs')):

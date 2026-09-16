@@ -142,10 +142,10 @@ class _Resolver:
 
 
 class _Harness:
-    def __init__(self, outcomes, resolver=None, on_failure=None):
+    def __init__(self, outcomes, resolver=None, on_failure=None, repository=None):
         self.clock = _Clock()
         self.client = _Client(outcomes)
-        self.repository = _Repository()
+        self.repository = repository if repository is not None else _Repository()
         self.poses = _Poses()
         node = SimpleNamespace(get_clock=lambda: SimpleNamespace(
             now=lambda: SimpleNamespace(to_msg=lambda: self.clock.value)))
@@ -638,6 +638,36 @@ def test_retry_audit_starts_a_fresh_budget_for_each_navigation_segment():
         assert 'goal=map(x=1.00,' in lines[2]
         assert lines[1] == lines[3]
         assert harness.adapter._events.empty()
+        await harness.close()
+
+    asyncio.run(scenario())
+
+
+def test_wire_commands_use_persistent_repository_through_public_ports(tmp_path):
+    """Mark, reload, rename and navigate use real YAML storage and the new task chain."""
+    from nav_tasks.nav_site_data.yaml_poi_repository import YamlPoiRepository
+
+    async def scenario():
+        path = tmp_path / 'poi_store.yaml'
+        repository = YamlPoiRepository(path, map_frame='map')
+        harness = _Harness([4], repository=repository)
+        frames = await harness.adapter.handle_message({
+            'action': 'mark_current_poi', 'request_id': 'mark', 'sub_id': 1,
+            'poi': {'id': 'POI_001', 'name': '现场点'},
+        })
+        assert [frame['event_type'] for frame in frames] == [
+            'on_mark_poi_ack', 'on_mark_poi_success']
+        repository.load()
+        assert repository.get('POI_001').map_pose.x == 3
+        await harness.adapter.handle_message({
+            'action': 'update_poi_list', 'version': 1,
+            'poi_list': [{'id': 'POI_001', 'name': '新名字'}],
+        })
+        repository.load()
+        assert repository.get('POI_001').name == '新名字'
+        await harness.adapter.handle_message(dict(_NAVIGATE))
+        assert _wire(await harness.adapter.next_event()) == _ARRIVED
+        assert harness.client.goals[0].pose.pose.position.x == 3
         await harness.close()
 
     asyncio.run(scenario())
