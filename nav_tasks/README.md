@@ -1,5 +1,10 @@
 # nav_tasks
 
+R2 [supervised crash recovery](docs/adr-0008-crash-recovery.md) now reports one
+internal-error event and automatically cleans up the shared backend. Ownership
+and completion receipts are released only after cleanup succeeds; failed cleanup
+remains owned in ERROR for retry, never a false idle/physical-stop guarantee.
+
 The [Dock ROS ingress](docs/dock-ingress.md) now routes topic/action requests
 through the shared manager, preserving busy rejection, cancellation and full
 feedback. Its public owner requires the multithreaded host shutdown sequence;

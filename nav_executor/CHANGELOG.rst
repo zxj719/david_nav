@@ -3,6 +3,8 @@ nav_executor
 
 0.1.0 (2026-09-16)
 ------------------
+* Integrate R2 task crash reports as existing on_error frames; verify successful
+  cleanup and subsequent navigation through the public task adapter with fake I/O.
 * Fix R1: normalize malformed commands with recoverable request context, isolate
   per-message failures on the same WS connection, and validate entire POI batches
   before mutation. Preserve valid wire bytes, unknown-action ignore behavior,

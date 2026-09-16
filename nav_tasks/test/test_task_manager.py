@@ -288,23 +288,27 @@ def test_failed_cleanup_keeps_ownership_and_can_be_retried():
     asyncio.run(scenario())
 
 
-def test_crash_reports_failure_but_requires_explicit_motion_cleanup():
-    """A programming error is not proof that the backend goal has stopped."""
+def test_crash_reports_failure_and_supervises_motion_cleanup():
+    """R2 automatically cleans up, but an error event alone does not prove idle."""
     async def scenario():
         skill = _Skill()
+        skill.cancel_release = asyncio.Event()
         manager = _manager(skill)
         events = manager.subscribe_events()
         await manager.submit(_request())
         await skill.starts.get()
         skill.results[0].set_exception(RuntimeError('skill crashed'))
         event = await events.get()
-        assert (event.kind, event.detail) == (EventKind.FAILED, 'skill crashed')
+        assert (event.kind, event.detail) == (EventKind.FAILED, '执行器内部错误: RuntimeError')
         assert manager.status().state == TaskState.ERROR
         skill.contexts[0].feedback(100)
         assert manager.status().state == TaskState.ERROR
         assert events.empty()
-        assert await manager.cancel() is True
+        await skill.cancel_entered.wait()
         assert skill.cancel_entered.is_set()
+        assert manager.status().state == TaskState.ABORTING
+        skill.cancel_release.set()
+        await _settle()
         assert manager.status().state == TaskState.IDLE
         await manager.close()
 
@@ -382,7 +386,7 @@ def test_canceled_cancel_waiter_still_completes_cleanup():
 
 
 def test_invalid_outcome_is_a_crash_not_success():
-    """A handler violating its result contract cannot silently release ownership."""
+    """A handler violating its result contract reports TypeError before cleanup."""
     async def scenario():
         skill = _Skill()
         manager = _manager(skill)
@@ -392,8 +396,11 @@ def test_invalid_outcome_is_a_crash_not_success():
         skill.results[0].set_result(None)
         event = await events.get()
         assert event.kind == EventKind.FAILED
-        assert 'NavOutcome' in event.detail
+        assert event.detail == '执行器内部错误: TypeError'
         assert manager.status().state == TaskState.ERROR
+        await _settle()
+        assert manager.status().state == TaskState.IDLE
+        assert skill.cancel_entered.is_set()
         await manager.close()
 
     asyncio.run(scenario())

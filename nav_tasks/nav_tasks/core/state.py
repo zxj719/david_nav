@@ -27,6 +27,8 @@ class _Active:
     accept_feedback: bool = True
     target_id: str | None = None
     phase: str | None = None
+    crash: BaseException | None = None
+    crash_outcome: NavOutcome | None = None
 
 
 class TaskManager:
@@ -38,8 +40,8 @@ class TaskManager:
     is not a thread lock and never wraps normal skill execution.
 
     External CANCELED retains the legacy paused active task (G12). Unexpected
-    skill exceptions retain ERROR ownership until explicit cleanup; they do not
-    assert that a still-running backend goal has stopped.
+    skill exceptions are reported and trigger supervised backend cleanup. Ownership
+    is released only after cleanup succeeds; failure retains ERROR for retry.
     """
 
     def __init__(
@@ -216,13 +218,8 @@ class TaskManager:
                 self._state = TaskState.NAVIGATING
                 self._emit(active, EventKind.PROGRESS, status='paused')
             raise
-        except Exception as error:
+        finally:
             active.accept_feedback = False
-            if self._is_current(active):
-                self._state = TaskState.ERROR
-                self._emit(active, EventKind.FAILED, detail=str(error))
-            return
-        active.accept_feedback = False
         if not self._is_current(active):
             return
         if outcome.status == NavStatus.CANCELED:
@@ -281,6 +278,9 @@ class TaskManager:
     async def _cancel_active(self) -> _Active:
         active = self._active
         assert active is not None
+        # Only a crash known before this cleanup attempt is an expected worker
+        # result. A fresh exception raised during cancellation is still failure.
+        reported_crash = active.crash
         active.cancel_requested = True
         self._state = TaskState.ABORTING
         if active.worker is not None and not active.worker.done():
@@ -298,14 +298,14 @@ class TaskManager:
             except asyncio.CancelledError:
                 pass
             except Exception as error:
-                if cleanup_error is None:
+                if cleanup_error is None and error is not reported_crash:
                     cleanup_error = error
         if cleanup_error is not None:
             self._state = TaskState.ERROR
             raise cleanup_error
         self._active = None
         self._state = TaskState.IDLE
-        self._settled(active, NavOutcome(NavStatus.CANCELED))
+        self._settled(active, active.crash_outcome or NavOutcome(NavStatus.CANCELED))
         return active
 
     async def _cancel(self, task_id: str | None, generation: int | None) -> bool:
@@ -315,7 +315,8 @@ class TaskManager:
                     or (generation is not None and generation != active.generation)):
                 return False
             canceled = await self._cancel_active()
-            self._emit(canceled, EventKind.PROGRESS, status='paused')
+            if canceled.crash_outcome is None:
+                self._emit(canceled, EventKind.PROGRESS, status='paused')
             return True
 
     async def _close(self) -> None:
@@ -325,7 +326,30 @@ class TaskManager:
             self._state = TaskState.CLOSED
             self._subscribers.clear()
 
-    @staticmethod
-    def _on_crash(name: str, error: BaseException) -> None:
+    async def _recover_crash(self, active: _Active) -> None:
+        async with self._transition_lock:
+            # A queued cancel/preempt/close may already have released this owner.
+            if self._active is active:
+                await self._cancel_active()
+
+    def _on_crash(self, name: str, error: BaseException) -> None:
         if not isinstance(error, NavTaskError):
             _LOGGER.error('Task operation %s failed: %s', name, error)
+        active = self._active
+        if (active is None or active.worker is None or active.crash is not None
+                or active.worker.get_name() != name or not active.worker.done()
+                or active.worker.cancelled() or active.worker.exception() is not error):
+            return
+        active.crash = error
+        active.accept_feedback = False
+        if active.cancel_requested:
+            # Explicit cancellation owns this attempt. Retain the exception so a
+            # failed attempt can be retried, without inventing another terminal.
+            return
+        detail = f'执行器内部错误: {type(error).__name__}'
+        active.crash_outcome = NavOutcome(NavStatus.FAILED, detail)
+        self._state = TaskState.ERROR
+        self._emit(active, EventKind.FAILED, detail=detail)
+        self._supervisor.spawn(
+            self._recover_crash(active),
+            f'crash-cleanup:{active.request.task_id}:{active.generation}')

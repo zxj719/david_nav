@@ -3,6 +3,10 @@ nav_tasks
 
 0.1.0 (2026-09-16)
 ------------------
+* Fix R2: supervise skill crashes, report one internal-error event and serialize
+  automatic backend cleanup with abort/preempt/close. Release ownership and issue
+  a FAILED receipt only after cleanup succeeds; preserve ERROR on cleanup failure.
+  Fence delayed recovery by task identity/generation and retain external G12 pause.
 * Expose cancellation-safe runtime settlement separately from client/subscription
   destruction so the multithreaded host can join callback/result tails in between.
 * Add shared-manager ROS Dock ingress, preserving topic/action names, busy logs,

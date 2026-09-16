@@ -27,12 +27,14 @@ admission; a partial open never admits even if its completed subscription fires.
 `TaskApi.submit(request, on_settled=callback)` optionally sends one immutable
 TaskCompletion receipt **after ownership is released**, including preemption and
 close. An admission rejection has no receipt. Normal success/failure retains its
-outcome; completed cancellation cleanup returns CANCELED. An exception event or
+outcome; completed cancellation cleanup returns CANCELED unless an earlier R2
+crash has already established a FAILED outcome. An exception event or
 cleanup timeout is not proof of release, and no receipt is issued yet. Losing a
 submit/cancel waiter does not discard the manager's callback. A broken observer
-is logged without corrupting the already-released state. This addition neither
-fixes nor changes the legacy G12 external-cancellation state or the pending R2
-global error policy.
+is logged without corrupting the already-released state. R2 now automatically
+requests cleanup for skill crashes; ingress cleanup retries share the manager's
+transition lock and cannot duplicate release or cancel a newer generation.
+The legacy G12 external-cancellation state remains unchanged.
 
 Ingress subscribes to task events only while a request is active, so it can
 request cleanup after a retained error/paused outcome. It retries failed cleanup

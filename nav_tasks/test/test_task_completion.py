@@ -100,7 +100,8 @@ def test_failed_cleanup_retains_receipt_until_successful_retry():
         assert not receipts and tasks.status().task_id == 'a'
         fail = False
         await tasks.cancel('a', generation=accepted.generation)
-        assert len(receipts) == 1 and receipts[0].outcome.status == NavStatus.CANCELED
+        assert len(receipts) == 1 and receipts[0].outcome.status == NavStatus.FAILED
+        assert receipts[0].outcome.detail == '执行器内部错误: OSError'
         await tasks.close()
 
     asyncio.run(scenario())

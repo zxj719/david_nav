@@ -1,8 +1,8 @@
 # Task core contracts (P6.1)
 
-The core is executable with fake skills, but **is not wired into any production
-or refactor launch entry point yet**. The legacy core remains the runtime owner
-until the replacement passes the complete G1–G16 integration suite.
+The core is connected to the refactor CLI/retained shims through the nav_executor
+composition root. Valid G1–G16 wire scenarios are covered by fake-only integration;
+this is not physical acceptance and production entry points are unchanged.
 
 ## Ownership and concurrency
 
@@ -60,10 +60,15 @@ Normal success/failure clears ownership. External `CANCELED` emits paused
 progress with remaining distance **0.0** and retains the active task in `NAVIGATING`,
 matching the legacy bridge and characterized G12
 and review item C-2. Internal abort emits one paused event after cleanup; preempt
-and close suppress the old task's cancellation/terminal events. A programming
-exception reports failure and retains `ERROR` ownership until explicit cleanup;
-automatic crash cleanup and its dedicated R2 regression belong to P6.5. This
-substep does not claim that R2/R3 are fixed in the legacy runtime.
+and close suppress the old task's cancellation/terminal events. R2 now lets skill
+exceptions reach TaskSupervisor: its crash callback reports one FAILED event with
+`执行器内部错误: <异常类型>` and owns a serialized backend cleanup operation. Error
+delivery precedes cleanup completion; IDLE and the FAILED completion receipt only
+follow successful cleanup. Failure retains ERROR ownership for explicit retry;
+no busy retry loop or new motion is started. A later abort after a reported crash
+does not append a misleading paused event. See [ADR-0008](adr-0008-crash-recovery.md)
+for cancellation races and the distinction between the original crash and a new
+cleanup error. R3 remains a separate feedback-ownership audit.
 
 ## Backend, retry and geometry
 
