@@ -85,6 +85,33 @@ def _child(node: Any, segment: str, path: str) -> Any:
     raise RenderError(f'{path}: cannot descend into {type(node).__name__}')
 
 
+def _canonical_path(tree: Any, path: str) -> str:
+    """按当前树的容器类型规范化列表下标，不改变字典键.
+
+    用于比较覆盖目标和绑定路径；00 与 0 仅在列表位置代表同一个元素。
+    允许末尾字典键尚不存在，以保留覆盖新增未绑定参数的既有行为。
+
+    Args:
+        tree: 已填入绑定值的参数树，只读访问。
+        path: 待覆盖的斜杠分隔路径。
+
+    Returns:
+        列表下标统一为十进制字符串后的路径。
+
+    Raises:
+        RenderError: 路径无效、父项缺失或列表下标不合法。
+        ValueError: 特殊数字字符不能转换为整数下标。
+    """
+    parts = split_path(path)
+    node = tree
+    canonical = []
+    for index, part in enumerate(parts):
+        canonical.append(str(_index(node, part, path)) if isinstance(node, list) else part)
+        if index < len(parts) - 1:
+            node = _child(node, part, path)
+    return PATH_SEPARATOR.join(canonical)
+
+
 def _format_value(value: Any) -> Any:
     return copy.deepcopy(value)
 
@@ -416,9 +443,12 @@ def render(
 
     if mode is not None:
         for path, value in mode.nav2_overrides.items():
+            canonical = _canonical_path(tree, path)
             covered = sorted(
                 bound_path for bound_path in bound
-                if bound_path == path or bound_path.startswith(path + PATH_SEPARATOR))
+                if bound_path == canonical
+                or bound_path.startswith(canonical + PATH_SEPARATOR)
+                or canonical.startswith(bound_path + PATH_SEPARATOR))
             if covered:
                 raise RenderError(
                     f'mode {mode.name}: {path} covers bound parameters {covered}; '
