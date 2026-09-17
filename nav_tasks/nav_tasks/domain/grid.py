@@ -1,4 +1,8 @@
-"""Pure read-only grid access shared by goal resolution and path sparsification."""
+"""提供目标解析与路径稀疏化共用的旧轴对齐栅格访问逻辑.
+
+该模型不处理地图原点旋转，也不代表 Dock 的完整车身轮廓校验。
+冻结字段不等于深冻结 cells；查询方法不修改数据，但调用方仍可修改列表。
+"""
 
 from __future__ import annotations
 
@@ -9,12 +13,11 @@ from typing import Any
 
 @dataclass(frozen=True)
 class GridMapView:
-    """Read-only view over a nav_msgs/OccupancyGrid (values 0..100, -1 unknown).
+    """保存旧轴对齐栅格的字段与访问规则，不作完整地图合法性校验.
 
-    Lifted out of navigation_goal_resolver._GridMapView so the sparsifier can
-    share the same world<->cell math. is_goal_free is kept for the resolver's
-    existing (cost==0) admissibility check; is_blocked adds a thresholded check
-    for line-of-sight.
+    源自旧目标解析器，供路径稀疏化复用同一坐标计算。目标准入严格要求格值
+    为零；视线阻挡检查采用调用方的阈值和未知格策略，二者不能互相替代。
+    预期消息格值为 0..100 或未知值 -1，但构造时不验证此范围。
 
     Attributes:
         cells: 按行排列的格值列表；冻结对象不会深冻结该列表。
@@ -33,53 +36,65 @@ class GridMapView:
     origin_y: float
 
     def in_bounds(self, x: int, y: int) -> bool:
-        """Check integer cell coordinates against the grid dimensions.
+        """只按宽高范围判断格坐标是否在图内.
 
         Args:
-            x: Column index.
-            y: Row index.
+            x: 列下标，应由调用方保证为整数；此处只有范围比较。
+            y: 行下标，应由调用方保证为整数。
 
         Returns:
-            Whether the cell lies inside the grid.
+            两个下标均在对应半开范围内时为 True。
         """
         return 0 <= x < self.width and 0 <= y < self.height
 
     def value(self, x: int, y: int) -> int:
-        """Read a row-major cell without adding bounds or occupancy policy.
+        """直接按行优先下标读取格值，不添加越界检查或占用策略.
+
+        必须先分别检查 x/y；单一列表下标合法不代表二维坐标合法，
+        负下标也会沿用 Python 列表语义。
 
         Args:
-            x: Column index, already checked by the caller.
-            y: Row index, already checked by the caller.
+            x: 已由调用方检查的列下标。
+            y: 已由调用方检查的行下标。
 
         Returns:
-            Stored occupancy/cost value, including negative unknown values.
+            原始占用或代价值，包括负的未知值。
+
+        Raises:
+            IndexError: 计算得到的列表下标超出 cells 可索引范围。
         """
         return self.cells[y * self.width + x]
 
     def is_goal_free(self, x: int, y: int) -> bool:
-        """Apply the existing strict zero-cost goal admissibility rule.
+        """按既有严格零代价规则判断目标格准入.
 
         Args:
-            x: Column index.
-            y: Row index.
+            x: 已由调用方检查的列下标。
+            y: 已由调用方检查的行下标。
 
         Returns:
-            Whether the stored value is exactly zero.
+            原始格值恰好等于零时为 True；未知格不满足该条件。
+
+        Raises:
+            IndexError: 底层格值读取的列表下标越界。
         """
         return self.value(x, y) == 0
 
     def is_blocked(self, x: int, y: int, threshold: int,
                    block_unknown: bool) -> bool:
-        """Apply the caller's threshold and unknown-cell policy.
+        """按调用方阈值和未知格策略判断阻挡，不验证阈值本身.
 
         Args:
-            x: Column index.
-            y: Row index.
-            threshold: Inclusive occupied-value threshold.
-            block_unknown: Whether negative values block line of sight.
+            x: 已由调用方检查的列下标。
+            y: 已由调用方检查的行下标。
+            threshold: 非负格值达到或超过该值即阻挡。
+            block_unknown: 负格值是否阻挡视线。
 
         Returns:
-            Whether the cell is blocked under that policy.
+            负格值采用 block_unknown，其余格值采用包含边界的阈值比较。
+
+        Raises:
+            IndexError: 底层格值读取的列表下标越界。
         """
         v = self.value(x, y)
         if v < 0:
@@ -87,14 +102,22 @@ class GridMapView:
         return v >= threshold
 
     def world_to_cell(self, wx: float, wy: float) -> tuple[int, int] | None:
-        """Convert a world point using the legacy axis-aligned origin model.
+        """按旧轴对齐原点和分辨率向下取整，把世界坐标转换为格坐标.
+
+        不处理地图原点旋转；调用方负责提供有效分辨率和有限坐标。
+        无效数值的计算错误不会统一转换为 None。
 
         Args:
-            wx: World x coordinate.
-            wy: World y coordinate.
+            wx: 世界系 x 坐标，单位米。
+            wy: 世界系 y 坐标，单位米。
 
         Returns:
-            Column/row indices, or None when the point is outside the grid.
+            列/行下标；计算得到的格坐标越出宽高范围时返回 None。
+
+        Raises:
+            ZeroDivisionError: 分辨率为零。
+            ValueError: 取整遇到 NaN。
+            OverflowError: 取整遇到无穷值。
         """
         x = int(math.floor((wx - self.origin_x) / self.resolution))
         y = int(math.floor((wy - self.origin_y) / self.resolution))
@@ -103,14 +126,14 @@ class GridMapView:
         return (x, y)
 
     def cell_center_world(self, x: int, y: int) -> tuple[float, float]:
-        """Convert integer cell coordinates to the corresponding world center.
+        """按旧轴对齐模型计算格中心，不检查下标是否在图内.
 
         Args:
-            x: Column index.
-            y: Row index.
+            x: 列下标，调用方应保证整数类型和所需范围。
+            y: 行下标，调用方应保证整数类型和所需范围。
 
         Returns:
-            World x/y coordinates of the cell center.
+            对应格中心的世界系 x/y，单位米；不应用原点旋转。
         """
         return (
             (float(x) + 0.5) * self.resolution + self.origin_x,
@@ -119,13 +142,17 @@ class GridMapView:
 
     @classmethod
     def from_occupancy_grid(cls, msg: Any) -> "GridMapView | None":
-        """Copy a structurally compatible grid message without importing ROS.
+        """从兼容消息复制旧栅格字段，不引入 ROS 或完整验证器.
+
+        只拒绝消息缺失、宽高非正或数据为空；不检查数据长度、格值范围、
+        分辨率合法性或原点旋转。复制后的列表与消息独立，但仍可修改。
 
         Args:
-            msg: Object with info/data fields, or None.
+            msg: 具有 info/data 字段的对象，或 None；字段应能完成相应数值转换。
 
         Returns:
-            An independent view, or None for absent/empty/nonpositive dimensions.
+            字段快照，或在上述缺失/空/非正宽高情形下返回 None。
+            字段访问和类型转换异常向调用方传播，不作为空地图处理。
         """
         if msg is None:
             return None

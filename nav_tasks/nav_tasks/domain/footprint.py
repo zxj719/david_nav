@@ -1,10 +1,9 @@
-"""Static-map footprint checks for the dock approach pose.
+"""提供 Dock 预备点的静态地图完整车身轮廓校验.
 
-Docking must not send its first NavigateToPose goal when the complete chassis
-footprint at that pose overlaps an occupied cell. The helpers here contain no
-ROS imports so the safety decision can be tested without starting a ROS graph.
-Unknown cells are not occupied cells; a footprint outside the map is rejected
-because its clearance cannot be established.
+调用方应在首次下发 NavigateToPose 前检查预备位姿。此模块不导入 ROS，
+不发送目标、不查询 TF；使用带原点旋转的栅格模型，把车身多边形与
+占用格闭矩形相交作为拒绝条件。未知格沿用允许策略，按边界容差判定的
+越图轮廓拒绝；clear 不等于全部轮廓都落在已知空闲格。
 """
 
 from __future__ import annotations
@@ -19,17 +18,20 @@ _EPS = 1e-9
 
 @dataclass(frozen=True)
 class OccupancyGridView:
-    """Immutable fields needed from ``nav_msgs/OccupancyGrid``.
+    """保存 Dock 校验使用的不可变栅格字段快照，支持原点旋转.
+
+    构造本身不保证消息合法；check_footprint 另行检查基本几何和数据长度，
+    但不会检查所有格值的取值范围。
 
     Attributes:
-        frame_id: Coordinate frame of the map.
-        width: Grid width in cells.
-        height: Grid height in cells.
-        resolution: Cell size in metres.
-        origin_x: X coordinate of the grid origin.
-        origin_y: Y coordinate of the grid origin.
-        origin_yaw: Rotation of the grid axes in its frame.
-        data: Row-major occupancy values; -1 is unknown, 0 free, 100 occupied.
+        frame_id: 地图坐标系名称。
+        width: 栅格列数。
+        height: 栅格行数。
+        resolution: 每格边长，单位米。
+        origin_x: 栅格原点在地图系中的 x，单位米。
+        origin_y: 栅格原点在地图系中的 y，单位米。
+        origin_yaw: 栅格轴相对地图系的偏航角，单位弧度。
+        data: 行优先格值元组；约定 -1 未知、0 空闲、100 占用。
     """
 
     frame_id: str
@@ -43,13 +45,16 @@ class OccupancyGridView:
 
     @classmethod
     def from_message(cls, message: Any) -> 'OccupancyGridView':
-        """Copy the relevant fields from an OccupancyGrid-like message.
+        """从 OccupancyGrid 兼容对象复制并转换相关字段.
+
+        原点偏航角沿用直接 atan2 算式，不归一化四元数；这里是字段适配而非
+        完整合法性检查。字段访问或类型转换异常向调用方传播。
 
         Args:
-            message: Object with the fields of ``nav_msgs/OccupancyGrid``.
+            message: 具有 nav_msgs/OccupancyGrid 相应字段的对象。
 
         Returns:
-            A view independent of later message mutation.
+            与后续消息修改独立的快照；data 已复制为整数元组。
         """
         origin = message.info.origin
         orientation = origin.orientation
@@ -71,12 +76,12 @@ class OccupancyGridView:
 
 @dataclass(frozen=True)
 class FootprintCheck:
-    """Result of checking one pose against a static occupancy grid.
+    """表示一个位姿的轮廓静态地图检查结果，不证明实机可达或停稳.
 
     Attributes:
-        clear: Whether the entire footprint is known to contain no occupied cell.
-        reason: Stable short reason for logging and tests.
-        occupied_cell: First colliding ``(x, y, value)`` cell, if any.
+        clear: 在当前阈值和边界策略下通过检查；未知格允许，不表示全部已知空闲。
+        reason: 供日志和测试使用的稳定短原因。
+        occupied_cell: 首个相交占用格的 (列, 行, 格值)，无此格时为 None。
     """
 
     clear: bool
@@ -85,16 +90,20 @@ class FootprintCheck:
 
 
 def parse_footprint(text: str) -> Tuple[Tuple[float, float], ...]:
-    """Parse a ROS parameter string containing ``[[x, y], ...]``.
+    """解析表示车身简单多边形的 Python 字面量参数字符串.
+
+    使用 ast.literal_eval，不是通用 YAML 解析器。拒绝布尔坐标、非有限数值、
+    重复顶点、退化面积和非相邻边相交；首点不应在末尾再次写出。
 
     Args:
-        text: Python/YAML-compatible nested list string.
+        text: 类似 [[x, y], ...] 的列表或元组字面量字符串。
 
     Returns:
-        Polygon points as immutable float pairs.
+        至少三个顶点组成的不可变浮点坐标对元组，坐标单位由调用方约定。
 
     Raises:
-        ValueError: If the value is not a polygon with at least three points.
+        ValueError: 字面量语法或受检多边形条件不满足。
+        OverflowError: 过大整数字面量无法完成有限性检查或浮点转换。
     """
     try:
         value = ast.literal_eval(text)
@@ -123,17 +132,23 @@ def check_footprint(
     pose: Tuple[float, float, float],
     occupied_threshold: int = 50,
 ) -> FootprintCheck:
-    """Check whether a posed footprint intersects any occupied static-map cell.
+    """检查指定车身位姿的完整轮廓是否与静态地图占用格相交.
+
+    支持地图原点旋转；调用方必须保证 pose 属于 grid.frame_id，本函数不做
+    TF 查询或帧匹配。接触占用格边界也算相交；未知格 -1 保持允许。
+    按既有 _EPS 容差判定越图，正向外边界被拒绝。格值范围、严格输入类型及
+    中间运算溢出不在完整验证范围，不能将本函数当作任意对象的安全解析器。
 
     Args:
-        grid: Static occupancy grid.
-        footprint: Polygon in the robot navigation-base frame.
-        pose: Navigation-base ``(x, y, yaw)`` in ``grid.frame_id``.
-        occupied_threshold: Non-negative occupancy values at or above this value
-            are occupied. Unknown (-1) cells remain allowed.
+        grid: 静态占用栅格快照，不能为 None；缺图由调用方处理。
+        footprint: 导航旋转中心帧中的车身二维多边形，单位米。
+        pose: 导航旋转中心在 grid.frame_id 中的 (x, y, yaw)，单位米/弧度。
+        occupied_threshold: 0..100 内的阈值，达到或超过即占用；默认 50。
 
     Returns:
-        Clear, occupied, outside-map, or invalid-grid result.
+        clear 或 invalid_static_map、invalid_occupied_threshold、invalid_pose、
+        invalid_footprint、footprint_outside_static_map、occupied_static_cell 原因。
+        相交占用格按先行后列顺序返回第一个，不代表唯一碰撞格。
     """
     if (
         grid.width <= 0
