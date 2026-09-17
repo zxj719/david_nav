@@ -1,1 +1,1 @@
-"""Pure navigation skills docking contracts."""
+"""提供 Dock 两段式入位、静态轮廓准入与采样停稳策略."""

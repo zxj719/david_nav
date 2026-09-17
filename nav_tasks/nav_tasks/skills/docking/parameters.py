@@ -1,4 +1,4 @@
-"""Bind the complete legacy Dock parameter mapping to immutable task settings."""
+"""把完整旧 Dock 参数映射转换为不可变任务配置，保留参数名与声明顺序."""
 
 from typing import Mapping
 
@@ -20,18 +20,22 @@ def from_parameters(
     parameters: Mapping[str, object], *, spin_action_name: str = 'spin',
     pose_timeout_sec: float = 2.0,
 ) -> DockNodeConfig:
-    """Validate all legacy values, without inventing missing robot or mode policy.
+    """校验全部旧参数并转换轮廓，不补造缺失的机器人或模式策略.
+
+    映射键必须恰好覆盖十六个参数；footprint 保留 ROS 字符串输入格式。
+    转换后调用 workflow_config 校验，不打开 ROS、存储或运动资源。
+    解析及转换中非 ValueError 异常仍可传播，不保证所有异常都为 ConfigError。
 
     Args:
-        parameters: Exactly the sixteen existing Dock ROS parameters; footprint is a string.
-        spin_action_name: Shared backend endpoint; the old client used the relative name spin.
-        pose_timeout_sec: Explicit TF lookup budget, retaining the old two-second default.
+        parameters: 完整十六项旧 Dock ROS 参数映射，footprint 为字符串。
+        spin_action_name: 共享旋转后端端点，沿用旧相对名称 spin 的默认值。
+        pose_timeout_sec: 显式 TF 查询预算（秒），保留旧两秒默认值。
 
     Returns:
-        Immutable ingress and runtime values detached from the input mapping.
+        脱离输入映射的不可变入口及运行配置，轮廓转换为坐标元组。
 
     Raises:
-        ConfigError: A required value is missing, unknown, malformed or out of range.
+        ConfigError: 参数缺失、未知，或不满足已有格式与范围检查。
     """
     if not isinstance(parameters, Mapping):
         raise ConfigError('Dock parameters must be a mapping')

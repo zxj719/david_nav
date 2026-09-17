@@ -1,7 +1,8 @@
-"""Measure, judge and optionally correct yaw after phase two, without ROS dependencies.
+"""在阶段二后等待采样停稳、测量误差并按既有策略补偿偏航.
 
-先等待连续停稳；超时可报告最后位姿，但不能据此继续 Spin 补偿。
-背景与线程所有权见 nav_tasks/docs/adr-0006-dock-thread.md。
+等待超时可报告最后位姿，但不允许继续 Spin 补偿。
+实体停稳证明与任务取消屏障不由本模块提供；线程所有权见
+nav_tasks/docs/adr-0006-dock-thread.md。
 """
 
 from __future__ import annotations
@@ -15,12 +16,14 @@ from nav_tasks.skills.docking.settle import SettleSpec, wait_until_settled
 
 @dataclass(frozen=True)
 class DockTolerance:
-    """Preserve the parameter names and meanings consumed by dock_navigator.
+    """保存既有位置、偏航容差及补偿次数，构造本身不校验.
+
+    这些是纯辅助算法默认值，不可替代 David 精准模式的显式配置。
 
     Attributes:
-        max_yaw_retries: 最多允许的偏航 Spin 补偿次数。
-        xy_ok: 平面位置误差容差（米）。
-        yaw_ok: 偏航误差容差（弧度）。
+        max_yaw_retries: 最多尝试的偏航 Spin 补偿次数，默认两次。
+        xy_ok: 平面位置容差（米），默认 0.10。
+        yaw_ok: 偏航容差（弧度），默认 0.087（约 5 度）。
     """
 
     xy_ok: float = 0.10
@@ -30,16 +33,19 @@ class DockTolerance:
 
 @dataclass
 class DockOutcome:
-    """Finish verdict and measured settled pose, errors and correction count.
+    """保存最终算法判词、最后可用测量与补偿计数的可变记录.
+
+    失败时位姿可能尚未停稳；后续取不到位姿时可保留上次测量。
+    本记录不证明动作清理完成或实体车静止。
 
     Attributes:
-        exy: 平面位置误差（米），缺失测量时沿用失败占位值。
-        eyaw: 归一化有符号偏航误差（弧度）。
-        n_spin: 已经尝试的 Spin 补偿次数。
-        ok: 本次最终判定是否成功。
-        pose: 判定时取得的 x/y/yaw 位姿；无法取得时为 None。
+        exy: 所保留位姿的平面误差（米），从未测得时为 NaN。
+        eyaw: 所保留位姿的归一化有符号偏航误差（弧度），缺测时为 NaN。
+        n_spin: 已尝试的 Spin 补偿次数。
+        ok: 既有精调算法是否判定成功。
+        pose: 最后可用的 x/y/yaw；从未取到时为 None，不保证来自本次等待。
         reason: 冻结判词，例如 settled_ok、not_settled 或 no_pose。
-        settled: 本次判定前的连续停稳检查是否通过。
+        settled: 最近一次等待的采样停稳检查是否通过。
     """
 
     ok: bool
@@ -91,23 +97,27 @@ def finish_docking(
     sleep_fn: Callable[[float], None] | None = None,
     on_event: Callable[..., None] | None = None,
 ) -> DockOutcome:
-    """Finish docking only after settling, retaining the legacy correction policy.
+    """等待采样停稳后判断误差并执行有限偏航补偿，保留旧策略.
 
-    on_event(name, **kw) 可选，用来把过程打进 ROS 日志而不把 ROS 塞进本模块。
+    首次等待失败时不补偿；初次位置超差也不再下发位移目标。
+    Spin 的布尔返回值沿用忽略策略，之后重新等待并测量；既有循环仅再检查
+    偏航容差，不重复以位置容差拒绝补偿后的结果。显式取消和清理屏障由外层负责。
+    位姿、旋转、时钟、休眠及事件回调异常原样传播。
 
     Args:
-        goal: Desired x/y/yaw pose.
-        pose_fn: Current pose provider returning x/y/yaw or None.
-        spin_fn: Injected spin operation, preserving the legacy ignored boolean result.
-        tol: Position/yaw tolerances and correction budget.
-        spec: Settling window and angular-rate thresholds.
-        settle_timeout_sec: Maximum wait before each measurement.
-        now_fn: Optional injected monotonic clock.
-        sleep_fn: Optional injected sleeper.
-        on_event: Optional callback receiving the unchanged event name and fields.
+        goal: 与实测位姿同一坐标系的目标 x/y/yaw，单位米及弧度。
+        pose_fn: 当前位姿读取器，返回 x/y/yaw 或 None。
+        spin_fn: 注入的相对旋转操作，返回的布尔结果按旧策略不参与判词。
+        tol: 位置、偏航容差与补偿次数预算。
+        spec: 采样停稳窗口和表观角速度限制。
+        settle_timeout_sec: 每次测量前的轮询预算（秒），不是硬墙钟上限。
+        now_fn: 可选的注入单调时钟。
+        sleep_fn: 可选的注入休眠器。
+        on_event: 可选回调，以原有事件名及具名字段接收过程事件。
 
     Returns:
-        The existing finish verdict, measurements and correction count.
+        既有判词、测量与补偿计数；超时或后续缺测可保留上次位姿。
+        成功是算法判定，不证明完整任务取消屏障或实体停稳。
     """
     def emit(name, **kw):
         if on_event is not None:

@@ -1,7 +1,8 @@
-"""Detect continuous settling from pose samples without ROS dependencies.
+"""根据位姿采样的偏航变化判定完整尾部窗口，不依赖 ROS.
 
-停稳判定必须覆盖完整窗口，不能把瞬时低角速度当作连续停稳。
-桥接样本与测量依据见 nav_tasks/docs/adr-0006-dock-thread.md。
+保留窗口起点的桥接样本，避免非整除采样缩短窗口。
+这里只判断观测偏航变化，不验证实体零速度、平移或定位数据新鲜度。
+历史测量与窗口依据见 nav_tasks/docs/adr-0006-dock-thread.md。
 """
 
 from __future__ import annotations
@@ -17,12 +18,15 @@ _EPS = 1e-9
 
 @dataclass(frozen=True)
 class SettleSpec:
-    """Thresholds for a continuously settled trailing sample window.
+    """保存偏航采样停稳阈值与轮询参数，构造本身不校验数值.
+
+    默认角速度上限为 0.05 rad/s，窗口为 0.4 秒，采样周期为 0.05 秒。
+    调用方负责合法配置；该不可变记录不能证明样本质量或实体停稳。
 
     Attributes:
-        max_rate_rad_s: 相邻样本允许的最大表观偏航角速度（弧度/秒）。
-        window_sec: 连续满足角速度限制所需覆盖的窗口（秒）。
-        sample_period_sec: 请求位姿样本的轮询周期（秒）。
+        max_rate_rad_s: 相邻正时间间隔样本允许的最大表观偏航角速度（弧度/秒）。
+        window_sec: 尾部样本需要覆盖的窗口（秒）。
+        sample_period_sec: 请求位姿样本的轮询间隔（秒），不是实际采样周期保证。
     """
 
     max_rate_rad_s: float = 0.05
@@ -43,18 +47,20 @@ def _wrap(a: float) -> float:
 
 
 def is_settled(samples: Sequence[tuple[float, float]], spec: SettleSpec) -> bool:
-    """Check continuous angular-rate stability across the complete trailing window.
+    """检查尾部窗口覆盖及相邻有效时间间隔的表观偏航角速度.
 
-    尾部样本必须覆盖窗口，窗口中相邻样本的表观角速度必须满足上限。
-    角度差先 wrap，避免跨越 ±π 时将表示切换误作大角速度。
-    窗口边界处理依据见 nav_tasks/docs/adr-0006-dock-thread.md。
+    取最后一个不晚于窗口起点加 1e-9 秒容差的桥接样本，角度差先归一。
+    少于两个窗口样本或缺少桥接样本返回 False；非正时间间隔沿用跳过策略。
+    不校验排序、有限数值、最大采样间隙或位姿新鲜度，也不判断平移速度。
+    桥接依据见 nav_tasks/docs/adr-0006-dock-thread.md。
 
     Args:
-        samples: Time/yaw samples ordered by ascending time.
-        spec: Continuous-window and angular-rate thresholds.
+        samples: 调用方保证按时间递增的时间/偏航样本，单位秒及弧度。
+        spec: 调用方提供的合法窗口和角速度限制。
 
     Returns:
-        Whether the trailing window is covered and every measured rate satisfies the threshold.
+        窗口满足覆盖条件且所有正时间间隔的观测角速度均未超上限时为 True。
+        这是采样判定，不是连续物理零速度证明。
     """
     if len(samples) < 2:
         return False
@@ -91,23 +97,22 @@ def wait_until_settled(
     now_fn: Callable[[], float] | None = None,
     sleep_fn: Callable[[float], None] | None = None,
 ) -> tuple[bool, tuple[float, float, float] | None]:
-    """Poll until settled or timed out, retaining the last available pose.
+    """同步轮询偏航停稳或超时，并保留最后可用位姿用于误差报告.
 
-    pose_fn : 无参可调用，返回 (x, y, yaw) 或 None（取不到位姿）。
-    now_fn / sleep_fn : 注入时钟，方便确定性单测；默认用 time.monotonic / time.sleep。
-
-    超时也把**最后一次拿到的位姿**交出去 —— 调用方需要它来报告实际误差，
-    "等不到停稳"和"取不到位姿"是两回事。
+    位姿缺失时不追加样本，也不清除之前的样本；停稳检查先于超时检查。
+    超时不是包含回调执行的硬墙钟上限，阻塞回调会延长等待。
+    本函数不内置取消或资源清理；受管工作线程通过注入回调协作停止。
+    回调或无效输入导致的异常原样传播，不把异常当作无位姿。
 
     Args:
-        pose_fn: Pose provider returning x/y/yaw or None.
-        spec: Continuous-window and angular-rate thresholds.
-        timeout_sec: Maximum polling duration.
-        now_fn: Injected monotonic clock; defaults to time.monotonic.
-        sleep_fn: Injected sleeper; defaults to time.sleep.
+        pose_fn: 无参位姿读取器，返回同一坐标系的 x/y/yaw（米、弧度）或 None。
+        spec: 偏航窗口、角速度限制和请求采样间隔。
+        timeout_sec: 每次轮询后检查的等待预算（秒）。
+        now_fn: 可注入单调时钟，默认 time.monotonic。
+        sleep_fn: 可注入休眠器，默认 time.sleep。
 
     Returns:
-        Settled flag and the latest available pose, including when the wait times out.
+        采样停稳标志与最后可用位姿；超时仍保留该位姿，从未取到则为 None。
     """
     now_fn = now_fn or time.monotonic
     sleep_fn = sleep_fn or time.sleep

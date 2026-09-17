@@ -1,10 +1,9 @@
-"""Blocking two-stage Dock workflow for a supervised worker, with frozen audit lines.
+"""在受管工作线程内同步执行两段 Dock 流程，保留冻结审计日志.
 
-This is not a ROS node or a task owner. The runtime must keep its worker joined
-and bridge motion calls to the one Nav2Client. Do not invoke execute on the ROS
-executor or asyncio loop thread: the unchanged settle algorithm deliberately
-blocks its calling worker. Entry adapters, action deadlines and cleanup ownership
-belong outside this workflow.
+本模块不是 ROS 节点或任务所有者。运行时必须保留并等待工作线程，
+运动调用经桥接进入唯一 Nav2Client；不得在 ROS executor 或 asyncio
+所有者线程调用 execute，因为停稳算法有意阻塞调用线程。
+入口适配、动作期限与清理所有权均在本流程外部处理。
 """
 
 from dataclasses import dataclass
@@ -23,15 +22,17 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DockConfig:
-    """Explicit robot/mode policy; do not substitute helper defaults for David tuning.
+    """保存显式机器人及模式策略，构造本身不执行配置校验.
+
+    外层使用 workflow_config 校验；不能以辅助算法默认值替代 David 模式配置。
 
     Attributes:
         approach_dist: 目标朝向后方的预备距离（米）。
-        nav_timeout_sec: 单段导航期限（秒）。
-        settle_spec: 连续停稳窗口和角速度限制。
-        settle_timeout_sec: 每次停稳等待期限（秒）。
-        spin_timeout_sec: 单次 Spin 时间预算（秒）。
-        tolerance: 最终位置/偏航容差及补偿次数。
+        nav_timeout_sec: 单段导航结果等待期限（秒）。
+        settle_spec: 采样停稳窗口、请求周期和表观角速度限制。
+        settle_timeout_sec: 每次采样停稳轮询预算（秒）。
+        spin_timeout_sec: 单次 Spin 的服务端预算（秒），客户端另加五秒。
+        tolerance: 位置、偏航容差及既有补偿次数策略。
     """
 
     approach_dist: float
@@ -43,7 +44,7 @@ class DockConfig:
 
 
 class DockWorkflow:
-    """Keep the old synchronous sequence behind injected worker-safe ports."""
+    """通过注入的线程安全端口保留同步 Dock 策略，不接管任务或 ROS 资源."""
 
     def __init__(
         self, config: DockConfig, motion: DockMotionPort,
@@ -53,17 +54,17 @@ class DockWorkflow:
         sleep_fn: Callable[[float], None] | None = None,
         on_event: Callable[[str, Mapping[str, object]], None] | None = None,
     ) -> None:
-        """Inject robot policy and effects without starting threads or ROS resources.
+        """保存显式策略与副作用端口，不启动线程或打开 ROS 资源.
 
         Args:
-            config: Explicit stage timeouts, geometry and finish policy.
-            motion: Blocking facade over the sole motion backend; owns action audit lines.
-            pose_fn: Latest navigation-base global pose, or None when unavailable.
-            approach_check: Mandatory full-footprint admission using the static map.
-            logger: Thread-safe log sink; texts and levels retain legacy behavior.
-            now_fn: Optional deterministic monotonic clock for finish tests.
-            sleep_fn: Optional deterministic sleeper for finish tests.
-            on_event: Optional worker-safe observation sink; errors do not change Dock policy.
+            config: 显式阶段预算、几何及精调策略；构造时不重新校验。
+            motion: 唯一运动后端的阻塞视图，负责动作审计行及清理所有权。
+            pose_fn: 导航基座在全局坐标系的最新 x/y/yaw，不可用时返回 None。
+            approach_check: 必需的完整车身轮廓静态地图准入检查。
+            logger: 线程安全日志接收器，保留旧文本及等级。
+            now_fn: 可选的单调时钟，供确定性精调测试注入。
+            sleep_fn: 可选的休眠器，供确定性精调测试注入。
+            on_event: 可选线程安全观察器，普通回调异常仅告警，不改变 Dock 策略。
         """
         self._config = config
         self._motion = motion
@@ -75,21 +76,21 @@ class DockWorkflow:
         self._on_event = on_event
 
     def execute(self, goal: PlanarPose) -> Literal['succeeded', 'failed', 'canceled']:
-        """Run stages, then settle and judge without changing retry or movement policy.
+        """依次校验预备轮廓、执行两段导航及停稳精调，不改变旧运动策略.
 
-        No arrival is produced for the approach stage. Stage-two failure still
-        permits settled-pose judgement, as before. Spin's boolean result remains
-        advisory: measured pose is authoritative for the old finish algorithm.
-        The external task owner must fence results when cancellation has begun.
+        预备点检查失败时不发起第一段，其到达也不代表最终到达。
+        阶段二非显式取消的失败仍允许实测判定；Spin 布尔结果不决定精调成败。
+        单独调用本流程不能保证取消后的成功抑制，任务所有者必须实施停止屏障。
+        本流程保留既有补偿后仅复查偏航的策略，不构成完整最终位置证明。
 
         Args:
-            goal: Global-frame navigation-base x/y/yaw, already decoded by ingress.
+            goal: 已由入口解析的全局坐标系导航基座 x/y/yaw，单位米及弧度。
 
         Returns:
-            Legacy final outcome, not a ROS action response or WS event.
+            既有 succeeded、failed 或 canceled 判词，不是 ROS 响应或 WS 事件。
 
         Raises:
-            Exception: A port failed; the task owner must retain and clean up resources.
+            Exception: 端口或计算失败；任务所有者仍须保留并清理相关资源。
         """
         config = self._config
         gx, gy, gyaw = goal

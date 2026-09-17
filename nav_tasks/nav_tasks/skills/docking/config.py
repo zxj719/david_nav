@@ -1,4 +1,4 @@
-"""Validate explicit Dock API values before resources or POI storage are opened."""
+"""在打开资源或 POI 存储前校验显式 Dock API 值并生成工作线程策略."""
 
 import math
 
@@ -11,16 +11,21 @@ from nav_tasks.skills.docking.workflow import DockConfig
 
 
 def workflow_config(config: DockRuntimeConfig) -> DockConfig:
-    """Validate immutable wiring and translate robot policy without guessing defaults.
+    """校验不可变配置及几何并转换显式策略，不猜测机器人调参.
+
+    帧和端点要求非空字符串；数值要求有限且非负，零仍允许。
+    轮廓要求坐标元组组成的元组，再交既有多边形解析器检查。
+    构造本身不打开资源；采样周期沿用 SettleSpec 的 0.05 秒默认值。
+    解析器或数值转换的非 ValueError 异常不统一包装，例如超大整数的 OverflowError。
 
     Args:
-        config: Complete Dock runtime values supplied by the outer configuration root.
+        config: 由外层配置根提供的完整 DockRuntimeConfig。
 
     Returns:
-        Blocking workflow policy with the old sample period and explicit robot tuning.
+        带显式机器人容差、停稳限制与阶段预算的阻塞工作流策略。
 
     Raises:
-        ConfigError: Wiring, polygon, tolerance, count or a deadline is invalid.
+        ConfigError: 配置类型、接线、轮廓、容差、次数或预算不符合已有校验。
     """
     if not isinstance(config, DockRuntimeConfig):
         raise ConfigError('dock must be a DockRuntimeConfig')

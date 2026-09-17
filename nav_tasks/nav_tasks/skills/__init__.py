@@ -1,1 +1,1 @@
-"""Pure navigation skills contracts."""
+"""提供不依赖 ROS 的导航技能策略与契约."""
