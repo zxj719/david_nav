@@ -91,6 +91,21 @@ async def drive(scene: Scene, trace: EvidenceTrace, peer: Peer, observer: Any,
     inspected = 0
 
     async def until(predicate):
+        """在统一期限内轮询谓词，先审查进程、连接及新增任务观察.
+
+        期限检查先于就绪谓词；每轮驱动只读观察，并按 inspected 游标检查
+        tasks/dock 事件白名单和 info 严重程度，之后才判断谓词。
+        同步审计、观察和谓词不能被此循环抢占，因此不是硬墙钟时限。
+
+        Args:
+            predicate: 同步条件函数，返回真值才结束等待，不应自行发送目标。
+
+        Raises:
+            TimeoutError: 全局期限已到，即使此时谓词本可成立也不放行。
+            RuntimeError: 启动器退出、连接错误或任务观察不健康。
+            asyncio.CancelledError: 等待期间调用方取消。
+            Exception: 进程审计、观察读取或谓词自身异常。
+        """
         nonlocal inspected
         while True:
             if time.monotonic() >= deadline:
@@ -130,6 +145,20 @@ async def drive(scene: Scene, trace: EvidenceTrace, peer: Peer, observer: Any,
                                max(0.001, deadline - time.monotonic()))
 
         def arrived():
+            """检查当前用例的有序到达通知、位姿及软件所有权释放线索.
+
+            只接受前序到达列表或刚增加当前用例的列表；坏关联、重复及
+            终态后帧由 _arrivals 拒绝。这里检查同任务 ID 的成功释放事件，
+            完整事件一致性仍由外层 check_evidence 复核，不单凭此谓词成功。
+            这里只要求里程计存在；超过 0.05 米的独立位移由外层随后检查。
+
+            Returns:
+                当前用例到达、位姿满足、里程计存在且有释放事件时为 True。
+
+            Raises:
+                RuntimeError: 到达关联或顺序错误，或已有失败/暂停事件。
+                Exception: 位姿、里程计读取或事件结构处理失败。
+            """
             arrivals = _arrivals(trace, scene.cases)
             if arrivals not in ([item.task_id for item in scene.cases[:index]],
                                 [item.task_id for item in scene.cases[:index + 1]]):

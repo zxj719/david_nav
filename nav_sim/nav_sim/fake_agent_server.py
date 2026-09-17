@@ -208,6 +208,19 @@ async def _serve(options: argparse.Namespace) -> None:
     active = False
 
     async def handler(websocket):
+        """串行运行一个测试会话，退出时追加已接收事件并释放接入标志.
+
+        已有活动会话时以 1013 拒绝新连接。会话运行结束或失败都会先清除
+        active，再同步追加事件；写文件失败会传播，也可能替代原会话异常。
+        不在此重新检查运动授权，脚本执行授权必须由外层入口先确认。
+
+        Args:
+            websocket: 服务交付的单个异步连接，或测试用内存替身。
+
+        Raises:
+            asyncio.CancelledError: 服务或外层取消会话，finally 仍尝试记录。
+            Exception: 连接、脚本等待、事件追加或退出打印失败。
+        """
         nonlocal active
         if active:
             await websocket.close(code=1013, reason='one test client at a time')
