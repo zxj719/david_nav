@@ -1,1 +1,1 @@
-"""Configuration-driven differential-drive command adaptation."""
+"""由机器人配置驱动的差速底盘速度适配模块."""
