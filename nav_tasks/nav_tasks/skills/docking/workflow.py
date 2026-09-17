@@ -175,6 +175,14 @@ class DockWorkflow:
         return 'succeeded'
 
     def _observe(self, name, **values):
+        """尽力上报 Dock 观察事件，不让普通观察器异常改变导航判定.
+
+        为回调新建顶层字典；回调失败只记录异常类型，不修改冻结 Dock 日志。
+
+        Args:
+            name: 观察事件名称。
+            values: 本事件的具名载荷字段，不在此验证 schema。
+        """
         if self._on_event is not None:
             try:
                 self._on_event(name, dict(values))
@@ -182,6 +190,20 @@ class DockWorkflow:
                 _LOGGER.warning('Dock observation failed (%s)', type(error).__name__)
 
     def _report(self, ok, message, pose=None, goal=None):
+        """输出冻结的 Dock 成败行，可附加已有实测位姿的平面误差.
+
+        这里只报告调用方提供的判定，不读取新位姿、不触发成功状态。
+        位置误差为二维距离；角度差归一到 [-pi, pi) 后以度显示。
+
+        Args:
+            ok: 调用方已经确定的成功标志。
+            message: 原有日志说明文本。
+            pose: 可选实测 x/y/yaw，距离为米、角度为弧度。
+            goal: 可选目标 x/y/yaw；与 pose 同时存在才附加误差。
+
+        Raises:
+            Exception: 位姿运算或日志接收器失败。
+        """
         if pose is not None and goal is not None:
             exy = math.hypot(pose[0] - goal[0], pose[1] - goal[1])
             eyaw = (pose[2] - goal[2] + math.pi) % (2.0 * math.pi) - math.pi

@@ -7,6 +7,13 @@ import pytest
 
 
 @pytest.mark.parametrize('path, qualified_name', [
+    ('fake_agent_server.py', 'AgentSession._await_event'),
+    ('fake_agent_server.py', 'AgentSession._receive'),
+    ('selftest_evidence.py', '_number'),
+    ('selftest_evidence.py', '_pose'),
+    ('selftest_ros.py', 'Observer._odometry'),
+    ('selftest_ros.py', 'Observer._map'),
+    ('selftest_ros.py', 'Observer._fresh'),
     ('selftest_trace.py', '_pairs'),
     ('selftest_trace.py', '_tree'),
 ])

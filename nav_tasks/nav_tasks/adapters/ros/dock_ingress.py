@@ -222,6 +222,21 @@ class DockIngress:
         return answer.result()
 
     def _pose(self, message):
+        """沿用旧 Dock 接口提取平面位姿，按配置帧解释数值而不转换 header.
+
+        保留 x/y 和四元数计算的 yaw，忽略输入 z、header 帧和时间；
+        输出 z 与时间戳均为零，不在此验证四元数归一化。
+
+        Args:
+            message: 含 pose.position 和 pose.orientation 的入口消息。
+
+        Returns:
+            使用配置全局帧的 PoseRecord，距离为米、角度为弧度。
+
+        Raises:
+            AttributeError: 消息缺少所需位姿字段。
+            TypeError: 四元数字段不支持所需数值运算。
+        """
         position, q = message.pose.position, message.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
@@ -230,6 +245,17 @@ class DockIngress:
                           position.x, position.y, 0.0, yaw, 0.0)
 
     def _topic_callback(self, message):
+        """解析话题位姿后投递到所有者循环，回调线程不直接提交任务.
+
+        解析失败只记录并忽略本次输入；循环内 _start 仍需检查入口关闭状态。
+
+        Args:
+            message: Dock 话题入口的位姿消息，沿用 _pose 的帧约定。
+
+        Raises:
+            RuntimeError: 向已关闭的事件循环投递失败。
+            Exception: 解析失败后的日志记录本身失败。
+        """
         try:
             pose = self._pose(message)
         except Exception:
@@ -238,6 +264,19 @@ class DockIngress:
         self._loop.call_soon_threadsafe(self._start, pose, None, None)
 
     def _goal_callback(self, request):
+        """在所有者循环检查 Dock 动作准入，只接受当前空闲且开放的入口.
+
+        此回调不保留运动槽位，也不校验目标位姿；最终提交仍由任务内核裁决。
+
+        Args:
+            request: ROS 动作请求，此处不读取其内容。
+
+        Returns:
+            ROS GoalResponse 的 ACCEPT 或 REJECT。
+
+        Raises:
+            Exception: 跨线程调用、状态读取或拒绝日志失败。
+        """
         def admit():
             if (not self._opened or self._closing
                     or self._tasks.status().state != TaskState.IDLE):
@@ -404,6 +443,18 @@ class DockIngress:
             self._entries.pop(entry.task_id, None)
 
     async def _observe(self, entry, events):
+        """观察本入口对应任务的失败或暂停事件，通知入口流程启动收尾.
+
+        有提交快照后同时核对代次，忽略旧代次及其它任务。
+        成功事件不作为完成凭据；正常完成仍由独立 settled 回调确认。
+
+        Args:
+            entry: 当前入口记录，含身份、可选提交快照及唤醒队列。
+            events: 任务内核提供的异步事件队列。
+
+        Raises:
+            asyncio.CancelledError: 入口退出时取消观察任务。
+        """
         while True:
             event = await events.get()
             if event.task_id != entry.task_id:

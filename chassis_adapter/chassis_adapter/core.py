@@ -61,6 +61,18 @@ def _clamp(value: float, limit: float) -> float:
 
 
 def _lift(value: float, minimum: float) -> float:
+    """把非零小幅命令提升到最小幅值，保留方向且零始终为零.
+
+    本助手不执行上限裁剪；调用方负责先限幅，并保证最小值不超过上限。
+    输入有限性由调用方负责，不在此验证。
+
+    Args:
+        value: 已限幅的线速度或角速度，与 minimum 使用相同单位。
+        minimum: 最小非零幅值，使用其绝对值；零表示不提升。
+
+    Returns:
+        保留原方向的浮点命令，大于等于最小幅值时保持原值。
+    """
     value = float(value)
     minimum = abs(float(minimum))
     if value == 0.0 or minimum <= 0.0 or abs(value) >= minimum:

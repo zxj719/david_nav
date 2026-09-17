@@ -69,6 +69,18 @@ class TeleopConfig:
 
 
 def _lift(value: float, minimum: float, maximum: float) -> float:
+    """先对称限幅，再提升非零小幅遥控命令，最小幅值不越过上限.
+
+    零命令保持零，避免死区提升意外制造运动；输入有限性由调用方负责。
+
+    Args:
+        value: 线速度或角速度命令，与阈值使用相同单位。
+        minimum: 最小非零幅值，取绝对值并限制到上限内。
+        maximum: 对称幅值上限，使用其绝对值。
+
+    Returns:
+        保留方向、限幅且处理死区后的浮点命令。
+    """
     limit = abs(float(maximum))
     limited = max(min(float(value), limit), -limit)
     if limited == 0.0:

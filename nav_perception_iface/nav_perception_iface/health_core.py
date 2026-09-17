@@ -169,5 +169,16 @@ class HealthMonitor:
         return HealthReport('info', 'localization_health_ok', evidence)
 
     def _reset(self, code, values=None):
+        """清空健康观察历史并返回告警，不保留旧窗口继续判定.
+
+        返回值仅供导航侧报告；不发送停机指令或修改定位状态。
+
+        Args:
+            code: 本次窗口重置的诊断代码。
+            values: 可选诊断字段，复制为新的顶层字典。
+
+        Returns:
+            等级固定为 warn 的 HealthReport。
+        """
         self._history.clear()
         return HealthReport('warn', code, dict(values or {}))

@@ -207,6 +207,13 @@ class LocalizationMonitor(Node):
             logger.info(message)
 
     def _publication_failed(self, error):
+        """按单调时钟限频记录健康观察发布失败，不重发事件或控制定位.
+
+        仅报告异常类型；一次成功写出警告后，至少五秒才允许下一次警告。
+
+        Args:
+            error: 发布失败时捕获的异常对象。
+        """
         if time.monotonic() >= self._next_failure:
             self.get_logger().warning('health observation publication failed: ' +
                                       type(error).__name__)

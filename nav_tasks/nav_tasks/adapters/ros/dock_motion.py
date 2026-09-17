@@ -87,6 +87,25 @@ class _DockMotion:
                 stage.cancel()
 
     def _call(self, kind, goal, label, timeout, extra):
+        """从阻塞工作线程把动作请求交给唯一所有者循环，并等待跨线程结果.
+
+        不 spin ROS，也不直接操作后端；answer 是本地跨线程 Future。
+        此等待没有独立超时，外层必须保持所有者循环运行直到工作线程收尾。
+
+        Args:
+            kind: navigate 或 spin，选择后端阶段。
+            goal: 平面位姿或 SpinGoal，交由循环内分发。
+            label: 冻结的阶段日志标签。
+            timeout: 传入后端的结果等待预算（秒），不是本地 Future 等待期限。
+            extra: 导航反馈附加距离（米），旋转阶段不使用。
+
+        Returns:
+            循环内阶段转换出的 DockActionResult。
+
+        Raises:
+            RuntimeError: 在所有者循环线程调用会死锁，或循环已关闭。
+            BaseException: 阶段异常经跨线程 Future 传回工作线程。
+        """
         if threading.get_ident() == self._loop_thread:
             raise RuntimeError('blocking Dock motion called from the owner loop')
         answer = Future()
@@ -122,6 +141,18 @@ class _DockMotion:
             answer.set_exception(error)
 
     def _finish_stage(self, task, answer):
+        """仅清除仍对应本阶段的标识，并把阶段结果桥接给工作线程.
+
+        取消转换为明确的取消结果，其它异常写回 Future；本函数不额外取消后端，
+        也不把阶段标识已清除当作后端运动所有权已释放的证明。
+
+        Args:
+            task: 已结束的本地动作阶段任务。
+            answer: 工作线程等待中的跨线程 Future，必须尚未完成。
+
+        Raises:
+            Exception: 写入已经完成或取消的应答 Future 等桥接错误。
+        """
         if self._stage is task:
             self._stage = None
             self._label = None

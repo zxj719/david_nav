@@ -92,6 +92,21 @@ class TfPoseSource:
                 self._odom = captured
 
     def _lookup(self, source: str) -> object:
+        """查询最新的全局帧到指定源帧变换，并统一包装查询错误.
+
+        先检查观察源仍开放；关闭错误不被包装成位姿暂不可用。
+        不在此 spin 或等待特定时刻的变换。
+
+        Args:
+            source: 要查询的源坐标帧名称。
+
+        Returns:
+            TF 缓冲区返回的变换消息。
+
+        Raises:
+            ClosedError: 位姿观察源已经关闭。
+            PoseUnavailableError: 最新时刻构造或 TF 查询失败，原异常保留为原因。
+        """
         self._check_open()
         try:
             return self._buffer.lookup_transform(self._map_frame, source, self._latest_time())

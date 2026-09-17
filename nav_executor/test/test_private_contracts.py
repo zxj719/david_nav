@@ -7,6 +7,11 @@ import pytest
 
 
 @pytest.mark.parametrize('path, qualified_name', [
+    ('app/config.py', '_read_mapping'),
+    ('app/config.py', '_executor_section'),
+    ('app/idle_profile.py', '_positive'),
+    ('protocol/codec.py', '_extract_request_context'),
+    ('protocol/codec.py', '_text'),
     ('app/runtime.py', '_join'),
     ('app/runtime.py', '_retry'),
 ])

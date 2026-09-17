@@ -168,6 +168,18 @@ class ResolvedConfig:
 
 
 def _read_mapping(path):
+    """读取安全 YAML 配置并要求顶层为字典，保留路径信息用于诊断.
+
+    Args:
+        path: 配置文件路径，按 UTF-8 读取。
+
+    Returns:
+        已解析的顶层字典，不在此校验具体执行器字段。
+
+    Raises:
+        ConfigError: 文件读取或 YAML 解析失败，或顶层不是字典。
+        UnicodeError: 文件字节不是有效 UTF-8，此异常不包装为 ConfigError。
+    """
     import yaml
 
     try:
@@ -180,6 +192,20 @@ def _read_mapping(path):
 
 
 def _executor_section(data, path):
+    """提取执行器配置，排除只属于启动器和记录器的字段.
+
+    不在此改名、补默认值或验证其余字段；返回新字典，不修改原配置。
+
+    Args:
+        data: 已确认是字典的完整配置。
+        path: 错误信息中标识配置来源的路径。
+
+    Returns:
+        不含 nav_event_timeout、show_logs、record_bag 的 executor 字典。
+
+    Raises:
+        ConfigError: executor 不存在或不是字典。
+    """
     section = data.get('executor')
     if not isinstance(section, dict):
         raise ConfigError(f'{path}: executor section must be a mapping')

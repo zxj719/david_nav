@@ -74,6 +74,17 @@ class DockObservations:
             occupancy_type, static_map_topic, self._receive, qos)
 
     def _receive(self, message):
+        """在锁外复制静态地图，再持锁复查关闭状态后替换当前快照.
+
+        第一次检查避免关闭后无谓解析，第二次检查阻止解析期间发生关闭后再写入。
+        此处只复制消息，不证明地图或预备点可用；准入检查在 check_approach 执行。
+
+        Args:
+            message: 含完整 OccupancyGrid 字段的静态地图消息。
+
+        Raises:
+            Exception: 消息字段缺失或快照数值转换失败，旧快照尚未被替换。
+        """
         with self._lock:
             if self._closed:
                 return

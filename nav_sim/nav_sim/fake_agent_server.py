@@ -138,6 +138,19 @@ class AgentSession:
             await self._receive(websocket, frame)
 
     async def _await_event(self, websocket: Any, step: ScriptStep) -> None:
+        """持续接收事件直到类型与请求身份匹配，保留期间无关帧.
+
+        步骤含 sub_id 时还须完全匹配子任务 ID；不含时不额外限制。
+        超时预算由外层 run 的 wait_for 负责，此处不自行判断导航位置。
+
+        Args:
+            websocket: 当前测试客户端的异步连接。
+            step: 已下发命令及要等待的事件类型。
+
+        Raises:
+            asyncio.CancelledError: 外层等待超时或取消本任务。
+            Exception: 连接接收、帧解码或心跳应答失败。
+        """
         while True:
             event = await self._receive(websocket, await websocket.recv())
             if (event.get('event_type') == step.wait_event
@@ -147,6 +160,22 @@ class AgentSession:
                 return
 
     async def _receive(self, websocket: Any, frame: str) -> Dict[str, Any]:
+        """记录一帧 JSON 对象，并对应用层 ping 发送兼容 pong.
+
+        事件先加入列表再尝试应答；这里不是 selftest_trace 的严格证据解码器，
+        不额外检查重复键、结构深度或字段 schema。
+
+        Args:
+            websocket: 仅用于 ping 应答的当前异步连接。
+            frame: 客户端发送的 JSON 文本。
+
+        Returns:
+            已追加到会话事件列表的对象字典。
+
+        Raises:
+            ValueError: 文本不是有效 JSON 或顶层不是对象。
+            Exception: 心跳应答发送失败，接收事件仍已记录。
+        """
         event = json.loads(frame)
         if not isinstance(event, dict):
             raise ValueError('agent peer must send JSON objects')

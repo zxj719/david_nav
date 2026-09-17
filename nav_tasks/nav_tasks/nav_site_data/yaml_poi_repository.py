@@ -162,6 +162,17 @@ class YamlPoiRepository:
     def _reproject_pose(self, transform: Transform2D, pose: PoseRecord) -> PoseRecord:
         # Do not use the normalized geometry helper: existing files and threshold
         # decisions retain yaw outside [-pi, pi). See site-data.md.
+        """按二维变换重投影 POI，保留旧存储要求的未归一化 yaw.
+
+        旋转平移 x/y，直接累加 yaw；不改 z 和采样时间，也不使用归一化几何助手。
+
+        Args:
+            transform: 平面旋转平移，平移为米、yaw 为弧度。
+            pose: 待重投影的位姿记录，输入坐标应与变换语义一致。
+
+        Returns:
+            使用配置地图帧的新位姿，yaw 可超出 [-pi, pi)。
+        """
         cosine, sine = math.cos(transform.yaw), math.sin(transform.yaw)
         return PoseRecord(
             self._map_frame, transform.x + cosine * pose.x - sine * pose.y,
@@ -190,6 +201,20 @@ class YamlPoiRepository:
         os.replace(temporary, self.path)
 
     def _stored_poi_from_mapping(self, item: dict) -> StoredPoi | None:
+        """按旧 POI 映射格式恢复记录，缺少 ID 时跳过而不制造匿名点.
+
+        map_pose 和 odom_pose 缺失或为空时各自回退到整个条目；
+        名称回退到 ID，空会话标识回退到既有 semantic_map 标签。
+
+        Args:
+            item: 已由调用方确认可读取的 POI 字典。
+
+        Returns:
+            恢复的 StoredPoi；id 为 None 或不存在时返回 None。
+
+        Raises:
+            Exception: 嵌套位姿格式不合法或其字段不能转换。
+        """
         poi_id = item.get('id')
         if poi_id is None:
             return None
@@ -200,6 +225,22 @@ class YamlPoiRepository:
             str(item.get('slam_session_id') or 'semantic_map'))
 
     def _pose_from_mapping(self, item: dict) -> PoseRecord:
+        """按旧格式读取位姿，顶层坐标键优先于嵌套 position.
+
+        缺失坐标、yaw 和时间使用零，空帧名使用配置地图帧。
+        此处只转换数值，不校验有限性、不转换坐标帧，也不归一化 yaw。
+
+        Args:
+            item: 位姿字典，可含顶层 x/y/z 或嵌套 position。
+
+        Returns:
+            转为 float 的 PoseRecord，保留既有字段回退语义。
+
+        Raises:
+            TypeError: 数值字段不能转换，或嵌套结构类型不适用。
+            ValueError: 数值文本不能转换为浮点数。
+            AttributeError: 非映射对象缺少 get 方法。
+        """
         position = item.get('position') or {}
         return PoseRecord(
             str(item.get('frame_id') or self._map_frame),

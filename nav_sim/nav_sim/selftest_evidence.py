@@ -57,6 +57,14 @@ class EvidenceResult:
 
 
 def _number(value):
+    """检查证据值为内置有限数值，排除布尔值与超大整数转换溢出.
+
+    Args:
+        value: 待判断的已解码字段，不尝试把字符串转换为数字。
+
+    Returns:
+        类型严格为 int 或 float 且可通过有限性检查时返回 True。
+    """
     try:
         return type(value) in (int, float) and math.isfinite(value)
     except OverflowError:
@@ -154,6 +162,18 @@ def _nav_records(cases, records, errors):
 
 
 def _pose(data, expected):
+    """按紧容差比对证据中的目标位姿，角度允许相差整周.
+
+    这是配置/事件目标一致性检查，不是实机到点容差。
+    x/y 逐轴比较，yaw 使用 remainder 归一；三者绝对差须不超过 1e-8。
+
+    Args:
+        data: 含 x、y、yaw 的候选字段字典，缺失或非有限值判为不匹配。
+        expected: 已校验的目标三元组，距离为米、角度为弧度。
+
+    Returns:
+        三个字段均有效且在一致性容差内时返回 True。
+    """
     values = tuple(data.get(key) for key in ('x', 'y', 'yaw'))
     return (all(_number(value) for value in values)
             and abs(values[0] - expected[0]) <= 1e-8

@@ -297,6 +297,13 @@ class Nav2Client:
 
     async def _rollback_clients(self) -> None:
         # Construction never submitted work. Do not seal a caller-provided session.
+        """构建回滚时只销毁本对象持有的动作客户端，不关闭借入的会话.
+
+        构建尚未提交动作，不能因为构建失败就封闭调用方提供的共享 session。
+
+        Raises:
+            Exception: 自有客户端销毁失败，调用方应保留回滚所有权并重试。
+        """
         self._destroy_owned_clients()
 
     @staticmethod

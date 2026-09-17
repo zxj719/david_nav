@@ -54,6 +54,19 @@ def _read_counters(pid, proc_root=Path('/proc')):
 
 
 def _positive(value):
+    """把命令行数值转换成有限正浮点数，拒绝零、负数和非有限值.
+
+    Args:
+        value: argparse 传入的数值文本；转换本身交给 float。
+
+    Returns:
+        有限且严格大于零的浮点数。
+
+    Raises:
+        argparse.ArgumentTypeError: 转换结果非有限或不为正。
+        ValueError: 文本不能转换为浮点数。
+        TypeError: 输入对象不支持浮点转换。
+    """
     result = float(value)
     if not math.isfinite(result) or result <= 0:
         raise argparse.ArgumentTypeError('must be positive and finite')

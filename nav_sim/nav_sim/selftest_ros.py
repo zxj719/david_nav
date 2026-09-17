@@ -103,6 +103,14 @@ class Observer:
             self.error = 'nav_observation_' + type(error).__name__
 
     def _odometry(self, message):
+        """检查自测里程计帧与二维位置后保存位置和消息时间.
+
+        帧或位置不合格时记录持久错误，不清除以前的样本；新鲜度另行检查。
+        仅观察导航自测数据，不控制或修改定位栈。
+
+        Args:
+            message: 自测订阅收到的里程计消息，含 header 和 child_frame_id。
+        """
         if (message.header.frame_id != self._frames['odom']
                 or message.child_frame_id != self._frames['body']):
             self.error = 'unexpected_odometry_frame'
@@ -114,6 +122,13 @@ class Observer:
         self._odom = (point.x, point.y, self._seconds(message.header.stamp))
 
     def _map(self, message):
+        """根据帧名、正尺寸与数据长度更新自测地图就绪标志.
+
+        只证明基本结构满足启动观察条件，不证明地图占用值、分辨率或目标可达。
+
+        Args:
+            message: 当前收到的静态地图消息，后续无效帧会使就绪标志变为 False。
+        """
         self._map_ready = (message.header.frame_id == self._frames['map']
                            and message.info.width > 0 and message.info.height > 0
                            and len(message.data) == message.info.width * message.info.height)
@@ -123,6 +138,17 @@ class Observer:
         return stamp.sec + stamp.nanosec * 1e-9
 
     def _fresh(self, stamp):
+        """用节点 ROS 时钟判断样本时间是否处于允许的新鲜度窗口.
+
+        允许最多 0.05 秒的未来偏差和 0.5 秒的历史年龄；不使用单调墙钟。
+        这只是消息新鲜度判断，不是停稳或运动完成判断。
+
+        Args:
+            stamp: 与节点 ROS 时钟同口径的样本时间，单位秒。
+
+        Returns:
+            当前时间减样本时间位于闭区间 [-0.05, 0.5] 时返回 True。
+        """
         age = self.node.get_clock().now().nanoseconds * 1e-9 - stamp
         return -0.05 <= age <= 0.5
 

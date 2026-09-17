@@ -7,6 +7,20 @@ import pytest
 
 
 @pytest.mark.parametrize('path, qualified_name', [
+    ('adapters/ros/dock_ingress.py', 'DockIngress._pose'),
+    ('adapters/ros/dock_ingress.py', 'DockIngress._topic_callback'),
+    ('adapters/ros/dock_ingress.py', 'DockIngress._goal_callback'),
+    ('adapters/ros/dock_ingress.py', 'DockIngress._observe'),
+    ('adapters/ros/dock_motion.py', '_DockMotion._call'),
+    ('adapters/ros/dock_motion.py', '_DockMotion._finish_stage'),
+    ('adapters/ros/dock_observations.py', 'DockObservations._receive'),
+    ('adapters/ros/tf_pose_source.py', 'TfPoseSource._lookup'),
+    ('nav2_client.py', 'Nav2Client._rollback_clients'),
+    ('nav_site_data/yaml_poi_repository.py', 'YamlPoiRepository._reproject_pose'),
+    ('nav_site_data/yaml_poi_repository.py', 'YamlPoiRepository._stored_poi_from_mapping'),
+    ('nav_site_data/yaml_poi_repository.py', 'YamlPoiRepository._pose_from_mapping'),
+    ('skills/docking/workflow.py', 'DockWorkflow._observe'),
+    ('skills/docking/workflow.py', 'DockWorkflow._report'),
     ('adapters/ros/action_session.py', 'ActionSession._cancel_attempt'),
     ('adapters/ros/action_session.py', 'ActionSession._queue_feedback'),
     ('adapters/ros/action_session.py', 'ActionSession._feedback'),

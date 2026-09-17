@@ -139,6 +139,18 @@ class ContractProbe:
         self.executor.spin_once(timeout_sec=duration_sec)
 
     def _has_transform(self, target, source, stamp=None):
+        """只读查询指定时刻的 TF 可用性，同名帧按单位变换直接通过.
+
+        不创建变换、不设置定位；缺省时刻使用最新可用变换。
+
+        Args:
+            target: 目标坐标帧。
+            source: 源坐标帧，同 target 时不查询缓冲区。
+            stamp: 指定 ROS 时刻；None 表示最新时刻。
+
+        Returns:
+            TF 可用性；TransformException 或 ValueError 转为 False。
+        """
         if target == source:
             return True
         try:
@@ -156,6 +168,15 @@ class ContractProbe:
         return self._has_transform(self.frames['map'], self.frames['odom'])
 
     def _receive(self, topic, message):
+        """标记采样窗口内已收到的话题，并保留最新点云的帧与时间.
+
+        点云时间无效时显式清空时间证据，避免沿用旧样本的可转换时间；
+        不复制点云负载，也不控制数据发布方。
+
+        Args:
+            topic: 本次订阅所绑定的话题名。
+            message: 消息对象；仅点云话题读取 header 字段。
+        """
         self._samples.add(topic)
         if topic == self.cloud:
             self._cloud_frame = message.header.frame_id

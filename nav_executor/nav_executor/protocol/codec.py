@@ -11,6 +11,17 @@ from nav_executor.protocol.messages import (
 
 
 def _extract_request_context(payload: dict) -> tuple[str | None, int]:
+    """尽力提取错误应答所需的请求身份，不要求整帧命令有效.
+
+    request_id 仅接受标量并转为去空白文本；空白或非标量变为 None。
+    sub_id 转整数失败时退回零，保留既有线协议的宽松错误关联方式。
+
+    Args:
+        payload: 已解析的顶层消息字典。
+
+    Returns:
+        可用请求 ID 或 None，以及转换后的子任务整数 ID。
+    """
     request_id = payload.get("request_id")
     request_id = (str(request_id).strip()
                   if isinstance(request_id, (str, int, float, bool)) else None)
@@ -46,6 +57,20 @@ def parse_command(payload: object) -> Command:
 
 
 def _text(value, field, allow_empty=False):
+    """按既有协议把标量转成去空白文本，不额外校验业务标识语义.
+
+    Args:
+        value: 字符串、整数、浮点数或布尔值。
+        field: 类型和空值错误信息中的字段名。
+        allow_empty: 是否允许转换后为空字符串。
+
+    Returns:
+        str 转换并 strip 后的文本；不检查浮点有限性。
+
+    Raises:
+        TypeError: 输入不是支持的标量类型。
+        ValueError: 转换后为空且未允许空文本。
+    """
     if not isinstance(value, (str, int, float, bool)):
         raise TypeError(f'{field} must be a string or scalar value')
     result = str(value).strip()
