@@ -125,7 +125,7 @@ class RunDirectory:
         Raises:
             ValueError: If the run id does not follow the run id format.
         """
-        match = RUN_ID_RE.match(self.run_id)
+        match = RUN_ID_RE.fullmatch(self.run_id)
         if match is None:
             raise ValueError(f'not a run id: {self.run_id!r}')
         return datetime.datetime.strptime(match.group('stamp'), '%Y%m%d_%H%M%S')
@@ -146,7 +146,7 @@ def make_run_id(mode: str, git_sha: Optional[str], now: datetime.datetime) -> st
     Raises:
         ValueError: If ``mode`` or ``git_sha`` has an invalid format.
     """
-    if not _MODE_RE.match(mode):
+    if not _MODE_RE.fullmatch(mode):
         raise ValueError(f'invalid run mode {mode!r}')
     if git_sha is None:
         short_sha = 'nogit'
@@ -171,7 +171,7 @@ def create_run_directory(root: Union[str, Path], run_id: str) -> RunDirectory:
         ValueError: If ``run_id`` is not a valid run id.
         FileExistsError: If a run with the same id already exists.
     """
-    if not RUN_ID_RE.match(run_id):
+    if not RUN_ID_RE.fullmatch(run_id):
         raise ValueError(f'not a run id: {run_id!r}')
     run = RunDirectory(Path(root), run_id)
     run.root.mkdir(parents=True, exist_ok=True)
@@ -214,6 +214,6 @@ def list_runs(root: Union[str, Path]) -> List[RunDirectory]:
     runs = [
         RunDirectory(root_path, entry.name)
         for entry in root_path.iterdir()
-        if entry.is_dir() and not entry.is_symlink() and RUN_ID_RE.match(entry.name)
+        if entry.is_dir() and not entry.is_symlink() and RUN_ID_RE.fullmatch(entry.name)
     ]
     return sorted(runs, key=lambda run: run.run_id)
