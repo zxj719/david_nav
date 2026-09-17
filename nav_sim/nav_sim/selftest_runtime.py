@@ -1,4 +1,4 @@
-"""Real Nav2 selftest resource ownership; imported only after explicit CLI guards."""
+"""管理真实 Nav2 私有自测的资源所有权，由显式入口检查后按需导入."""
 
 import asyncio
 import json
@@ -86,11 +86,15 @@ async def _cleanup(scene, child, observer, server, peer, result):
 
 
 def require_idle_host() -> None:
-    """Read-only guard against starting ROS beside the user's localization/navigation.
+    """只读扫描受保护栈，拒绝在用户定位或导航进程旁启动自测.
+
+    排除当前进程及祖先；检查只是当时快照，不冻结后续主机状态，也不发信号。
 
     Raises:
-        RuntimeError: Any non-ancestor protected process exists or scanning is uncertain.
-        OSError: Process ancestry or the read-only scan cannot be obtained.
+        RuntimeError: 域不符、发现非祖先受保护进程，或 pgrep 返回码不可靠。
+        OSError: 无法读取进程祖先信息或执行只读扫描。
+        subprocess.TimeoutExpired: pgrep 超过 5 秒未结束。
+        ValueError: 进程记录或扫描结果中的 PID 无法解析。
     """
     require_sandbox(os.environ)
     ancestors, pid = set(), os.getpid()
@@ -108,23 +112,28 @@ def require_idle_host() -> None:
 
 async def execute(prepare: Callable[[str], Scene], timeout: float,
                   startup_only: bool, allow_goals: bool) -> Mapping[str, object]:
-    """Own a passive loopback server, read-only observer and real private Nav2 graph.
+    """持有回环服务器、只读观察器和真实私有图，按证据与清理结果判定.
+
+    常规运行异常记入结果；准备、完整性或证据记录器创建失败发生在运行
+    try 块之前，可能没有 result.json。进入运行块后以 shield 保护自有清理，
+    但清理或结果写入本身抛异常仍可能覆盖先前异常，不能保证结果总能落盘。
 
     Args:
-        prepare: Renderer called with the actual owned loopback listener URI.
-        timeout: Total positive finite experiment deadline.
-        startup_only: Request startup/cleanup validation without sending any goal.
-        allow_goals: Explicit authorization flag required for a complete experiment.
+        prepare: 使用实际监听回环 URI 生成场景的回调。
+        timeout: 交给 drive 的有限正秒数，不覆盖此前准备与后续清理的总墙钟时间。
+        startup_only: 只验证启动和清理，不发目标；此模式 complete 始终为 False。
+        allow_goals: 完整实验要求的显式入口标志，不能替代外部运动授权。
 
     Returns:
-        Persisted result; complete is True only for both goals, evidence and cleanup.
+        已排他写入的结果映射；仅两用例执行、事件/测量与清理全部通过且无错误，
+        complete 才为 True。这里只验证私有自测，不等同实机验收。
 
     Raises:
-        RuntimeError: Domain, authority or idle-host guard fails before execution.
-        ValueError: Preparation or integrity validation fails.
-        OSError: Private artifact creation fails.
-        KeyboardInterrupt: Caller interrupted; owned children are drained first.
-        asyncio.CancelledError: Caller cancelled; owned children are drained first.
+        RuntimeError: 进入运行块前域、授权或主机空闲检查失败。
+        ValueError: 参数、准备或完整性检查失败。
+        OSError: 私有资产创建或结果写入失败。
+        KeyboardInterrupt: 中断向外传播；已进入运行块时先尝试自有清理。
+        asyncio.CancelledError: 取消向外传播；已进入运行块时先等待受保护的自有清理。
     """
     require_sandbox(os.environ)
     if finite_number(timeout, 'timeout') <= 0:

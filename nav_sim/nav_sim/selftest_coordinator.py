@@ -1,4 +1,4 @@
-"""Cooperative POI/Dock sequencing using independent observations, never fake success."""
+"""协调普通 POI 后 Dock 的自测顺序，分别检查事件、位姿及里程计证据."""
 
 import asyncio
 import json
@@ -14,7 +14,7 @@ from nav_sim.selftest_trace import audit_processes, EvidenceTrace, reached
 
 
 class Peer:
-    """One non-replayable WebSocket connection with bounded evidence intake.
+    """接收一次不可重连重放的 WebSocket 会话，并交给有界证据记录器.
 
     Attributes:
         error: 已观察到的连接/任务失败原因，尚无失败时为 None。
@@ -24,16 +24,19 @@ class Peer:
     """
 
     def __init__(self) -> None:
-        """Initialize a disconnected peer; bind trace before starting any child."""
+        """初始化未连接对端；启动任何子进程前还须绑定 trace."""
         self.trace = self.socket = self.error = None
         self.stopping = False
         self._accepted = False
 
     async def handle(self, socket: Any) -> None:
-        """Observe one client and answer heartbeat only; commands belong to drive().
+        """观察唯一客户端并回应心跳；导航命令由 drive 发送.
+
+        无记录器、重复接入或重连均记录错误并拒绝；接收/任务失败写入 error，
+        不据此报告成功，也不在本回调发送导航目标。
 
         Args:
-            socket: The loopback server's single accepted connection.
+            socket: 回环服务器交来的候选连接。
         """
         if self._accepted or self.trace is None:
             self.error = 'unexpected_or_reconnected_client'
@@ -59,25 +62,28 @@ class Peer:
 
 async def drive(scene: Scene, trace: EvidenceTrace, peer: Peer, observer: Any,
                 child: Any, timeout: float, startup_only: bool) -> Sequence[Mapping[str, object]]:
-    """Wait for real readiness, then perform exactly one POI and one Dock experiment.
+    """等待启动证据，非仅启动模式下依次执行场景中的普通 POI 与 Dock.
+
+    仅启动模式不发送命令。完整模式要求外层已取得运动授权；
+    每个用例同时检查关联到达事件、所有权释放、TF 到点和里程计位移，
+    返回后仍须由运行器检查尾部事件及清理结果。
 
     Args:
-        scene: Private immutable expectations and real launch graph.
-        trace: Bounded WS and NavEvent evidence.
-        peer: Single-use connected command transport.
-        observer: Read-only ROS observer; injected memory ports are only for pure tests.
-        child: Still-owned launcher with non-reaping poll().
-        timeout: Positive finite total experiment deadline, including startup.
-        startup_only: Never dispatch commands when True; returns no completion evidence.
+        scene: 已验证的私有场景、两用例预期和真实启动图。
+        trace: 有界且分通道保留的 WS 与 NavEvent 证据。
+        peer: 单次接入的命令传输对端。
+        observer: 只读 ROS 观察器；内存替身仅供纯单元测试。
+        child: 仍由调用方持有且 poll 不回收 PID 的启动器。
+        timeout: 从进入本函数起计算的有限正秒数，含启动等待，不含此前准备和后续清理。
+        startup_only: True 时只验证启动并返回空列表，不生成动作完成证据。
 
     Returns:
-        Independent final TF/odometry measurements for each completed case.
-        These alone are not overall success: runtime must still verify cleanup.
+        每个已完成用例的独立 TF/里程计测量记录；不代表整体自测成功。
 
     Raises:
-        ValueError: Timeout or process/evidence records are invalid.
-        RuntimeError: A process, transport or observation fails.
-        TimeoutError: Readiness, pose or completion evidence does not arrive in time.
+        ValueError: 超时或进程/事件证据不合法。
+        RuntimeError: 进程、连接、观察或关联一致性检查失败。
+        TimeoutError: 就绪、发送或完成证据超过期限；同步回调本身不被抢占中断。
     """
     if finite_number(timeout, 'timeout') <= 0:
         raise ValueError('timeout must be positive')

@@ -1,4 +1,4 @@
-"""Configurable replacement for the legacy differential-drive fake chassis."""
+"""用可配置的纯仿真假底盘替代旧差速模型，不打开真实底盘硬件."""
 
 import os
 from typing import Optional, Sequence
@@ -13,10 +13,13 @@ from nav_sim.model import require_sandbox
 
 
 class FakeChassis(Node):
-    """Integrate Twist into Odometry; never open hardware or publish commands."""
+    """订阅 Twist 并积分发布 Odometry，不发布速度命令或访问硬件."""
 
     def __init__(self) -> None:
-        """Require explicit robot frames and retain the legacy 0.02 second step."""
+        """核对沙箱域和必填机器人帧，创建订阅及默认 0.02 秒固定步长定时器.
+
+        配置错误会向外传播；构造中途失败不在此显式回滚已创建的 ROS 节点。
+        """
         require_sandbox(os.environ)
         super().__init__('fake_chassis')
         _ros.require_node_sandbox(self)
@@ -80,9 +83,9 @@ class FakeChassis(Node):
 
 
 def main(args: Optional[Sequence[str]] = None) -> None:
-    """Run the isolated fake chassis, with no hardware dependencies.
+    """运行隔离的假底盘入口，不加载真实硬件驱动.
 
     Args:
-        args: Optional ROS command-line arguments.
+        args: 可选 ROS 命令行参数。
     """
     _ros.run(FakeChassis, args)

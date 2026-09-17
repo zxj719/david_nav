@@ -1,10 +1,9 @@
-"""Correlate POI and two-stage Dock observations for the planned closed-loop test.
+"""关联普通 POI 和两段 Dock 的观察记录，判断计划闭环的事件证据.
 
-This is an event acceptance oracle, not a simulator or a claim that Nav2 ran.
-The runner must separately prove process isolation, real execution and cleanup.
-ROS NavEvent records are normalized to event_id/source/event_type/severity/stamp/
-data mappings; WS object frames are retained separately. There is no shared
-delivery order across the two transports, and wall time need not be monotonic.
+这里只是事件验收判据，不是仿真器，也不独立证明 Nav2 真实运行。
+运行器另须核对进程隔离、执行、测量与清理。ROS NavEvent 归一为
+event_id/source/event_type/severity/stamp/data 映射；WS 对象帧单独保留。
+两个传输通道没有共同的接收总序，墙钟也不保证单调。
 """
 
 from __future__ import annotations
@@ -18,17 +17,17 @@ from typing import Mapping, Sequence, Tuple
 
 @dataclass(frozen=True)
 class ExpectedCase:
-    """One uniquely named experiment case, independent of any ROS client.
+    """保存实验用例的独立身份与预期，构造时不自行校验.
 
     Attributes:
-        task_id: Unique request ID for this experiment, not a reused operator ID.
-        sub_id: Exact integer protocol correlation field.
-        target_id: Planned POI ID, never inferred from a success message.
-        kind: Ordinary poi or two-stage dock; the experiment requires one of each.
-        goal: Dock target x/y/yaw in metres/radians; unused for the ordinary case.
-        approach_dist: Positive Dock pre-approach distance from the run configuration.
-        xy_ok: Dock positional tolerance in metres.
-        yaw_ok: Dock angular tolerance in radians.
+        task_id: 本实验唯一请求标识，不复用操作员请求。
+        sub_id: 协议关联的精确整数子任务标识。
+        target_id: 计划 POI 标识，不从成功消息反推。
+        kind: 普通 poi 或两段 dock，实验要求按此顺序各一个。
+        goal: 目标 x/y/yaw，单位米/弧度；Dock 事件和两类用例的实测到点检查使用。
+        approach_dist: 正 Dock 预备距离，单位米。
+        xy_ok: 实测位置容差，单位米。
+        yaw_ok: 实测航向容差，单位弧度。
     """
 
     task_id: str
@@ -43,12 +42,12 @@ class ExpectedCase:
 
 @dataclass(frozen=True)
 class EvidenceResult:
-    """Event evidence verdict, explicitly separate from overall selftest success.
+    """保存事件证据结论，与整体自测成功及实机验收明确区分.
 
     Attributes:
-        complete: Both expected cases have complete, consistent event evidence.
-        completed_cases: Both case IDs only after the complete event evidence passes.
-        errors: Bounded diagnostic labels; no raw event payloads are echoed.
+        complete: 两个预期用例均有完整一致的事件证据。
+        completed_cases: 全部证据通过时才包含两个用例 ID，否则为空。
+        errors: 至多 100 个去重诊断标签，可含已限长的用例 ID，不回显原始负载。
     """
 
     complete: bool
@@ -307,19 +306,20 @@ def check_evidence(
     cases: Sequence[ExpectedCase], nav_events: Sequence[Mapping[str, object]],
     ws_events: Sequence[Mapping[str, object]],
 ) -> EvidenceResult:
-    """Verify the strict healthy, zero-spin POI then two-stage Dock event sequence.
+    """检查健康、无需旋转修正的普通 POI 后两段 Dock 事件链.
 
     Args:
-        cases: One ordinary case then one Dock case with unique request/POI IDs.
-        nav_events: Normalized ROS observations in receive order; duplicates must match.
-        ws_events: Decoded object frames from the private agent connection, in order.
+        cases: 一个普通用例后一个 Dock 用例，请求及 POI 标识各自唯一。
+        nav_events: 按接收顺序归一化的 ROS 观察；重复事件内容须完全一致。
+        ws_events: 私有连接按接收顺序收到并解码的对象帧。
 
     Returns:
-        Evidence-only verdict. Missing observations fail closed, even if the
-        robot actually moved correctly; this does not claim full selftest success.
+        仅关于事件的结论。任一通道超过 50000 条直接失败；
+        缺失、冲突或不合序的证据也判失败，即使机器人可能实际已正确运动。
+        通过不能替代进程、实测位姿与收尾检查。
 
     Raises:
-        ValueError: The expected experiment is malformed or does not contain both cases.
+        ValueError: 预期实验身份、顺序、位姿或容差不合法。
     """
     _validate(cases)
     if len(nav_events) > 50000 or len(ws_events) > 50000:

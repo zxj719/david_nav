@@ -1,4 +1,4 @@
-"""Private read-only selftest observer; never creates a motion publisher/client."""
+"""提供私有只读自测观察器，不创建运动命令发布器或目标客户端."""
 
 import json
 import math
@@ -23,10 +23,10 @@ from nav_sim.selftest_trace import EvidenceTrace
 
 
 class Observer:
-    """Single-threaded private ROS context, observations and nonblocking readiness.
+    """持有私有 ROS 上下文，以单线程轮询处理观察及生命周期查询.
 
     Attributes:
-        buffer: 本对象使用的 TF 缓冲区。
+        buffer: 本对象使用的 TF 缓冲区，初始化到相应步骤后才存在。
         context: 本对象持有的私有 ROS 上下文。
         error: ROS 观察失败原因；非 None 使本次验证失败。
         executor: 只驱动本对象节点的执行器；未创建时为 None。
@@ -35,15 +35,18 @@ class Observer:
     """
 
     def __init__(self, scene: Scene, trace: EvidenceTrace) -> None:
-        """Create subscriptions before launch so early task events are observable.
+        """在被观察图启动前创建订阅，尽早接收事件但不保证 DDS 永不丢失.
+
+        初始化 ROS 的 try 块内失败会调用 close；档案读取在该块之前。
+        close 的异常可能覆盖原始初始化异常。
 
         Args:
-            scene: Digest-verified private graph.
-            trace: Bounded exclusive writer; a failed callback invalidates the run.
+            scene: 已通过摘要核验的私有场景。
+            trace: 有界排他记录器；回调失败会使本次验证失败。
 
         Raises:
-            RuntimeError: Environment/context is not domain 99 or ROS initialization fails.
-            OSError: Private profile cannot be read.
+            RuntimeError: 环境/实际域不是 99，或 ROS 初始化失败。
+            OSError: 私有档案无法读取。
         """
         require_sandbox(os.environ)
         self.node = self.executor = self.listener = None
@@ -153,10 +156,13 @@ class Observer:
         return -0.05 <= age <= 0.5
 
     def step(self) -> None:
-        """Pump bounded ROS work and progress each lifecycle query without blocking.
+        """轮询最多 16 次 ROS 工作并推进生命周期异步查询.
+
+        spin_once 使用零等待；执行次数受限不意味着回调自身具有墙钟时限。
+        查询每隔至少 0.5 秒发起，已有未完成请求不重复发送。
 
         Raises:
-            RuntimeError: A callback or lifecycle service reports an observation error.
+            RuntimeError: 已记录观察错误；回调及服务 Future 的其它异常原样传播。
         """
         for _ in range(16):
             self.executor.spin_once(timeout_sec=0)
@@ -174,10 +180,11 @@ class Observer:
                 self._pending[name] = client.call_async(GetState.Request())
 
     def pose(self) -> Optional[Tuple[float, float, float]]:
-        """Return fresh map-to-navigation-centre position and yaw, never inferred success.
+        """读取新鲜的地图到导航旋转中心位姿，不从任务成功消息推算.
 
         Returns:
-            Measured x/y/yaw, or None for unavailable/stale/invalid transform.
+            x/y/yaw 三元组，单位米/弧度。TF 不可用、时间不新鲜、
+            所检查分量非有限或四元数模平方偏差超过 1e-5 时为 None。
         """
         try:
             message = self.buffer.lookup_transform(
@@ -195,25 +202,31 @@ class Observer:
                 math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
 
     def odometry(self) -> Optional[Tuple[float, float]]:
-        """Return fresh fake-chassis displacement independently of TF.
+        """独立于 TF 返回新鲜假底盘二维位置，位移由调用方计算.
 
         Returns:
-            x/y in the configured odometry frame, or None for missing/stale data.
+            配置里程计帧下的 x/y，单位米；缺失或时间不新鲜时为 None。
         """
         return self._odom[:2] if self._odom and self._fresh(self._odom[2]) else None
 
     def ready(self) -> bool:
-        """Check map, current measurements and every lifecycle state, not just discovery.
+        """综合地图结构、当前测量和缓存生命周期状态判断启动就绪.
 
         Returns:
-            True only when every required read-only startup observation is present.
+            存在生命周期客户端且其缓存状态全为 active(3)，地图基本结构有效，
+            TF 及里程计新鲜时为 True。状态缓存没有独立年龄检查，
+            结果不是目标可达或运动完成证明。
         """
         return (bool(self._clients) and set(self._states) == set(self._clients)
                 and all(value == 3 for value in self._states.values())
                 and self._map_ready and self.pose() is not None and self.odometry() is not None)
 
     def close(self) -> None:
-        """Release only this observer's subscriptions, executor, node and private context."""
+        """按顺序尝试释放本观察器的监听器、执行器、节点和私有上下文.
+
+        前三项任一步骤抛异常会跳过后续同层步骤，但 finally 仍尝试关闭上下文。
+        关闭上下文本身抛异常可覆盖先前异常，不保证每种失败路径都完整释放。
+        """
         try:
             if self.listener is not None:
                 self.listener.unregister()

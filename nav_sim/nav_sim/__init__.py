@@ -1,1 +1,1 @@
-"""Configurable offline chassis, localization and agent-server test doubles."""
+"""提供可配置的假底盘、假定位和导航协议测试对端，不接入真实硬件."""

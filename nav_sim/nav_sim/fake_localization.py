@@ -1,4 +1,4 @@
-"""Publish only map-to-odom and odom-to-body TF from simulated odometry."""
+"""从仿真里程计发布 map→odom 和 odom→机身 TF，不运行 Lightning 定位."""
 
 import copy
 import math
@@ -15,10 +15,13 @@ from nav_sim.model import localization_frames, require_sandbox
 
 
 class FakeLocalization(Node):
-    """Mirror integrated odometry into TF; URDF owns body-to-navigation TF."""
+    """把仿真里程计映射到 TF；机身到导航旋转中心的变换仍由 URDF 提供."""
 
     def __init__(self) -> None:
-        """Require robot frame configuration and subscribe to simulated odometry."""
+        """核对域与三个不同的帧，订阅仿真里程计并按配置创建转发输出.
+
+        配置错误会向外传播；构造中途失败不在此显式回滚已创建的 ROS 节点。
+        """
         require_sandbox(os.environ)
         super().__init__('fake_localization')
         _ros.require_node_sandbox(self)
@@ -75,9 +78,9 @@ class FakeLocalization(Node):
 
 
 def main(args: Optional[Sequence[str]] = None) -> None:
-    """Run the isolated fake localization without launching a SLAM stack.
+    """运行导航自测假定位，不启动或修改 SLAM 栈.
 
     Args:
-        args: Optional ROS command-line arguments.
+        args: 可选 ROS 命令行参数。
     """
     _ros.run(FakeLocalization, args)

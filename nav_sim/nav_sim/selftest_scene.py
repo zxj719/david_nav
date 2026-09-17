@@ -1,8 +1,7 @@
-"""Prepare a private Nav2 experiment without reading operator maps or starting ROS.
+"""离线准备私有 Nav2 场景，不读取操作员地图或启动 ROS.
 
-Robot geometry and selected-mode tuning remain source configuration. Only
-simulation wiring, private site assets and process ownership are overridden.
-Preparation is not execution or a successful closed-loop test.
+沿用源机器人几何及选定模式调参，只替换仿真接线、私有场地资产和进程策略。
+生成场景不等于已执行，也不证明闭环测试通过。
 """
 
 from __future__ import annotations
@@ -27,14 +26,14 @@ from nav_sim.selftest_evidence import ExpectedCase
 
 @dataclass(frozen=True)
 class Scene:
-    """Prepared private experiment, explicitly not an execution verdict.
+    """保存准备好的私有实验描述，明确不作为执行结论.
 
     Attributes:
-        root: Exclusive experiment directory containing all writable assets.
-        namespace: Unique ROS namespace applied to every process.
-        graph: Real Nav2 and task manager plus fake chassis/localization.
-        cases: Ordinary POI followed by two-stage Dock acceptance expectations.
-        digest: Hash of the complete plan passed explicitly to its owned launcher.
+        root: 排他创建的实验目录，用于本次可写资产。
+        namespace: 本图 ROS 参与者使用的唯一命名空间，非 ROS 包装入口另以参数接线。
+        graph: 真实 Nav2、任务管理器与假底盘/假定位组成的图。
+        cases: 普通 POI 后两段 Dock 的验收预期。
+        digest: 显式传给自有启动器的完整计划 SHA256。
     """
 
     root: Path
@@ -287,28 +286,28 @@ def prepare_scene(
     root: Path, robot: str, mode: str, namespace: str, inputs: BundleInputs,
     catalog: schema.ParameterCatalog, server_uri: str,
 ) -> Scene:
-    """Create exclusive private assets and a real-Nav2 launch plan, entirely offline.
+    """完全离线创建排他私有资产和真实 Nav2 启动计划.
 
-    Source robot, mode, URDF, shared templates and schemas are read-only. The
-    supplied operator site is deliberately not opened. Invalid rendering can
-    leave partial private diagnostics, but never a runnable selftest marker.
+    源机器人、模式、URDF、共享模板及 schema 只读，不打开输入中的操作员场地。
+    渲染失败可留下私有诊断文件，但不会执行最后的完整计划标记写入；
+    标记写入本身失败仍可能留下部分文件，不把文件存在当作计划已验证。
 
     Args:
-        root: New absolute output directory under a trusted existing parent.
-        robot: Selected robot identity, matching its source profile.
-        mode: Tour or precise; no controller tuning is replaced by this fixture.
-        namespace: Unique selftest_ followed by 32 lowercase UUID hex digits.
-        inputs: Shared renderer inputs; site is replaced with private scene data.
-        catalog: Available parameter schemas for the normal offline validator.
-        server_uri: Owned loopback peer, or a nonexecuted preview URI.
+        root: 可信已有父目录下的新绝对输出目录。
+        robot: 与源档案一致的机器人身份。
+        mode: tour 或 precise；保留选定模式的控制器调参。
+        namespace: selftest_ 后接 32 位小写 UUID 十六进制的唯一命名空间。
+        inputs: 共享渲染输入，场地替换为私有场景。
+        catalog: 常规离线校验使用的参数 schema 集合。
+        server_uri: 自有回环对端地址，或不执行的预览地址。
 
     Returns:
-        Private graph and expected cases; no claim of execution or success.
+        私有图及预期用例；不声称已经执行或通过。
 
     Raises:
-        ValueError: Identity, isolation, geometry or normal configuration is invalid.
-        FileExistsError: Output already exists; nothing is overwritten.
-        OSError: An input read or exclusive private write fails.
+        ValueError: 身份、隔离、几何或常规配置不合法。
+        FileExistsError: 输出已存在，拒绝覆盖。
+        OSError: 输入读取或排他私有写入失败。
     """
     _validate(root, robot, mode, namespace, server_uri)
     original_bytes, mode_bytes = inputs.profile.read_bytes(), inputs.mode.read_bytes()

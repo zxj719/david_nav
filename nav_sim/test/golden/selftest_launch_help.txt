@@ -1,0 +1,13 @@
+usage: selftest_launch.py [-h] --run-dir RUN_DIR --plan-sha256 PLAN_SHA256
+                          --start-verified-fixture
+
+Launch only a digest-verified private graph; this process never submits goals.
+The outer selftest runner owns this entire process group. It must explicitly
+authorize and implement its own goal dispatch, observation and result checks.
+Starting this module alone is not a completed navigation experiment.
+
+options:
+  -h, --help            show this help message and exit
+  --run-dir RUN_DIR
+  --plan-sha256 PLAN_SHA256
+  --start-verified-fixture

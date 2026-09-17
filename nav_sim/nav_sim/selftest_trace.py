@@ -1,4 +1,4 @@
-"""Bounded selftest observations and child-exit evidence, independent of ROS."""
+"""提供不依赖 ROS 的有界自测观察记录及逐子进程退出证据核验."""
 
 import json
 import math
@@ -82,25 +82,26 @@ def _decode(raw):
 
 
 class EvidenceTrace:
-    """Exclusive JSONL output and bounded in-memory observations; overflow is fatal.
+    """排他写入 JSONL 并限制规范化证据量，超限抛异常而非丢弃后判成功.
 
     Attributes:
-        nav: 按接收顺序保留的已校验 NavEvent 列表。
-        ws: 按接收顺序保留的已校验 WS 消息列表，与 nav 不作总序合并。
+        nav: 按接收顺序保留的已通过结构检查的 NavEvent 列表。
+        ws: 按接收顺序保留的已通过结构检查的 WS 对象列表，与 nav 不作总序合并。
     """
 
     def __init__(self, root: Path, max_bytes: int = 8 * 1024 * 1024,
                  max_records: int = 50000) -> None:
-        """Open a new trace without overwriting any experiment.
+        """排他创建观察文件，不覆盖已有实验记录.
 
         Args:
-            root: Existing private experiment directory.
-            max_bytes: Total normalized evidence bytes allowed in memory.
-            max_records: Total observations allowed across both transports.
+            root: 已存在且由调用方持有的私有实验目录。
+            max_bytes: 两通道记录规范化 JSON 的累计 UTF-8 字节上限，
+                不包括 JSONL 外壳，也不等于 Python 对象实际内存上限。
+            max_records: 两通道合计允许的观察条数，必须为正整数。
 
         Raises:
-            ValueError: A limit is not a positive integer.
-            OSError: Exclusive trace creation fails.
+            ValueError: 任一上限不是非布尔正整数。
+            OSError: 排他创建观察文件失败。
         """
         if any(type(value) is not int or value <= 0 for value in (max_bytes, max_records)):
             raise ValueError('trace limits must be positive integers')
@@ -110,18 +111,22 @@ class EvidenceTrace:
         self._output = (root / 'observations.jsonl').open('x', encoding='utf-8')
 
     def receive(self, channel: str, raw: str) -> Mapping[str, object]:
-        """Validate and persist one frame before retaining it as evidence.
+        """先校验、写入并 flush 一帧，再将同一对象加入对应通道列表.
+
+        flush 不等于 fsync 或持久交付；写入失败可能留下部分行。
+        只校验 JSON 结构及 nav 的 data 映射，不在此证明事件业务语义。
 
         Args:
-            channel: nav or ws; never mixes transport ordering.
-            raw: UTF-8 JSON object text, at most 64 KiB.
+            channel: nav 或 ws，两个通道保持各自接收顺序。
+            raw: 不超过 64 KiB UTF-8 字节的 JSON 对象文本。
 
         Returns:
-            Validated object retained in the selected channel.
+            列表中保留的同一可变对象，调用方不应事后修改，否则磁盘与内存证据会分歧。
 
         Raises:
-            ValueError: Input is invalid, closed, or exceeds a bound.
-            OSError: Appending/flushing evidence fails.
+            ValueError: 通道、输入或结构不合法、记录器已关闭，或超过数量/字节上限。
+            UnicodeError: 输入无法编码为 UTF-8。
+            OSError: 追加或刷新证据失败。
         """
         if channel not in ('nav', 'ws'):
             raise ValueError('unknown observation channel')
@@ -140,27 +145,31 @@ class EvidenceTrace:
         return value
 
     def close(self) -> None:
-        """Close the trace without discarding or overwriting evidence."""
+        """关闭观察文件，不清空内存记录；关闭失败向外传播，不承诺持久落盘."""
         self._output.close()
 
     def __enter__(self):
-        """Return the exclusive evidence writer."""
+        """返回当前排他证据记录器，不重新打开文件."""
         return self
 
     def __exit__(self, *_args):
-        """Close the evidence writer on every exit path."""
+        """离开上下文时调用 close，不吞掉原异常；关闭失败可覆盖原异常."""
         self.close()
 
 
 def reached(case: ExpectedCase, pose: Optional[Sequence[float]]) -> bool:
-    """Check a separately observed navigation-centre pose against the planned goal.
+    """按目标容差检查独立观察的导航旋转中心位姿，不自行检查样本年龄.
 
     Args:
-        case: Immutable expected goal and tolerances.
-        pose: Fresh measured x/y/yaw, or None when observation is unavailable.
+        case: 由上层校验的预期目标与容差。
+        pose: 上层已检查新鲜度的 x/y/yaw，单位米/弧度；无观察时为 None。
 
     Returns:
-        Whether all measurements are finite and inside both tolerances.
+        维数及数值检查通过，且平面距离与归一化航向差均不超过容差时为 True。
+
+    Raises:
+        OverflowError: 超大整数在有限性检查中无法转换；
+            本函数不将这种异常统一转成 False。
     """
     if (pose is None or len(pose) != 3
             or any(type(value) not in (int, float) or not math.isfinite(value) for value in pose)):
@@ -170,18 +179,23 @@ def reached(case: ExpectedCase, pose: Optional[Sequence[float]]) -> bool:
 
 
 def audit_processes(scene: Scene, final: bool = False) -> bool:
-    """Validate all private graph starts, or complete normal per-child shutdown.
+    """核对私有图逐进程启动记录，或在最终阶段核对全部正常退出记录.
 
     Args:
-        scene: Verified private graph and its exclusive audit path.
-        final: Require exactly one normal exit per planned process.
+        scene: 已验证的私有图及排他审计目录。
+        final: True 时要求每个计划进程恰有一次匹配启动和正常退出，
+            接受退出码 0、130 或 -SIGINT。
 
     Returns:
-        Whether every process has started; missing startup records remain pending.
+        启动记录是否齐全；非最终阶段缺失文件或尚缺启动记录时为 False，
+        未结束的最后一行暂不读取。最终阶段缺失或不完整则抛异常。
+        通过只证明审计记录符合判据，不是独立进程存活探测。
 
     Raises:
-        ValueError: Malformed, unexpected, duplicate, early or abnormal child records.
-        OSError: The audit cannot be read, other than not yet being created.
+        ValueError: 记录格式、身份、重复、提前或异常退出不符合要求，
+            最终审计缺失/不完整，或文件超过 1 MiB。
+        UnicodeError: 完整记录行不是有效 UTF-8。
+        OSError: 除文件尚不存在外的读取失败。
     """
     path = scene.root / 'process_events.jsonl'
     try:

@@ -1,4 +1,4 @@
-"""Loopback-only scripted WebSocket peer for the frozen navigation protocol."""
+"""为冻结的导航协议提供仅监听回环地址的脚本化 WebSocket 测试对端."""
 
 from __future__ import annotations
 
@@ -13,19 +13,23 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 from nav_sim.model import finite_number, require_sandbox
 
 
+_CLI_DESCRIPTION = (
+    'Loopback-only scripted WebSocket peer for the frozen navigation protocol.')
+
+
 def navigate_to(request_id: str, target_id: str, sub_id: int = 0) -> Dict[str, Any]:
-    """Build a v1 POI command, keeping its on-wire insertion order.
+    """构造 v1 POI 命令并保持线上字段插入顺序，不在此发送.
 
     Args:
-        request_id: Nonempty task identifier.
-        target_id: Nonempty POI identifier, never a direct coordinate.
-        sub_id: Integer subtask identifier.
+        request_id: 非空且非纯空白的任务字符串，保留原值。
+        target_id: 非空且非纯空白的 POI 字符串，不接受直接坐标。
+        sub_id: 整数子任务标识，拒绝布尔值。
 
     Returns:
-        V1 navigate_to command.
+        v1 navigate_to 命令字典。
 
     Raises:
-        ValueError: Required identifiers are empty or the subtask is not an integer.
+        ValueError: 字符串标识不合法或 sub_id 不是非布尔整数。
     """
     if (not isinstance(request_id, str) or not request_id.strip()
             or not isinstance(target_id, str) or not target_id.strip()
@@ -36,16 +40,16 @@ def navigate_to(request_id: str, target_id: str, sub_id: int = 0) -> Dict[str, A
 
 
 def abort(request_id: str) -> Dict[str, str]:
-    """Build the legacy abort_navigation command, not a new action alias.
+    """构造既有 abort_navigation 取消命令，不引入新的动作别名或发送.
 
     Args:
-        request_id: Nonempty request identifier.
+        request_id: 非空且非纯空白的请求字符串，保留原值。
 
     Returns:
-        V1 cancellation command.
+        v1 取消命令字典。
 
     Raises:
-        ValueError: The request identifier is empty.
+        ValueError: 请求标识不是字符串或为空、纯空白。
     """
     if not isinstance(request_id, str) or not request_id.strip():
         raise ValueError('abort requires request_id')
@@ -54,11 +58,11 @@ def abort(request_id: str) -> Dict[str, str]:
 
 @dataclass(frozen=True)
 class ScriptStep:
-    """One outbound command followed by an optional matching-event barrier.
+    """记录一条待发命令及可选匹配事件屏障；冻结字段不等于深冻结映射.
 
     Attributes:
-        command: Outbound v1 command dictionary.
-        wait_event: Event type to await before sending the next command.
+        command: 待发送的 v1 命令映射。
+        wait_event: 发送下一条命令前等待的事件类型，None 表示无需等待。
     """
 
     command: Mapping[str, Any]
@@ -66,17 +70,18 @@ class ScriptStep:
 
 
 def load_script(path: Path) -> List[ScriptStep]:
-    """Load a finite JSON scenario without permitting arbitrary protocol actions.
+    """读取有序 JSON 场景，只允许导航和取消动作，不在此执行.
 
     Args:
-        path: JSON list of command/wait_event objects.
+        path: 内容为 command/wait_event 对象列表的 JSON 文件路径。
 
     Returns:
-        Validated ordered steps.
+        按原顺序重建并校验的步骤列表；命令中未选用的额外字段不保留。
+        文件和事件集合没有在此设置数量上限。
 
     Raises:
-        ValueError: Script structure or command action is unsupported.
-        OSError: Script cannot be read.
+        ValueError: JSON 语法、脚本结构、动作或所需字段不合法。
+        OSError: 脚本无法读取。
     """
     entries = json.loads(path.read_text(encoding='utf-8'))
     if not isinstance(entries, list):
@@ -103,13 +108,13 @@ def load_script(path: Path) -> List[ScriptStep]:
 
 @dataclass
 class AgentSession:
-    """A single-client finite scenario, injectable without opening sockets.
+    """驱动单连接的脚本步骤，可注入内存对端；接收事件列表没有容量限制.
 
     Attributes:
-        steps: Commands and event barriers.
-        timeout: Per-barrier timeout in seconds.
-        events: All received JSON object events in receive order.
-        completed: Whether every scripted barrier has completed.
+        steps: 待发命令及事件屏障序列。
+        timeout: 每个事件屏障的超时，单位秒，不是整个会话的总时限。
+        events: 按接收顺序保留的全部 JSON 对象事件。
+        completed: 是否已走完脚本步骤和屏障，不是独立导航成功证据。
     """
 
     steps: Sequence[ScriptStep] = ()
@@ -118,14 +123,14 @@ class AgentSession:
     completed: bool = False
 
     async def run(self, websocket: Any) -> None:
-        """Send the script, retaining interleaved status and unrelated events.
+        """依次发送脚本并保留交错事件，屏障结束后继续接收直到连接结束.
 
         Args:
-            websocket: Peer implementing asynchronous send, recv and iteration.
+            websocket: 实现异步 send、recv 和迭代的测试对端。
 
         Raises:
-            ValueError: Peer sent a non-object JSON frame or timeout is not positive.
-            asyncio.TimeoutError: A matching event did not arrive before its deadline.
+            ValueError: 超时不是有限正数，或对端帧不能解码为 JSON 对象。
+            asyncio.TimeoutError: 在单个屏障期限内未收到关联匹配的事件。
         """
         if finite_number(self.timeout, 'timeout') <= 0:
             raise ValueError('timeout must be positive')
@@ -226,12 +231,19 @@ async def _serve(options: argparse.Namespace) -> None:
 
 
 def main(args: Optional[Sequence[str]] = None) -> None:
-    """Run a passive local peer unless explicit script execution is enabled.
+    """运行本地被动对端；脚本发送另需显式开关，帮助路径不启动服务.
+
+    域 99 和 allow-goals 是入口检查，不能代替现场运动授权。
+    参数解析在域检查之前；正常运行只监听 127.0.0.1，捕获键盘中断。
 
     Args:
-        args: Optional command-line arguments.
+        args: 可选命令行参数；None 时读取进程命令行。
+
+    Raises:
+        RuntimeError: 未显式选择域 99。
+        SystemExit: 显示帮助，或参数、脚本授权、端口及超时检查未通过。
     """
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=_CLI_DESCRIPTION)
     parser.add_argument('--port', type=int, default=18101)
     parser.add_argument('--script', type=Path)
     parser.add_argument('--allow-goals', action='store_true')

@@ -1,4 +1,4 @@
-"""Optional navrun selftest feature; preparation is distinct from runtime authority."""
+"""提供可选 navrun 自测入口，离线准备、启动验证与闭环运行权限分开处理."""
 
 import argparse
 import asyncio
@@ -16,18 +16,21 @@ from nav_sim.selftest_scene import prepare_scene
 
 
 def run(args: argparse.Namespace) -> int:
-    """Prepare or explicitly execute a private selftest without host preflight mutations.
+    """按显式选项准备或执行私有自测，不执行主机提权或清理既有栈.
+
+    prepare_only 优先只生成场景；其成功不证明 ROS 图启动或导航完成。
+    完整闭环仍需外部运动授权，入口开关不能覆盖现场安全约定。
 
     Args:
-        args: Parsed robot/mode, output, discovery, deadline and authority flags.
+        args: 已解析的机器人、模式、输出、资源查找、超时及运行开关。
 
     Returns:
-        Zero for the explicitly requested kind passing; one for a failed experiment,
-        two for invalid selectors/authority/preparation, or 130 for interruption.
-        Only closed_loop results with complete=true prove full selftest completion.
+        所选流程通过为 0，实验失败为 1，捕获的选择/准备错误为 2，
+        键盘中断为 130。只有 closed_loop 且 complete=true 才表示
+        本自测判据通过，不等同于实机验收。
 
     Raises:
-        asyncio.CancelledError: Cancellation is propagated after owned cleanup.
+        asyncio.CancelledError: 运行阶段取消向外传播；已进入的资源收尾由运行器负责。
     """
     try:
         if finite_number(args.timeout, 'timeout') <= 0:

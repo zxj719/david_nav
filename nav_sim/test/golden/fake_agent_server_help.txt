@@ -1,0 +1,12 @@
+usage: fake_agent_server [-h] [--port PORT] [--script SCRIPT] [--allow-goals]
+                         [--events EVENTS] [--timeout TIMEOUT]
+
+Loopback-only scripted WebSocket peer for the frozen navigation protocol.
+
+options:
+  -h, --help         show this help message and exit
+  --port PORT
+  --script SCRIPT
+  --allow-goals
+  --events EVENTS
+  --timeout TIMEOUT

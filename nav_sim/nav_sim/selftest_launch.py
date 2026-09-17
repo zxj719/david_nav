@@ -1,8 +1,7 @@
-"""Launch only a digest-verified private graph; this process never submits goals.
+"""只启动通过摘要校验的私有图，本进程不提交目标.
 
-The outer selftest runner owns this entire process group. It must explicitly
-authorize and implement its own goal dispatch, observation and result checks.
-Starting this module alone is not a completed navigation experiment.
+外层自测运行器持有整个进程组，并须另行获得目标发送授权、实现观察及结果检查。
+单独启动本模块不代表导航实验已完成；它也不授予外层运动权限。
 """
 
 import argparse
@@ -20,27 +19,32 @@ from nav_sim.selftest_plan import load_scene
 from nav_bringup.navrun.owned_process import OwnedProcess
 
 
-async def close_fixture(child: OwnedProcess, timeout_sec: float = 15.0) -> int:
-    """Allow owned launch/WS teardown while the parent's event loop remains responsive.
+_CLI_DESCRIPTION = """Launch only a digest-verified private graph; this process never submits goals.
 
-    Signal the still-reserved owned group, just like a terminal interrupt.
-    Humble's interactive launch service does not forward a leader-only SIGINT.
-    OwnedProcess finally drains its own group, even on
-    timeout; a leader timeout is never reported as graceful completion. Callers
-    must also inspect the child-exit audit before claiming an entirely graceful
-    stack shutdown; a leader status alone does not prove every child succeeded.
+The outer selftest runner owns this entire process group. It must explicitly
+authorize and implement its own goal dispatch, observation and result checks.
+Starting this module alone is not a completed navigation experiment.
+"""
+
+
+async def close_fixture(child: OwnedProcess, timeout_sec: float = 15.0) -> int:
+    """中断并回收调用方仍持有的启动器进程组，等待期间让出事件循环.
+
+    向仍保留所有权的整个组发送 SIGINT；只中断组长不足以让 Humble
+    交互式启动器转发给子进程。超时后尝试 OwnedProcess 组清理，并报告超时。
+    不能仅凭组长返回码宣称全部子进程正常退出，调用方还须核对逐进程审计。
 
     Args:
-        child: Launcher created by the caller on this event-loop thread.
-        timeout_sec: Positive finite grace period before owned-group cleanup.
+        child: 调用方在本事件循环线程创建、尚未放弃所有权的启动器。
+        timeout_sec: 组清理前等待自然退出的有限正秒数。
 
     Returns:
-        Launcher exit status after its group has been drained and reaped.
+        成功完成组清理和回收后的启动器退出码。
 
     Raises:
-        ValueError: The grace period is invalid.
-        TimeoutError: Graceful termination timed out; owned-group cleanup was attempted.
-        OSError: Ownership verification or group cleanup failed.
+        ValueError: 宽限期不是有限正数。
+        TimeoutError: 组长未在宽限期内退出；已经尝试组清理。
+        OSError: 发信号、所有权核验或组清理失败；不保证失败后所有资源均已释放。
     """
     if type(timeout_sec) not in (int, float) or not math.isfinite(timeout_sec) or timeout_sec <= 0:
         raise ValueError('fixture shutdown timeout must be positive and finite')
@@ -57,24 +61,24 @@ async def close_fixture(child: OwnedProcess, timeout_sec: float = 15.0) -> int:
 
 
 def main(args: Optional[Sequence[str]] = None) -> int:
-    """Verify private inputs and run the shared managed launch adapter.
+    """核验私有输入后运行共享启动适配器，帮助路径提前退出.
 
-    The explicit start switch is distinct from permission to submit goals. No
-    Nav2 client, velocity publisher or WebSocket server is created here. Domain
-    and digest checks run before any ROS import or process construction.
+    显式启动开关不同于发目标许可。本进程不创建 Nav2 目标客户端、速度发布器
+    或 WS 服务器；域和摘要检查先于 ROS 运行时导入和子进程创建。
 
     Args:
-        args: Internal launcher arguments, or the current process command line.
+        args: 内部启动参数，None 时读取进程命令行。
 
     Returns:
-        Launch status, or 130 for an interrupted launch service.
+        启动服务退出码；捕获键盘中断时为 130。
 
     Raises:
-        RuntimeError: The caller did not explicitly select ROS domain 99.
-        ValueError: The experiment or a frozen asset failed integrity checks.
-        OSError: A private asset or exclusive launch audit cannot be opened.
+        RuntimeError: 未显式选择域 99。
+        ValueError: 场景或冻结资产未通过完整性检查。
+        OSError: 私有资产或排他创建的进程审计文件无法打开。
+        SystemExit: 显示帮助或命令行参数解析失败。
     """
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=_CLI_DESCRIPTION)
     parser.add_argument('--run-dir', required=True, type=Path)
     parser.add_argument('--plan-sha256', required=True)
     parser.add_argument('--start-verified-fixture', required=True, action='store_true')

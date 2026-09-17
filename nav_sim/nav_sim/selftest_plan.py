@@ -1,4 +1,4 @@
-"""Verify a prepared experiment and its assets before importing any ROS runtime."""
+"""在导入 ROS 运行时前核验准备计划、私有资产及无硬件启动图."""
 
 import hashlib
 import json
@@ -112,21 +112,21 @@ def _graph(root, record, assets):
 
 
 def load_scene(root: Path, digest: str) -> Scene:
-    """Check the parent-held plan digest, all file hashes and the hardware-free graph.
+    """核对父进程持有的计划摘要、资产哈希和无硬件私有图.
 
-    This is an integrity check in an exclusively owned directory, not protection
-    against an administrator or concurrent same-user edits after verification.
+    这是独占目录中的完整性检查，不防管理员或同用户在验证后的并发修改。
+    结构缺失还可能传播 KeyError、TypeError；不把任意坏输入都统一为 ValueError。
 
     Args:
-        root: Previously created private experiment directory, never an operator run.
-        digest: Exact SHA256 returned by prepare_scene, not read from a marker file.
+        root: 已创建的私有实验目录，不是操作员运行目录。
+        digest: prepare_scene 返回并由父进程保留的精确 SHA256，不从标记文件自取。
 
     Returns:
-        Verified graph and expected evidence, still without execution authority.
+        验证过的图和预期用例；没有启动进程，也不授予执行或运动权限。
 
     Raises:
-        ValueError: Identity, hash, graph, artifact location or size is invalid.
-        OSError: The private plan or an expected artifact cannot be read.
+        ValueError: 身份、哈希、图、资产位置或大小不合法。
+        OSError: 私有计划或预期资产无法读取。
     """
     if not root.is_absolute() or '..' in root.parts or root.is_symlink():
         raise ValueError('expected an absolute private experiment directory')
