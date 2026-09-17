@@ -123,6 +123,21 @@ class RecordReader:
         result: Dict[str, str] = {}
 
         def visit(prefix: str, depth: int) -> None:
+            """按固定目录描述符遍历文本制品，消耗共享项数与读取字节预算.
+
+            不跟随目录链接；非目录仍交由 read 检查普通文件与单硬链接条件。
+            起始目录缺失可返回空结果，子目录消失则报错；并发写入不是原子快照。
+            失败前已消耗的预算不回滚，也不据记录存在推断运行进程存活。
+
+            Args:
+                prefix: 记录根下已校验的相对目录路径。
+                depth: 从所选制品目录起计的深度，超过八层拒绝。
+
+            Raises:
+                ValueError: 深度/项数/字节预算超限，文件不安全或遍历中消失。
+                OSError: 子目录打开或文件读取失败。
+                UnicodeError: 制品不是有效 UTF-8。
+            """
             if depth > 8:
                 raise ValueError('record directory depth exceeded')
             try:

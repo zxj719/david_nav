@@ -66,6 +66,20 @@ def bind_host_steps(
         return send_if_same(process, signum)
 
     def platform(plan, events, stopped):
+        """按序执行显式平台步骤，每步记录结果且失败不撤销已完成变更.
+
+        每步前及全程后检查停止请求，正在执行的同步 runner 不在此被抢占。
+
+        Args:
+            plan: 已准备的平台操作计划。
+            events: 本次运行事件接收器。
+            stopped: 返回停止信号或 None 的回调。
+
+        Raises:
+            StartupInterrupted: 步骤边界发现停止请求。
+            PlatformError: 某步骤非零退出，附带此前全部步骤结果。
+            Exception: runner 或事件记录失败，之前操作可能已经生效。
+        """
         results = []
         for step in plan.platform:
             _interrupt(stopped)
@@ -80,6 +94,21 @@ def bind_host_steps(
         _interrupt(stopped)
 
     def preflight(plan, events, stopped):
+        """清理原计划内残留候选后重新核对进程与底盘所有权.
+
+        每次快照和发送前检查停止请求，实际身份固定由注入后端负责。
+        清理不是回滚事务；重新规划发现新候选或底盘选择变化就要求重新准备。
+
+        Args:
+            plan: 含初始预检计划、配置及启动图的准备结果。
+            events: 警告与已清理 PID 的事件接收器。
+            stopped: 返回停止信号或 None 的回调。
+
+        Raises:
+            StartupInterrupted: 观察或信号操作前发现停止请求。
+            PreflightError: 清理不安全、未完成或最终所有权与启动图不一致。
+            Exception: 配置、进程端口或事件记录失败。
+        """
         def checked_snapshot():
             _interrupt(stopped)
             return processes()
@@ -98,6 +127,21 @@ def bind_host_steps(
             raise PreflightError('process or chassis ownership changed; prepare a new run')
 
     def dds(plan, events, stopped):
+        """按显式目录与新鲜映射证据执行 DDS 清理，记录部分结果再判失败.
+
+        每次证据查询及结束时检查停止请求；证据不完整的项继续保留。
+        不停止 daemon 或更改 DDS 白名单，已删除项不能因后续错误自动恢复。
+
+        Args:
+            plan: 统一启动步骤签名中的计划，本闭包不读取它。
+            events: DDS 清理结果事件接收器。
+            stopped: 返回停止信号或 None 的回调。
+
+        Raises:
+            StartupInterrupted: 证据查询或结束时发现停止请求。
+            RuntimeError: 结果中存在清理错误。
+            Exception: 证据查询、目录操作或事件记录失败。
+        """
         def observation():
             _interrupt(stopped)
             return observe()

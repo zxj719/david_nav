@@ -465,6 +465,20 @@ def cleanup_preflight(
         return tuple(process.pid for process in plan.targets)
 
     def send(signum: int) -> None:
+        """每个信号前重新核对原计划身份，只处理仍存活的初始候选.
+
+        真正发送仍要求注入后端固定身份，不以 PID 快照代替 pidfd 等保证。
+        后端返回假值时重扫：确认消失可继续，仍存在或身份变化则拒绝。
+        普通信号错误中的 OSError 包装为 PreflightError，其它异常原样传播。
+
+        Args:
+            signum: 本轮 TERM 或 KILL 信号编号。
+
+        Raises:
+            PreflightError: 目标变化、发送失败或无法确认发送身份。
+            ValueError: 新进程快照不合法。
+            Exception: 注入快照或信号端口的其它异常。
+        """
         for original in plan.targets:
             current = {item.pid: item for item in _remaining(plan, snapshot())}
             if original.pid not in current:

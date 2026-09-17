@@ -58,6 +58,22 @@ def launch_actions(graph: LaunchGraph, phase: str = 'all') -> List[Action]:
     loaders = []
 
     def factory(spec: ProcessSpec) -> ExecuteProcess:
+        """把已解析进程规格构造成受管 launch 动作，不在这里启动进程.
+
+        组件容器保留去重后的全局参数文件，并登记启动后的加载处理器。
+        需导航就绪的进程使用 gate 包装；其余按是否 ROS 节点选择动作类型。
+        loaders 是外层共享列表，构造失败不自动回滚此前追加的处理器。
+
+        Args:
+            spec: 当前物理图中的进程规格，入口路径已由外层统一解析。
+
+        Returns:
+            Node 或 ExecuteProcess；组件加载事件处理器另加入 loaders。
+
+        Raises:
+            KeyError: 规格名没有对应的已解析入口。
+            Exception: launch 动作或组件描述构造失败。
+        """
         executable = executables[spec.name]
         if spec.name == CONTAINER_NAME and members:
             # Child costmaps read global YAML sections in the container's argv;

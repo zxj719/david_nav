@@ -26,6 +26,20 @@ def parameter_sections(tree: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
     output: Dict[str, Dict[str, Any]] = {}
 
     def flatten(values: Mapping[str, Any], prefix: str, result: Dict[str, Any]) -> None:
+        """递归展开参数映射为点分键，非映射叶子保留原对象引用.
+
+        逐项写入 result，失败可能留下部分项；调用方不应把它视为事务。
+        不设置递归深度或容器大小限制，也不深复制列表等叶子。
+
+        Args:
+            values: 当前参数映射。
+            prefix: 已展开父参数前缀，非空时含末尾点号。
+            result: 本节点正在累积的参数字典。
+
+        Raises:
+            ValueError: 参数键不是非空字符串，或最终点分键重复。
+            RecursionError: 循环映射或嵌套过深。
+        """
         for key, value in values.items():
             if not isinstance(key, str) or not key:
                 raise ValueError('parameter keys must be nonempty strings')
@@ -38,6 +52,19 @@ def parameter_sections(tree: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
                 result[name] = value
 
     def walk(values: Mapping[str, Any], prefix: str) -> None:
+        """递归解析显式节点选择器，把每个节点参数加入外层 output.
+
+        不接受通配符或嵌套绝对选择器；节点名按现有斜杠规则归一化，
+        不在此执行完整 ROS 名称语法验证。空映射可以没有任何节点。
+
+        Args:
+            values: 选择器树或仅含 ros__parameters 的叶节点映射。
+            prefix: 当前不带首尾斜杠的节点路径前缀。
+
+        Raises:
+            ValueError: 选择器、参数节、重复节点或展开后的参数键无效。
+            RecursionError: 树循环或嵌套过深；此前部分 output 可能已构造。
+        """
         if not isinstance(values, Mapping):
             raise ValueError('ROS parameter selectors must contain mappings')
         if 'ros__parameters' in values:

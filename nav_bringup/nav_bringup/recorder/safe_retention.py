@@ -153,6 +153,20 @@ def inspect_at(root_fd: int, name: str) -> Snapshot:
         entries: Dict[Tuple[str, ...], os.stat_result] = {}
 
         def walk(parent: int, prefix: tuple) -> None:
+            """扫描同设备目录元数据并复核子目录身份，不读取负载或执行删除.
+
+            允许目录、普通文件和链接本身，但不跟随链接。打开子目录后比对
+            设备/inode 防止路径替换；这不是整棵目录的原子快照或挂载防护。
+            先登记条目再递归，失败前的局部字典可能已有数据。
+
+            Args:
+                parent: 已固定父目录的借用描述符，不在此关闭。
+                prefix: 相对组件元组，超过三十二层拒绝继续扫描。
+
+            Raises:
+                ValueError: 深度/二十万条目预算、文件类型、设备或目录身份不符。
+                OSError: 不跟随链接的元数据读取、目录打开或关闭失败。
+            """
             if len(prefix) > 32:
                 raise ValueError('retention depth limit exceeded')
             with os.scandir(parent) as children:

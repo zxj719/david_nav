@@ -345,6 +345,24 @@ def ros_transform_probe(wait_sec: float = 3.0) -> TransformProbe:
         exists, or ``None`` if ROS is unavailable.
     """
     def probe(parent: str, child: str) -> Optional[bool]:
+        """临时驱动 ROS TF 查询，返回可用性；缺少导入依赖时返回 None.
+
+        初始化默认 context 并创建短命节点，不启停定位进程或 daemon。
+        外层须提供正确 DDS 环境且避免已有默认 context 冲突。查询体退出时
+        依次释放 listener、节点和 context；初始化/节点构造早于 try，
+        销毁节点失败也可能阻止 try_shutdown，不能承诺任意异常完整回收。
+
+        Args:
+            parent: 目标父帧。
+            child: 查询的源子帧。
+
+        Returns:
+            预算内观察到变换为 True，到期未观察到为 False，导入失败为 None。
+            spin_once 或同步查询不可抢占，预算不包含初始化与最终清理。
+
+        Raises:
+            Exception: 初始化、节点创建、TF 查询或清理异常。
+        """
         try:
             import rclpy
             from rclpy.time import Time
