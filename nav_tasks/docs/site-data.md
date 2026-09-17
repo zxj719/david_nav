@@ -51,9 +51,16 @@ repository for mark, reload, rename and navigation; only motion/localization
 are fakes and all files are under temporary test directories. No real POI files
 or robot goals are touched.
 
-The legacy store and importer remain active at old entry points pending runtime
-assembly. TF pose source, costmap subscriptions and loop-closure polling now
-have separate tested adapters; their actual runtime assembly, CLI and Dock
-integration still remain. Map YAML loading/trinary checks and recording
-hashes already exist in bringup tools; their final data-domain ownership is not
-claimed complete by adding this POI repository.
+The refactor runtime now assembles this repository, importer, TF pose source,
+costmap observations and supervised loop-closure polling. Its ordinary POI/Dock
+host and CLI are connected, and retained executable paths forward to the new
+runtime; production aliases have not been switched. See [runtime.md](runtime.md)
+and the fake-I/O factory tests in nav_executor. This is implementation evidence,
+not a claim of complete real-action or physical acceptance.
+
+Map YAML loading/trinary checks and recording hashes also exist in bringup tools;
+adding this POI repository does not claim every map-data responsibility has moved
+into a separate physical package. The constructor does not check whether the
+source and cache paths alias: callers must choose a distinct writable cache.
+Reload clears memory before merging files and can leave partially loaded records
+after an exception. These are legacy boundaries, not transaction guarantees.

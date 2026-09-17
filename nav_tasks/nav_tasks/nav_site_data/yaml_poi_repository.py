@@ -1,4 +1,4 @@
-"""Legacy-compatible YAML POI persistence without ROS or transport dependencies."""
+"""以兼容旧格式的 YAML 持久化 POI，不依赖 ROS 或传输实现."""
 
 from dataclasses import asdict, replace
 import math
@@ -12,27 +12,28 @@ from nav_tasks.domain.types import PoseRecord, StoredPoi, Transform2D
 
 
 class YamlPoiRepository:
-    """Single-writer repository preserving legacy file shape and merge order.
+    """提供单写入者 POI 仓库，保留旧文件结构及合并顺序.
 
-    The optional source is read-only; the writable file overrides matching IDs.
-    Writes replace the destination atomically after closing a sibling temporary
-    file. As in the old store, mutations precede persistence: write failure can
-    leave memory ahead of disk. This is not a multi-process transaction manager.
+    可选来源只读，本地文件覆盖同 ID；内存变更先于写入，失败可能使内存领先磁盘。
+    同目录临时文件关闭后原子替换目标，不提供 fsync 持久化或多进程事务。
+    调用方必须提供互不冲突的来源与缓存路径；构造器不校验路径别名或符号链接。
 
     Attributes:
-        path: POI 缓存 YAML 文件路径。
-        source_path: 可选的只读初始 POI YAML 文件路径。
+        path: 供本仓库写入的 POI 缓存 YAML 路径。
+        source_path: 可选的只读初始 POI YAML 路径。
     """
 
     def __init__(
         self, path: Path, source_path: Path | None = None, *, map_frame: str,
     ) -> None:
-        """Select paths and the configured output/fallback global frame.
+        """保存文件路径及全局回退帧并创建空缓存，不读写磁盘或加载记录.
+
+        路径转为 Path，但不验证可写性、源/目标是否相同或帧名是否合法。
 
         Args:
-            path: Executor-owned writable YAML file, never the manual source file.
-            source_path: Optional read-only initial YAML data.
-            map_frame: Explicit reprojection target and legacy missing-frame fallback.
+            path: 调用方指定的可写缓存文件，必须避免覆盖人工源文件。
+            source_path: 可选的只读初始 YAML 来源。
+            map_frame: 重投影目标帧，也是旧记录缺失帧名时的回退值。
         """
         self.path = Path(path)
         self.source_path = Path(source_path) if source_path is not None else None
@@ -40,10 +41,15 @@ class YamlPoiRepository:
         self._pois: dict[str, StoredPoi] = {}
 
     def load(self) -> None:
-        """Reload source then local records; missing files are ignored.
+        """清空缓存后先加载来源再加载本地记录，缺失文件沿用忽略策略.
 
-        Invalid record structure retains the old parser's exceptions/skips; this
-        migration does not silently repair or rewrite user data.
+        本地同 ID 覆盖来源；非列表集合、非映射条目及缺 ID 条目沿用跳过行为。
+        不修复或重写数据，不提供整次加载原子性：失败时缓存可只含部分新记录。
+
+        Raises:
+            OSError: 来源或缓存读取失败。
+            yaml.YAMLError: YAML 内容解析失败。
+            Exception: 单条旧格式转换失败，已经合并的记录不回滚。
         """
         self._pois = {}
         if self.source_path is not None:
@@ -76,34 +82,49 @@ class YamlPoiRepository:
                 self._pois[stored.poi_id] = stored
 
     def get(self, poi_id: str) -> StoredPoi | None:
-        """Read a stored immutable value without creating missing records.
+        """只读返回内存中保存的不可变记录，不读取磁盘或创建缺失点.
 
         Args:
-            poi_id: POI identifier.
+            poi_id: 用于缓存字典查询的 POI 标识，不在此转换或校验。
 
         Returns:
-            Stored POI or None.
+            已存记录本身或 None，不创建副本。
         """
         return self._pois.get(poi_id)
 
     def upsert(self, poi: StoredPoi) -> StoredPoi:
-        """Insert or replace a POI and atomically replace the YAML file.
+        """先更新内存记录，再以临时文件替换完整缓存 YAML.
+
+        不额外验证记录语义；写入失败不回滚已替换的内存值。
 
         Args:
-            poi: Immutable value to persist.
+            poi: 调用方提供的不可变记录。
 
         Returns:
-            The supplied stored value.
+            持久化调用成功后返回原输入记录。
+
+        Raises:
+            OSError: 目录创建、文件写入或原子替换失败。
+            yaml.YAMLError: YAML 序列化失败。
+            Exception: 输入记录不符合已有字段或序列化要求。
         """
         self._pois[poi.poi_id] = poi
         self._write()
         return poi
 
     def rename_many(self, id_to_name: Iterable[tuple[str, str]]) -> None:
-        """Rename known IDs without changing geometry, order or creating records.
+        """按输入顺序修改已知点名称并写缓存，不创建未知点或改变几何.
+
+        同 ID 的最后一次修改生效；即使没有记录变化，成功遍历后仍写文件。
+        遍历或写入失败可留下部分内存修改，不提供整批事务回滚。
 
         Args:
-            id_to_name: Identifier/name pairs in input order.
+            id_to_name: 按处理顺序提供的标识与名称二元组。
+
+        Raises:
+            OSError: 缓存持久化失败。
+            yaml.YAMLError: 修改后的记录无法序列化。
+            Exception: 输入遍历、解包或记录替换失败。
         """
         for poi_id, name in id_to_name:
             if poi_id in self._pois:
@@ -111,14 +132,20 @@ class YamlPoiRepository:
         self._write()
 
     def prune_session(self, session_id: str, keep_ids: set[str]) -> list[str]:
-        """Remove stale records only in the specified authoritative session.
+        """只移除指定会话内未保留的记录，有实际删除时才写缓存.
+
+        不修改其它会话。删除先作用于内存，持久化失败不恢复已移除记录。
 
         Args:
-            session_id: Session to prune.
-            keep_ids: IDs still present in its source.
+            session_id: 允许裁剪的权威会话标识。
+            keep_ids: 在该会话来源中仍存在的 ID 集合。
 
         Returns:
-            Removed IDs in existing repository order.
+            按原仓库顺序返回已删除的 ID；无删除时为空列表。
+
+        Raises:
+            OSError: 变更后缓存持久化失败。
+            yaml.YAMLError: 剩余记录无法序列化。
         """
         removed = [key for key, poi in self._pois.items()
                    if poi.slam_session_id == session_id and key not in keep_ids]
@@ -132,16 +159,26 @@ class YamlPoiRepository:
         self, session_id: str, map_from_odom: Transform2D,
         translation_threshold_m: float, yaw_threshold_rad: float,
     ) -> list[StoredPoi]:
-        """Reproject matching odometry anchors, preserving legacy unwrapped yaw.
+        """重投影指定会话的里程计锚点，保留未归一化 yaw 及旧阈值语义.
+
+        以里程计锚点重算地图 x/y/yaw，保留高度、时间与原始锚点。
+        平面距离和原始 yaw 差都不超过阈值时跳过；角度差不归一。
+        按仓库顺序更新内存，有变化才整体写盘。计算或写入失败不回滚先前更新，
+        也不在此校验坐标帧、有限性或阈值合法性。
 
         Args:
-            session_id: Session whose measured anchors may move.
-            map_from_odom: Transform to the configured global frame.
-            translation_threshold_m: Inclusive translation threshold for no change.
-            yaw_threshold_rad: Inclusive raw yaw-difference threshold for no change.
+            session_id: 允许重投影的会话。
+            map_from_odom: 从里程计坐标系到配置全局坐标系的二维变换。
+            translation_threshold_m: 含等号的平面不变阈值（米）。
+            yaw_threshold_rad: 含等号的原始 yaw 差不变阈值（弧度）。
 
         Returns:
-            Updated records in repository order.
+            按原仓库顺序返回已更新记录，无变化时为空列表。
+
+        Raises:
+            OSError: 变更后的缓存持久化失败。
+            yaml.YAMLError: 更新后的记录无法序列化。
+            Exception: 变换计算或输入字段处理失败，先前内存变更不回滚。
         """
         changed = []
         for key, poi in list(self._pois.items()):

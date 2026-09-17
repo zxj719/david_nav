@@ -1,4 +1,4 @@
-"""Retain the original parameter conversion import path for existing callers."""
+"""为既有调用方重导出 Dock 参数转换与名称，保留旧导入路径."""
 
 from nav_tasks.skills.docking.parameters import from_parameters, PARAMETER_NAMES
 

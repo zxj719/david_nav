@@ -1,4 +1,4 @@
-"""Retain the original configuration import path without owning skill policy."""
+"""保留旧 Dock 配置导入路径，策略校验由 skills 层实现."""
 
 from nav_tasks.skills.docking.config import workflow_config
 

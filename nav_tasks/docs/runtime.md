@@ -9,7 +9,9 @@ explicitly configured Dock services through one public boundary. Importing `nav_
 ROS, YAML or WebSocket implementation. Construction uses the real repository,
 pose/grid adapters, goal resolver, POI skill, retry audit and task manager; only
 the caller creates ROS nodes, TF listeners, executors and transport connections.
-No action, observer or background task starts merely by constructing the runtime.
+Successful assembly starts no action goal or loop-closure polling task. It does
+create subscriptions, event publishers and action clients on the supplied node;
+that is separate from starting a task or owning the caller's ROS executor.
 
 `RuntimeConfig` requires robot-specific paths, frames, topics, action name and
 session explicitly. Numeric defaults retain the previous executor policies.
@@ -98,7 +100,10 @@ explicit library values, not new consumed ROS/profile parameters; the outer bind
 uses robot/mode data. David precise mode uses 25 degrees/zero corrections; standalone
 Dock retains 5 degrees/two corrections. Do not replace either with helper defaults.
 
-Invalid configuration is rejected before repository reads or ROS resources.
+Dock combination/policy and retry settings are checked before repository reads
+or ROS resources. This is not blanket pre-I/O validation: other adapters and
+skills may reject settings later, after importing records or acquiring resources.
+ROS rollback retains cleanup responsibility but does not undo repository writes.
 Dock None leaves ordinary resource counts/policies unchanged. A Dock configuration
 with no Dock POI IDs still registers the direct `dock` task action for ROS pose
 and action ingress. It takes `{'pose': PoseRecord(...)}` and validates planar values

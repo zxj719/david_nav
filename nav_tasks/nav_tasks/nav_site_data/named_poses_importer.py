@@ -1,4 +1,4 @@
-"""Read the manual named-poses JSON source without modifying its contents."""
+"""只读导入人工维护的命名点 JSON，不改源文件或重新解释坐标系."""
 
 import json
 from pathlib import Path
@@ -12,22 +12,28 @@ def import_named_poses(
     repository: PoiRepository, path: Path, *, map_frame: str, odom_frame: str,
     log: Callable[[str], None] | None = None,
 ) -> int:
-    """Import old named-poses shapes and prune only the named_poses session.
+    """按旧命名点格式逐条导入，成功遍历后只裁剪 named_poses 会话.
 
-    Coordinates are copied verbatim into both pose representations, exactly as
-    before; no reinterpretation of manually maintained frame semantics occurs.
-    Writes remain per-record and pruning follows successful iteration, not a new
-    whole-import transaction. Malformed records retain legacy exceptions.
+    接受旧列表及 poses/named_poses 真值回退形式；非映射条目跳过。
+    数值转换后原样复制进地图及里程计两种表示，只设置帧标签而不做 TF 变换。
+    每条 upsert 独立写入，后续坏记录不撤回先前写入，失败时不执行尾部裁剪。
+    日志在裁剪完成后调用，因此日志失败也可能发生在存储已经更新之后。
 
     Args:
-        repository: Writable executor-owned POI repository.
-        path: Read-only manual JSON source.
-        map_frame: Fallback frame for entries without frame_id.
-        odom_frame: Frame label for the legacy copied odometry representation.
-        log: Optional unprefixed runtime log sink for stale-ID pruning.
+        repository: 执行器持有的可写 POI 仓库，不应指向人工源文件。
+        path: 只读命名点 JSON 路径。
+        map_frame: 条目未包含 frame_id 时的回退帧；已有值沿用 str 转换。
+        odom_frame: 旧复制坐标的里程计表示帧标签，不表示已完成坐标变换。
+        log: 可选的无前缀裁剪日志接收器，输出冻结的陈旧 ID 日志。
 
     Returns:
-        Number of imported mapping entries, including repeated IDs.
+        已导入映射条目数，重复 ID 重复计数；最终同 ID 记录由最后一项覆盖。
+
+    Raises:
+        OSError: 源读取或目标仓库写入失败。
+        json.JSONDecodeError: 源文件不是合法 JSON。
+        KeyError: 映射条目缺少必需 id。
+        Exception: 旧格式转换、仓库操作或日志回调失败，不回滚已完成写入。
     """
     with Path(path).open('r', encoding='utf-8') as handle:
         payload = json.load(handle)

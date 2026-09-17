@@ -1,4 +1,4 @@
-"""Task-service composition and resource ownership, without ROS spin or transport."""
+"""组装任务服务并持有其资源，不接管外部 ROS executor 或传输生命周期."""
 
 import asyncio
 from contextlib import suppress
@@ -34,6 +34,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class _Rollback:
+    """暂存构造阶段的逆序清理回调，成功构造后把资源交给最终所有者.
+
+    回滚串行执行并保留失败回调；不管理文件写入事务，也不销毁外部 ROS 宿主。
+    注册与使用由组装过程在同一循环协调，不提供任意跨线程修改保证。
+    """
+
     def __init__(self):
         self._callbacks: list[Callable[[], object]] = []
         self._lock = asyncio.Lock()
@@ -42,6 +48,19 @@ class _Rollback:
         return self
 
     async def __aexit__(self, error_type, error, traceback):
+        """成功时移交所有权，构造异常时尝试全部已登记资源的逆序回滚.
+
+        嵌套构造异常的 cleanup 先加入回滚。清理成功时不抑制原构造异常；
+        清理失败（包括取消）则包装原构造原因并保留可重试回调。
+
+        Args:
+            error_type: 上下文协议提供的异常类型，本实现不单独使用。
+            error: 构造异常实例，正常退出时为 None。
+            traceback: 上下文协议提供的 traceback，本实现不单独使用。
+
+        Raises:
+            RuntimeAssemblyError: 回滚失败，包含原构造原因与本对象的 cleanup。
+        """
         if error is None:
             self._callbacks.clear()
             return
@@ -53,9 +72,25 @@ class _Rollback:
             raise RuntimeAssemblyError(error, self.cleanup) from error
 
     def track(self, callback):
+        """在回滚队列头部登记清理回调，使后构造资源先清理.
+
+        不立即调用、不去重；调用方负责为已取得的资源登记正确清理职责。
+
+        Args:
+            callback: 无参清理函数，返回可等待对象时由 cleanup 等待。
+        """
         self._callbacks.insert(0, callback)
 
     async def cleanup(self):
+        """持锁尝试当前回调快照，移除成功项并保留失败项供以后重试.
+
+        回调中的 BaseException（包括取消）不跳过剩余快照项；全部尝试后
+        重新抛出最后一次失败。锁等待阶段取消会直接传播，不代表已执行清理。
+        这里只确认回调正常返回，不独立核验实际资源状态。
+
+        Raises:
+            BaseException: 等待锁被取消，或回调失败后重抛最后一次异常。
+        """
         async with self._lock:
             failure = None
             for callback in tuple(self._callbacks):
@@ -72,15 +107,16 @@ class _Rollback:
 
 
 class TaskRuntime:
-    """Own assembled task resources while the caller owns ROS and ingress lifetimes.
+    """持有已组装任务资源，外层保留 ROS 节点、回调与入口生命周期.
 
-    No motion or observer starts on construction. Public consumers should use
-    the TaskRuntimeApi contract returned by nav_tasks.api.create_runtime.
+    构造只接收既有资源，不启动运动或回环观察任务。公共调用方应经
+    nav_tasks.api.create_runtime 返回的 TaskRuntimeApi 使用本对象。
+    收尾按步骤执行，失败时仍须保留本对象，不能把返回异常等同于资源释放。
 
     Attributes:
-        pois: 点位管理接口，提供捕获、标记和目录更新。
+        pois: 捕获、标记与目录更新接口，共享位姿及存储端口。
         poses: 共享位姿来源接口。
-        tasks: 共享任务管理接口，拥有运动任务的接纳和清理。
+        tasks: 唯一共享任务管理接口，负责运动任务接纳与清理。
     """
 
     def __init__(
@@ -90,19 +126,22 @@ class TaskRuntime:
         dock_worker: DockWorker | None = None,
         dock_observations: DockObservations | None = None,
     ) -> None:
-        """Take ownership of fully constructed resources on their asyncio loop.
+        """在当前 asyncio 循环接收已构造资源的所有权，不执行额外配置校验.
 
         Args:
-            tasks: Sole task manager sharing the backend.
-            pois: Administrative POI API using the same pose/storage ports.
-            poses: Owned navigation observation adapter.
-            grids: Owned grid observation adapter.
-            backend: Owned single-attempt action backend.
-            repository: Shared persistence port.
-            config: Immutable assembly values.
-            events: Owned best-effort task and Dock observation publishers.
-            dock_worker: Optional owned worker sharing the navigation backend.
-            dock_observations: Optional retained-map/navigation-frame observations.
+            tasks: 使用共享运动后端的唯一任务管理器。
+            pois: 使用相同位姿与存储端口的 POI 管理接口。
+            poses: 本运行时持有的导航位姿观察适配器。
+            grids: 本运行时持有的栅格观察适配器。
+            backend: 本运行时持有的单次尝试动作后端。
+            repository: 共享 POI 持久化端口。
+            config: 不可变组装配置；本构造不重新校验。
+            events: 本运行时持有的尽力发布任务与 Dock 观察事件的适配器。
+            dock_worker: 可选的受管工作线程，使用同一导航后端。
+            dock_observations: 可选的保留地图及导航旋转基座观察适配器。
+
+        Raises:
+            RuntimeError: 当前没有运行中的事件循环。
         """
         self.tasks = tasks
         self.pois = pois
@@ -123,13 +162,14 @@ class TaskRuntime:
         self._closed = False
 
     def start_loop_closure(self) -> None:
-        """Start one supervised watcher, for the caller's chosen connection lifetime.
+        """按外层选择的连接生命周期启动至多一个托管回环观察任务.
 
-        Repeated start while running is a no-op. The old WS lifecycle can call
-        stop on disconnect and start on reconnect; no policy is changed here.
+        活跃任务存在时不重复启动；已结束或失败时允许新建。WS 断开与重连时由
+        外层决定 stop/start，不在此改变旧会话或重投影策略。
 
         Raises:
-            ClosedError: Runtime shutdown has started.
+            ClosedError: 运行时已开始关闭或已经关闭。
+            RuntimeError: 不在原所有者事件循环，或任务创建失败。
         """
         self._check_loop()
         if self._closing:
@@ -141,10 +181,15 @@ class TaskRuntime:
                 yaw_threshold_rad=self._config.loop_closure_yaw_rad), 'loop-closure')
 
     async def stop_loop_closure(self) -> None:
-        """Cancel/join the watcher without canceling motion or discarding its crash log.
+        """取消并等待回环观察任务，不调用运动取消，也不抹去其崩溃报告.
 
-        The supervisor already retrieves and reports watcher errors. They must
-        not prevent subsequent motion cleanup during final shutdown.
+        supervisor 已取出并报告观察任务异常；这里消费普通异常及 CancelledError，
+        避免它们阻断后续运动收尾。等待过程不加 shield，因此也可能消费调用方取消；
+        该行为不能用来宣称调用方的取消一定向上传播。
+        只在保存句柄仍为本次等待对象时清空它，避免覆盖后续新观察任务。
+
+        Raises:
+            RuntimeError: 调用不在原所有者事件循环。
         """
         self._check_loop()
         task = self._watcher
@@ -156,15 +201,16 @@ class TaskRuntime:
                 self._watcher = None
 
     async def close(self) -> None:
-        """Join retryable resource teardown without losing it on caller cancellation.
+        """等待可重试的有序资源关闭，外层等待者取消不丢弃自有收尾任务.
 
-        Stop ingress before calling. Keep the externally owned ROS executor alive
-        until this completes so action cancellation can receive its terminal result.
-        On failure, retain this handle and call close again; do not destroy its
-        ROS node or stop spinning merely because a cleanup deadline expired.
+        外层先停止入口，在运动收尾成功前保持 ROS 回调；多线程宿主还需在销毁
+        资源前等待回调静默。只有全部步骤成功才确认 closed，失败可以部分完成。
+        重复调用共享活跃关闭；已终止且尚未确认关闭时可重试，不提前销毁宿主或放弃资源。
 
         Raises:
-            Exception: Motion or subscription cleanup failed; resources remain owned.
+            RuntimeError: 调用不在原所有者事件循环。
+            asyncio.CancelledError: 等待者或内部关闭任务被取消，不证明资源释放。
+            Exception: 运动或订阅清理失败，仍须保留运行时及必要的 ROS 回调。
         """
         self._check_loop()
         self._closing = True
@@ -242,29 +288,31 @@ async def assemble_runtime(
     log: Callable[[str], None], now: Callable[[], float],
     on_dock_feedback: Callable[[DockGoal, object, float], None] | None = None,
 ) -> TaskRuntime:
-    """Construct ordinary POI and opt-in Dock services before exposing task admission.
+    """在暴露任务接纳前组装普通 POI 与显式启用的 Dock 服务.
 
-    No ROS initialization, node/listener/executor creation, spin, transport,
-    observer or action goal is started here. During partial-construction failure,
-    rollback attempts all completed resources in reverse order. If it fails, retain
-    RuntimeAssemblyError and await its cleanup successfully before node destruction.
-    No task was exposed or run, but action clients may still own ROS waitables.
+    创建订阅、事件发布器及动作客户端，但不初始化 ROS、创建节点/TF监听器/
+    executor、spin、传输连接、回环轮询任务或运动目标。
+    先校验 Dock 组合/策略及重试参数，读取仓库并可逐条导入命名点；其它适配器和
+    技能仍可能在后续构造时校验失败，不保证所有配置问题都在文件 IO 前发现。
+    已完成 ROS 资源按逆序回滚；文件导入不回滚。若清理失败，必须保留异常中
+    的 cleanup，在原循环完成清理后才销毁外部节点。
 
     Args:
-        config: Explicit robot/mode values; Dock IDs require complete Dock configuration.
-        node: Caller-owned ROS node, kept alive through close success.
-        tf_buffer: Caller-owned TF buffer/listener connection.
-        log: Unprefixed runtime log sink for POI loading.
-        now: Pose-compatible timestamp clock for administrative freshness checks.
-        on_dock_feedback: Optional loop-only complete feedback with task/generation identity.
+        config: 显式机器人与模式配置；Dock ID 必须配完整 Dock 配置。
+        node: 外层持有的 ROS 节点，清理成功前保持有效。
+        tf_buffer: 外层持有的 TF 缓冲与监听连接。
+        log: 无前缀的 POI 加载日志接收器，异常可中止组装。
+        now: 与位姿时间戳兼容的时钟，用于管理接口新鲜度检查。
+        on_dock_feedback: 可选的任务循环内原始反馈，附任务及代次身份。
 
     Returns:
-        Owned resources exposing TaskApi, PoiApi and PoseSource.
+        持有资源并提供任务、POI 及位姿接口的运行时，不代表已启动任务或观察器。
 
     Raises:
-        ConfigError: Dock wiring is incomplete or another supplied policy is invalid.
-        RuntimeAssemblyError: Rollback failed; the exception retains retryable cleanup.
-        Exception: Repository loading or resource construction/rollback failed.
+        ConfigError: Dock 接线不完整或某项策略未通过其所在阶段的校验。
+        RuntimeAssemblyError: 构造回滚失败，异常保留可重试清理回调。
+        asyncio.CancelledError: 构造被取消且回滚完成；回滚失败时按上项保留资源。
+        Exception: 仓库读写、日志或资源构造失败；不统一包装所有错误。
     """
     if config.dock_poi_ids and config.dock is None:
         raise ConfigError('Dock runtime assembly requires explicit Dock configuration')
