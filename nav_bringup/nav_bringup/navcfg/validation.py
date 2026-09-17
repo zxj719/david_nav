@@ -140,7 +140,12 @@ def _rendered_value(
 def _check_global_frames(
     tree: Mapping[str, Any], issues: List[ValidationIssue]
 ) -> None:
-    """Require recovery behavior and the local costmap to use one frame."""
+    """检查恢复行为与局部代价图是否使用相同的全局参考帧.
+
+    Args:
+        tree: 已渲染 Nav2 参数树，不在此猜测或替换帧名称。
+        issues: 原地追加缺失参数或帧不一致错误的列表。
+    """
     rule = 'behavior_local_global_frame'
     behavior = _rendered_value(
         tree, 'behavior_server/ros__parameters/global_frame', rule, issues)
@@ -189,7 +194,15 @@ def _check_at_most(
 def _check_navigation_limits(
     profile: Mapping[str, Any], issues: List[ValidationIssue]
 ) -> None:
-    """Require navigation speeds and the stationary floor to fit hard limits."""
+    """检查导航速度和底盘最小原地旋转速度是否超过底盘硬限.
+
+    这里的 min_stationary_angular_z 是底盘最小原地旋转速度，
+    不是 Dock 测量使用的停稳阈值；不修改任一配置值。
+
+    Args:
+        profile: 已合并模式的机器人档案；比较双方必须采用相同速度单位。
+        issues: 原地追加缺键、非数值或超过硬限错误的列表。
+    """
     rule = 'navigation_hard_limits'
     _check_at_most(
         profile, 'limits.max_vel_x', 'chassis.adapter.hard_max_linear_x', rule, issues)
@@ -205,7 +218,16 @@ def _check_precise_controller(
     tree: Mapping[str, Any],
     issues: List[ValidationIssue],
 ) -> None:
-    """Check paired position tolerances and heading control in precise modes."""
+    """按目标角度容差判断是否需要精确模式的位置与朝向检查.
+
+    角度容差小于 2π 时才比较两个位置容差并要求 RotateToGoal；
+    这里不按模式名称判断，也不负责数值范围的完整 schema 校验。
+
+    Args:
+        profile: 已合并模式的机器人档案，目标角度容差单位为弧度。
+        tree: 已渲染 Nav2 参数树，不会原地修正控制器参数。
+        issues: 原地追加缺键、类型、位置容差不一致或缺 critic 错误的列表。
+    """
     rule = 'precise_controller'
     yaw = _profile_value(profile, 'goal.yaw_tolerance', rule, issues)
     if yaw is _MISSING:
@@ -239,7 +261,12 @@ def _check_precise_controller(
 
 
 def _check_map_mode(map_data: Mapping[str, Any], issues: List[ValidationIssue]) -> None:
-    """Require trinary loading so the Lightning unknown value stays unknown."""
+    """要求地图 YAML 显式选择 trinary，不修改地图或定位配置.
+
+    Args:
+        map_data: 已加载的地图 YAML 映射；缺少 mode 或不是映射也记录错误。
+        issues: 原地追加模式不符合要求错误的列表。
+    """
     mode = map_data.get('mode') if isinstance(map_data, Mapping) else None
     if mode != 'trinary':
         issues.append(ValidationIssue(
@@ -263,7 +290,12 @@ def validate_teleop_limits(profile: Mapping[str, Any]) -> List[ValidationIssue]:
 def _check_teleop_limits(
     profile: Mapping[str, Any], issues: List[ValidationIssue]
 ) -> None:
-    """Require the highest teleop gears to fit the adapter hard limits."""
+    """检查遥控最大档位速度是否落在底盘适配器硬限内.
+
+    Args:
+        profile: 已合并的档案，线速度单位为米每秒，角速度单位为弧度每秒。
+        issues: 原地追加缺键、非数值或超限错误的列表；不裁剪速度配置。
+    """
     rule = 'teleop_hard_limits'
     _check_at_most(
         profile, 'teleop.max_linear_x', 'chassis.adapter.hard_max_linear_x', rule, issues)
@@ -276,7 +308,17 @@ def _check_behavior_trees(
     behavior_trees: Mapping[str, str],
     issues: List[ValidationIssue],
 ) -> None:
-    """Warn when a differential-drive tree requests nonzero lateral motion."""
+    """对差速机器人 BT 中已知的横向速度属性给出离线告警.
+
+    非差速类型跳过；缺运动学键、没有树、坏 XML 或非数值属性记录错误。
+    仅扫描已列举的属性名，不能证明树没有其它横向动作，也不修改树。
+
+    Args:
+        profile: 已合并模式的档案，通过 kinematics.type 判断运动学类型。
+        behavior_trees: 来源名称到 XML 文本的映射；按名称排序检查。
+        issues: 原地追加错误和横向速度不接近零的警告列表；
+            零值比较绝对容差为 1e-12。
+    """
     rule = 'diff_drive_bt_lateral'
     kinematics = _profile_value(profile, 'kinematics.type', rule, issues)
     if kinematics is _MISSING or kinematics != 'diff_drive':
@@ -311,7 +353,16 @@ def _check_behavior_trees(
 def _check_poi_offset(
     profile: Mapping[str, Any], urdf_text: str, issues: List[ValidationIssue]
 ) -> None:
-    """Report the URDF offset when POIs and navigation use different frames."""
+    """在 POI 采集帧与导航基准不同的情况下报告 URDF 固定偏移.
+
+    只给出诊断，不重投影或写回 POI。缺失或相同帧直接结束；
+    帧名类型错误及固定路径解析失败记录错误，成功求出偏移时记录警告。
+
+    Args:
+        profile: 已合并档案，分别读取 frames.poi_capture 和 frames.nav_base。
+        urdf_text: 用于计算采集帧到导航基准变换的完整 URDF 文本。
+        issues: 原地追加缺键、解析错误或偏移警告的列表，输出单位为米和弧度。
+    """
     rule = 'poi_capture_offset'
     capture = _profile_value(profile, 'frames.poi_capture', rule, issues)
     nav_base = _profile_value(profile, 'frames.nav_base', rule, issues)
@@ -386,7 +437,20 @@ def frame_offset(urdf_text: str, source: str, target: str) -> FrameOffset:
 
 
 def _origin_transform(element: Optional[ET.Element]) -> Tuple[List[List[float]], List[float]]:
-    """Parse one URDF origin into a rotation matrix and translation."""
+    """把 URDF origin 的 xyz 与固定轴 rpy 转换为刚体变换.
+
+    缺失 origin 或任一属性时采用对应的零值；不校验平移值有限性，
+    也不验证外部模型的关节语义。
+
+    Args:
+        element: 可选的 origin XML 元素；角度采用弧度、平移采用米。
+
+    Returns:
+        三乘三旋转矩阵与三维平移列表组成的二元组。
+
+    Raises:
+        ValueError: 属性不是数值、分量数不是三，或角度无法进行三角函数计算。
+    """
     if element is None:
         return _identity_rotation(), [0.0, 0.0, 0.0]
     try:
@@ -404,7 +468,19 @@ def _identity_rotation() -> List[List[float]]:
 
 
 def _rpy_to_rotation(roll: float, pitch: float, yaw: float) -> List[List[float]]:
-    """Convert fixed-axis roll, pitch and yaw to a rotation matrix."""
+    """按固定轴 roll、pitch、yaw 生成 Rz(yaw) Ry(pitch) Rx(roll) 矩阵.
+
+    Args:
+        roll: 绕固定 X 轴的角度，单位弧度。
+        pitch: 绕固定 Y 轴的角度，单位弧度。
+        yaw: 绕固定 Z 轴的角度，单位弧度。
+
+    Returns:
+        按行排列的三乘三旋转矩阵；不修改输入，也不主动校验有限性。
+
+    Raises:
+        ValueError: 三角函数无法处理给定角度，例如无穷值。
+    """
     cr, sr = math.cos(roll), math.sin(roll)
     cp, sp = math.cos(pitch), math.sin(pitch)
     cy, sy = math.cos(yaw), math.sin(yaw)
@@ -416,7 +492,18 @@ def _rpy_to_rotation(roll: float, pitch: float, yaw: float) -> List[List[float]]
 
 
 def _rotation_to_rpy(rotation: List[List[float]]) -> Tuple[float, float, float]:
-    """Convert a rotation matrix to fixed-axis roll, pitch and yaw."""
+    """从旋转矩阵提取固定轴 rpy，在俯仰奇异处固定 roll 为零.
+
+    反正弦输入先截到 [-1, 1]，不验证整个矩阵的维度或正交性；
+    奇异判定沿用 math.isclose 的相对容差及 1e-9 绝对容差。
+
+    Args:
+        rotation: 调用方保证合法的三乘三刚体旋转矩阵，按行排列。
+
+    Returns:
+        弧度制的 roll、pitch、yaw；pitch 在 [-π/2, π/2]，
+        奇异处由剩余矩阵项确定 yaw，不保证欧拉角表示唯一。
+    """
     pitch = math.asin(max(-1.0, min(1.0, -rotation[2][0])))
     if math.isclose(abs(pitch), math.pi / 2.0, abs_tol=1e-9):
         roll = 0.0
@@ -431,7 +518,18 @@ def _compose(
     first: Tuple[List[List[float]], List[float]],
     second: Tuple[List[List[float]], List[float]],
 ) -> Tuple[List[List[float]], List[float]]:
-    """Compose source-to-middle and middle-to-target transforms."""
+    """组合源帧到中间帧、中间帧到目标帧的两个刚体变换.
+
+    先将第二段平移用第一段旋转变换，再加第一段平移；
+    调用方保证矩阵和向量维度正确，本函数不做模型校验。
+
+    Args:
+        first: 中间帧在源帧中的旋转矩阵与平移向量。
+        second: 目标帧在中间帧中的旋转矩阵与平移向量，与第一段采用相同长度单位。
+
+    Returns:
+        目标帧在源帧中的旋转矩阵与平移列表，不修改两段输入。
+    """
     first_rotation, first_translation = first
     second_rotation, second_translation = second
     rotation = _matrix_multiply(first_rotation, second_rotation)

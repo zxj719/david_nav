@@ -255,7 +255,18 @@ def _check_definitions(body: Sequence[ast.stmt], path: str, prefix: str) -> List
 
 
 def _class_attributes(node: ast.ClassDef) -> set[str]:
-    """Collect fields declared by this class without evaluating or importing it."""
+    """静态收集当前类声明的公共字段，不导入或执行被检查代码.
+
+    覆盖类体赋值、字面 __slots__ 以及方法接收者的赋值和字面 setattr；
+    裸 staticmethod 被跳过。嵌套作用域、继承、接收者别名及动态名称不推断，
+    结果是语法线索，不保证字段会在实际运行路径上创建。
+
+    Args:
+        node: 待检查的类定义 AST 节点。
+
+    Returns:
+        去除下划线开头名称后的字段名集合。
+    """
     names = set()
     for child in _walk_own_body(node):
         if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
@@ -397,7 +408,17 @@ def _is_property(node: FunctionNode) -> bool:
 
 
 def _walk_own_body(node: Union[FunctionNode, ast.ClassDef]) -> Iterator[ast.AST]:
-    """Yield nodes of a function body without descending into nested scopes."""
+    """遍历定义自身的语法树，遇到嵌套作用域时只产出其定义节点.
+
+    使用后进先出的显式栈，不保证源码顺序，也不判断分支能否执行；
+    函数、异步函数、类和 lambda 的内部节点不再展开。
+
+    Args:
+        node: 作为遍历根的函数、异步函数或类定义。
+
+    Yields:
+        自身 body 中的 AST 节点，包括嵌套定义节点但不包括其内部语句。
+    """
     stack: List[ast.AST] = list(node.body)
     while stack:
         current = stack.pop()

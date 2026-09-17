@@ -184,7 +184,16 @@ def check_footprint(
 
 
 def _valid_polygon(points: Sequence[Tuple[float, float]]) -> bool:
-    """Reject nonfinite, repeated, zero-area or self-intersecting body geometry."""
+    """检查车身多边形是否有限、无重复顶点、有面积且没有非邻边相交.
+
+    Args:
+        points: 按边界顺序排列的二维数值点序列；首点不在末尾重复。
+            调用方负责提供可取长度且坐标支持有限性检查的对象。
+
+    Returns:
+        至少三个点、各坐标有限、顶点互异、两倍有符号面积绝对值大于 _EPS，
+        且所有非邻边均不相交时为 True。不是任意输入类型的解析器。
+    """
     if len(points) < 3 or any(
         len(point) != 2 or not all(math.isfinite(value) for value in point)
         for point in points
@@ -209,7 +218,16 @@ def _valid_polygon(points: Sequence[Tuple[float, float]]) -> bool:
 def _pose_polygon(
     footprint: Sequence[Tuple[float, float]], pose: Tuple[float, float, float]
 ) -> Tuple[Tuple[float, float], ...]:
-    """Rotate and translate a footprint into the world frame."""
+    """将导航基准局部轮廓按平面位姿旋转并平移到地图参考帧.
+
+    Args:
+        footprint: 轮廓在机器人导航基准帧中的二维顶点，单位米。
+        pose: 导航基准在目标参考帧中的 x、y、yaw，单位米、米、弧度；
+            调用方应保证输入合法。
+
+    Returns:
+        与输入顶点顺序相同的不可变二维点元组，不闭合追加首点。
+    """
     x, y, yaw = pose
     cosine = math.cos(yaw)
     sine = math.sin(yaw)
@@ -222,7 +240,18 @@ def _pose_polygon(
 def _world_to_grid_local(
     grid: OccupancyGridView, point: Tuple[float, float]
 ) -> Tuple[float, float]:
-    """Express one world point in the possibly rotated grid axes."""
+    """把地图参考帧中的点换算到可能旋转的栅格原点坐标系.
+
+    先减原点平移，再施加原点 yaw 的逆旋转；不除以分辨率，
+    因此返回的不是格子下标。
+
+    Args:
+        grid: 含原点平移和弧度制 yaw 的静态地图视图。
+        point: 已在 grid.frame_id 中表达的二维点，单位米。
+
+    Returns:
+        相对于地图原点和局部栅格轴的二维米制坐标。
+    """
     dx = point[0] - grid.origin_x
     dy = point[1] - grid.origin_y
     cosine = math.cos(grid.origin_yaw)
@@ -254,7 +283,17 @@ def _cell_polygon(x: int, y: int, resolution: float) -> Tuple[Tuple[float, float
 def _polygons_intersect(
     first: Sequence[Tuple[float, float]], second: Sequence[Tuple[float, float]]
 ) -> bool:
-    """Return whether two simple polygons overlap or touch."""
+    """用顶点包含和边交叉判断两个简单多边形是否重叠或接触.
+
+    包含边界接触；不在此验证多边形是否简单、有限或非空。
+
+    Args:
+        first: 同一平面坐标系中的第一组有序顶点，支持切片和拼接。
+        second: 第二组有序顶点，与第一组采用相同单位且不重复末尾首点。
+
+    Returns:
+        任一顶点落在另一多边形内或边上，或任意两边相交时为 True。
+    """
     if any(_point_in_polygon(point, second) for point in first):
         return True
     if any(_point_in_polygon(point, first) for point in second):
@@ -271,7 +310,18 @@ def _polygons_intersect(
 def _point_in_polygon(
     point: Tuple[float, float], polygon: Sequence[Tuple[float, float]]
 ) -> bool:
-    """Return whether a point lies inside or on a simple polygon."""
+    """以水平射线奇偶法判断点是否位于简单多边形内部或边上.
+
+    边界先按 _point_on_segment 的容差检查；其余情况只在跨越射线时
+    翻转内部标志。调用方保证多边形有效。
+
+    Args:
+        point: 待检查的二维点。
+        polygon: 同坐标系、同单位的有序边界顶点，首点不在末尾重复。
+
+    Returns:
+        点在内部或带既有容差的边界上时为 True，否则为 False。
+    """
     x, y = point
     inside = False
     for index, current in enumerate(polygon):
@@ -324,7 +374,20 @@ def _segments_intersect(
     second_start: Tuple[float, float],
     second_end: Tuple[float, float],
 ) -> bool:
-    """Return whether two closed line segments intersect."""
+    """用方向叉积与边界容差判断两条闭线段是否相交.
+
+    严格跨越直接算相交；共线或端点接触再按 _EPS 与点在线段上的检查处理。
+    输入应为有限、非退化边，本函数不先验证几何合法性。
+
+    Args:
+        first_start: 第一条线段的二维起点。
+        first_end: 第一条线段的二维终点。
+        second_start: 第二条线段的二维起点，与第一条线段处于同坐标系。
+        second_end: 第二条线段的二维终点，所有点采用同一长度单位。
+
+    Returns:
+        两条闭线段交叉、重叠或在既有容差内接触时为 True。
+    """
     def orientation(a, b, c):
         return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 

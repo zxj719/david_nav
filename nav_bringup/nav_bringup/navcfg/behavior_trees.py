@@ -47,7 +47,22 @@ def parse_bindings(data: Any) -> Dict[str, Dict[str, str]]:
 
 
 def _scalar(value: Any, value_format: str, key: str) -> str:
-    """格式化单个属性，并拒绝非有限数和空值."""
+    """把已选格式的档案标量转换为可安全嵌入 XML 属性的文本.
+
+    数值格式只在舍入后仍等于原数时采用，否则保留原数文本；不改变调参值。
+    格式名由绑定表预先校验，本函数不替代该检查。
+
+    Args:
+        value: 非空字符串或有限 int/float；明确拒绝 bool。
+        value_format: 绑定表允许的 text 或小数格式。
+        key: 诊断中使用的档案键。
+
+    Returns:
+        已转义 XML 特殊字符及单双引号的非空属性文本。
+
+    Raises:
+        render.RenderError: 类型、有限性、数值格式对应类型或非空检查失败。
+    """
     if isinstance(value, bool) or not isinstance(value, (str, int, float)):
         raise render.RenderError(f'{key}: BT attribute must be a string or finite number')
     if isinstance(value, (int, float)) and not math.isfinite(value):

@@ -66,7 +66,16 @@ def run(args: argparse.Namespace) -> int:
             previous[signum] = signal.signal(signum, stop)
 
         def _check_once() -> int:
-            """Run one disposable observation; three means localization became pending."""
+            """执行一次有界只读观察，释放本次探针后汇总接口与配置发现.
+
+            使用外层闭包中的配置、停止信号和事件写入器；不启动定位或发送运动目标。
+            定位在采样中丢失时返回待重试状态，不能把 wait-only 就绪当作完整检查通过。
+
+            Returns:
+                0 表示非严格检查完成或 wait-only 定位就绪，1 表示严格模式发现错误，
+                3 表示定位仍待就绪；停止时返回 128 加信号编号，缺少编号的接口中断
+                回退为 130。操作异常交由外层 run 的异常边界处理。
+            """
             with RosProbe(spec) as probe:
                 ready = wait_localization(probe.localized, probe.spin, time.monotonic,
                                           stopped.is_set, emit, args.wait_timeout)

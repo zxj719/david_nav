@@ -117,13 +117,20 @@ class _DockMotion:
     def _dispatch(self, answer, kind, goal, label, timeout, extra):
         """在所有者循环接收工作线程请求，同一时刻最多持有一个动作阶段.
 
+        BusyError 和阶段创建中的 Exception 在这里捕获后写入 answer，
+        由工作线程读取结果时接收，不直接作为本回调的拒绝异常抛出。
+
         Args:
-            answer: 跨线程结果 Future；拒绝或创建异常通过它交还工作线程。
+            answer: 尚未完成或取消的跨线程结果 Future；拒绝或创建异常通过它交还。
             kind: navigate 或 spin，选择共享后端动作。
             goal: 平面位姿（米、弧度）或 SpinGoal（弧度、秒）。
             label: 保持不变的阶段日志标签。
             timeout: 接收目标后的结果等待预算（秒）。
             extra: 导航反馈附加距离（米），旋转阶段不使用。
+
+        Raises:
+            concurrent.futures.InvalidStateError: 应答 Future 已完成或取消，
+                连异常写回也失败；本函数不吞掉这个桥接状态错误。
         """
         try:
             if self._stop.is_set():

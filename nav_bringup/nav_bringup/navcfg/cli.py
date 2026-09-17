@@ -132,7 +132,23 @@ def _render_command(args: argparse.Namespace) -> int:
 
 
 def _render_behavior_trees(args: argparse.Namespace, tree: Dict[str, object]) -> Dict[str, str]:
-    """按需渲染 BT 数据资源；只有资产发现依赖 ament，不加载插件实现."""
+    """按需渲染 BT 资源并原地绑定参数树中的输出路径.
+
+    只发现 ament 资源，不加载插件实现，也不写输出文件。缺省路径从
+    nav_plugins 取得；绑定过程不是事务，后续绑定失败可能留下部分树修改。
+
+    Args:
+        args: render 子命令参数，含档案、模式及可选 BT 资源和输出目录。
+        tree: 已渲染的 Nav2 参数树；成功时三处 BT 路径指向输出目录。
+
+    Returns:
+        XML 文件名到文本的映射；未请求 BT 输出且无冲突选项时为空。
+
+    Raises:
+        render.RenderError: 选项冲突、档案、模式、模板或输出路径绑定不合法。
+        LookupError: 缺省资源所需的 ament 包无法找到。
+        OSError: 无法读取资源文件。
+    """
     if args.bt_output_dir is None:
         if args.bt_template_dir or args.bt_bindings:
             raise render.RenderError('BT template options require --bt-output-dir')
@@ -156,7 +172,19 @@ def _render_behavior_trees(args: argparse.Namespace, tree: Dict[str, object]) ->
 
 
 def _catalog(args: argparse.Namespace) -> schema.ParameterCatalog:
-    """Load explicitly selected, source-tree, or installed package schemas."""
+    """按显式文件、源码根或安装前缀的优先级加载参数 schema.
+
+    Args:
+        args: 含 schema 和 source_root 的命令行参数；显式 schema 优先，
+            二者均未指定时从当前进程的 ament 前缀发现。
+
+    Returns:
+        合并且校验过的包参数目录；不修改输入文件。
+
+    Raises:
+        schema.SchemaError: 没有找到声明文件，文件读取或 YAML 解析失败，
+            或声明内容、合并规则不合法；文件读取异常由加载器包装。
+    """
     if args.schema:
         paths = args.schema
     elif args.source_root:
@@ -169,7 +197,19 @@ def _catalog(args: argparse.Namespace) -> schema.ParameterCatalog:
 
 
 def _site_map(site_path: Path) -> Dict[str, object]:
-    """Load the map YAML selected by a site profile."""
+    """读取场地档案所选择的地图 YAML，不加载地图图像.
+
+    Args:
+        site_path: 场地档案文件；map.nav_yaml 先展开用户目录，
+            相对路径再相对于此文件的父目录解析。
+
+    Returns:
+        地图 YAML 的顶层字典；不在这里检查 trinary 模式或图像可读性。
+
+    Raises:
+        render.RenderError: 场地或地图不是映射，地图路径缺失、类型错误，
+            或文件读取和 YAML 解析失败；load_yaml 将读取异常包装为此类型。
+    """
     site = render.load_yaml(site_path)
     if not isinstance(site, dict):
         raise render.RenderError(f'{site_path}: the site profile must be a mapping')
@@ -186,7 +226,22 @@ def _site_map(site_path: Path) -> Dict[str, object]:
 
 
 def _behavior_trees(tree: Dict[str, object], directories: Sequence[Path]) -> Dict[str, str]:
-    """Resolve every BT file named by the rendered bt_navigator parameters."""
+    """读取渲染参数指定的各个 BT 文件，保留搜索目录优先级.
+
+    相同参数值先去重；绝对路径直接读取，相对路径选首个存在的候选文件。
+    只读取文本，不在此校验 XML 或插件，不改参数树。
+
+    Args:
+        tree: 包含 bt_navigator 三个 BT 路径参数的已渲染树。
+        directories: 相对 BT 路径的有序搜索目录。
+
+    Returns:
+        选中文件的路径字符串到 UTF-8 文本的映射。
+
+    Raises:
+        render.RenderError: 参数路径缺失、值非非空字符串或文件无法找到。
+        OSError: 选中的文件无法读取。
+    """
     prefix = 'bt_navigator/ros__parameters/'
     parameter_names = (
         'default_bt_xml_filename',
@@ -215,7 +270,19 @@ def _behavior_trees(tree: Dict[str, object], directories: Sequence[Path]) -> Dic
 
 
 def _validate_command(args: argparse.Namespace) -> int:
-    """Execute ``navcfg validate`` and report every issue."""
+    """执行离线配置验证，把规则问题打印后转换为退出码.
+
+    robot 选择器交给机器人档案工作流，显式 profile 则读取场地、BT 和 URDF。
+    RenderError、SchemaError、LookupError 与 OSError 在本边界打印后返回 2，
+    包括本函数显式抛出的档案格式错误；它们不是正常输入错误的对外异常接口。
+
+    Args:
+        args: 已经由命令行解析并检查必需组合的 validate 参数。
+
+    Returns:
+        0 表示没有规则错误（可有警告），1 表示规则错误，2 表示输入或读取失败；
+        robot 分支沿用其工作流的退出码。
+    """
     try:
         if args.robot is not None:
             from nav_bringup.navcfg.robot_validation import run
