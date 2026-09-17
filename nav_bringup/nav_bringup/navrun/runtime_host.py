@@ -1,8 +1,8 @@
-"""Explicitly bound platform, residual-process and DDS startup operations.
+"""显式绑定平台、残留进程及 DDS 启动步骤，构造本身不观察或修改宿主.
 
-Construction performs no observation or mutation. Tests pass fake platform and
-process adapters plus a private DDS directory. Deployment must supply the real
-directory deliberately; no import or default argument cleans shared memory.
+执行返回的回调才会发生平台命令、身份核验信号或 DDS 文件操作。
+调用方须持有启动租约并明确传入目录；测试使用假端口与私有目录。
+导入模块或使用默认参数不会自动清理共享内存；这些操作不是可回滚事务。
 """
 
 from __future__ import annotations
@@ -27,25 +27,24 @@ def bind_host_steps(
     send: Optional[Callable[[ProcessInfo, int], bool]] = None,
     observe: Callable[[], MappingView] = snapshot_mappings,
 ) -> Tuple[StartupStep, ...]:
-    """Bind ordered host operations for the lock-scoped recorded startup.
+    """为受启动锁保护的记录流程绑定按序宿主操作，不立即执行.
 
-    Every process operation rechecks identity; final chassis ownership must
-    still agree with the rendered graph. DDS cleanup retains incomplete evidence
-    and never stops a daemon or changes a transport whitelist. Successful host
-    mutations are logged immediately, including when a later operation fails.
+    进程操作通过新快照与身份固定后端核对，最终底盘选择须与已准备图一致。
+    DDS 清理保留证据不完整项，不停 daemon 或更改传输白名单。
+    已完成操作不因后续失败回滚；事件写入失败也不能证明先前操作没有生效。
 
     Args:
-        dds_directory: Explicit absolute cleanup directory; tests use private fixtures.
-        platform_runner: Bounded noninteractive command runner; tests supply a fake.
-        snapshot: Complete process view, or the lazy read-only Linux backend.
-        send: Identity-pinned signal backend, or the lazy Linux pidfd backend.
-        observe: Fresh read-only mapping evidence; tests supply controlled views.
+        dds_directory: 显式绝对清理目录；测试必须使用私有目录。
+        platform_runner: 有界非交互命令端口，默认使用平台命令后端。
+        snapshot: 完整进程快照端口；缺省在执行时导入 Linux 只读后端。
+        send: 身份固定的信号端口；缺省在执行时使用 Linux pidfd 后端。
+        observe: 新鲜只读映射证据端口，供 DDS 清理反复核对。
 
     Returns:
-        Platform, preflight and DDS callbacks, not executed during binding.
+        platform、preflight、dds 三个回调组成的元组，绑定时不调用端口。
 
     Raises:
-        ValueError: The cleanup directory is not explicit and normalized.
+        ValueError: 清理目录不是明确规范化的绝对非根路径。
     """
     if (not dds_directory.is_absolute() or dds_directory == Path('/')
             or '..' in dds_directory.parts):

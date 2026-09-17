@@ -1,9 +1,9 @@
-"""Descriptor-relative inspection and removal of completed run artifacts.
+"""以固定目录描述符检查和逐项移除已完成运行的制品.
 
-The selected root's ancestors are trusted. Descendant symlinks are never followed;
-directory descriptors pin the authorized objects across path replacement. This
-is fail-closed, incremental deletion, not a transaction or protection against an
-administrator changing mounts. Manifests and summaries are never removed.
+信任所选根目录的祖先；不跟随后代符号链接，以目录描述符与身份复核限制
+路径替换风险。不提供对管理员改挂载的防护，也不是可回滚事务。
+失败可能已删除前面的项目；永久保留 manifest.yaml 与 summary.md。
+完成标记不代替进程存活检查，调用方仍须持有维护/启动租约并验证可清理性。
 """
 
 from __future__ import annotations
@@ -26,12 +26,15 @@ _KEPT = ('manifest.yaml', 'summary.md')
 
 @dataclass(frozen=True)
 class Snapshot:
-    """Read-only inventory of one pinned run.
+    """表示固定运行目录的一次元数据盘点，不保证整树原子或深度不可变.
+
+    冻结只限制字段重赋值，entries 字典仍可变；调用方不应修改它。
+    派生属性读取当前字典，complete 是盘点时的判断，不证明进程已退出。
 
     Attributes:
-        identity: Device and inode of the record directory.
-        entries: Relative component tuples mapped to no-follow file metadata.
-        complete: A matching manifest has an end timestamp and an unaliased summary.
+        identity: 记录目录的设备号与 inode。
+        entries: 相对组件元组到不跟随链接的文件元数据映射。
+        complete: 匹配的清单有可解析结束时间，且摘要为单硬链接普通文件。
     """
 
     identity: Tuple[int, int]
@@ -40,33 +43,36 @@ class Snapshot:
 
     @property
     def size(self) -> int:
-        """int: Logical regular-file bytes, not allocated disk blocks."""
+        """int: 当前盘点中普通文件的逻辑字节和，不是实际磁盘占用或可回收量."""
         return sum(info.st_size for info in self.entries.values() if stat.S_ISREG(info.st_mode))
 
     @property
     def pruned(self) -> bool:
-        """bool: Only permanently retained files remain."""
+        """bool: 所有盘点路径均位于永久保留项下；空盘点也为 True，不证明完成."""
         return all(path[0] in _KEPT for path in self.entries)
 
     @property
     def has_bag(self) -> bool:
-        """bool: A real bag directory contains at least one entry."""
+        """bool: 盘点中是否有 bag 下的后代条目，不保证存在有效或非空录制数据."""
         return any(len(path) > 1 and path[0] == 'bag' for path in self.entries)
 
 
 @contextmanager
 def open_root(root: Path) -> Iterator[int]:
-    """Pin an owned run root without creating it or following its final symlink.
+    """打开并固定当前用户拥有的记录根，不创建目录或跟随末级链接.
+
+    只拒绝根目录、当前用户家目录及含父目录组件的路径，不推断整个业务授权范围。
+    根目录祖先受信任；调用方仍须明确选择用途正确的运行记录目录。
 
     Args:
-        root: Trusted, explicit runs directory.
+        root: 显式选定的记录目录。
 
     Yields:
-        Read-only directory descriptor; callers must not close it themselves.
+        只在上下文中有效的只读目录描述符，调用方不得自行关闭。
 
     Raises:
-        ValueError: The root is not owned by the current user or is a broad root.
-        OSError: The directory cannot be opened safely.
+        ValueError: 根过宽、含父目录组件或不属于当前用户。
+        OSError: 无法安全打开目录或关闭描述符。
     """
     path = root.expanduser().absolute()
     if path in (Path('/'), Path.home()) or '..' in path.parts:
@@ -130,18 +136,21 @@ def _complete(descriptor: int, name: str, entries: Dict[tuple, os.stat_result]) 
 
 
 def inspect_at(root_fd: int, name: str) -> Snapshot:
-    """Inventory one direct record directory without opening payload file contents.
+    """盘点直接记录目录的元数据，并限量读取清单以核对完成标记.
+
+    不读取录制/日志负载；链接本身可列入盘点，但不跟随。
+    扫描受设备、目录身份、深度及二十万条目限制，不取得整树原子快照。
 
     Args:
-        root_fd: Pinned runs root.
-        name: Exact run ID below the root.
+        root_fd: 外层固定并持有的运行根目录描述符。
+        name: 根下的精确运行 ID。
 
     Returns:
-        A bounded inventory with conservative completion evidence.
+        有界盘点及保守完成标记；标记不证明进程存活状态或运行成功。
 
     Raises:
-        ValueError: Identity, ownership, traversal limits or file types are unsafe.
-        OSError: Files change or are inaccessible during inspection.
+        ValueError: 身份、所有者、文件系统、遍历预算或文件类型不安全。
+        OSError: 扫描、清单读取或描述符操作失败。
     """
     if RUN_ID_RE.fullmatch(name) is None:
         raise ValueError('invalid run ID')
@@ -197,34 +206,42 @@ def inspect_at(root_fd: int, name: str) -> Snapshot:
 
 
 def inspect_run(run: RunDirectory) -> Snapshot:
-    """Inspect a record using its explicitly selected root.
+    """按记录显式选择的根目录执行只读盘点，不删除任何内容.
 
     Args:
-        run: Record path pair.
+        run: 含根目录与运行 ID 的记录路径对象。
 
     Returns:
-        No-follow bounded inventory.
+        不跟随链接且有遍历预算的元数据盘点。
+
+    Raises:
+        ValueError: 根目录、身份、所有者、文件系统、条目或预算不符合要求。
+        OSError: 无法安全打开、扫描或关闭相关目录/清单。
     """
     with open_root(run.root) as descriptor:
         return inspect_at(descriptor, run.run_id)
 
 
 def remove_at(root_fd: int, name: str, snapshot: Snapshot, bag_only: bool) -> int:
-    """Remove only inventoried payload entries from the same completed record.
+    """仅删除同一已完成记录中盘点过的负载，永久保留清单及摘要.
+
+    调用方须提供可信、未篡改且刚重新盘点的 Snapshot，并持有外层维护租约。
+    按由深到浅的顺序复核身份/类型，非目录还复核大小和修改时间再删除；
+    检查与删除仍非原子，不抵御管理员改挂载，失败不撤销已完成删除。
+    只删除链接本身，不跟随其目标；不删除运行目录本身。
 
     Args:
-        root_fd: Pinned root descriptor.
-        name: Exact run ID.
-        snapshot: Inventory revalidated immediately before deletion.
-        bag_only: Restrict deletion to the actual bag directory and descendants.
+        root_fd: 外层固定并持有的根目录描述符。
+        name: 已盘点记录的精确运行 ID。
+        snapshot: 删除前重新核对的可信盘点，不应手工伪造或修改 entries。
+        bag_only: 是否只处理真实 bag 目录及其后代。
 
     Returns:
-        Removed logical regular-file bytes; hard links and sparse allocation can
-        make this differ from physical disk space reclaimed.
+        已删普通文件的逻辑字节和；硬链接或稀疏文件可能使其不同于实际回收空间。
 
     Raises:
-        ValueError: Directory or file identity changes, or completion is unproven.
-        OSError: A deletion fails, possibly after earlier entries were removed.
+        ValueError: 完成证据不足、bag 不是目录或目录/文件身份发生变化。
+        OSError: 打开、复核或删除失败，此前项目可能已经删除。
     """
     if not snapshot.complete:
         raise ValueError('record completion is unproven')

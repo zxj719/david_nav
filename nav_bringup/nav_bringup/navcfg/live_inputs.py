@@ -1,4 +1,8 @@
-"""Read the exact prepared run inputs for runtime verification, without rendering anew."""
+"""从已准备的运行记录构造在线校验规格，不重新渲染配置.
+
+只读取冻结输入和所选进程实际引用的参数文件，不查询 ROS 或写入记录。
+多文件读取不是原子快照；得到的是预期参数，不应标为已经观测的生效参数。
+"""
 
 from __future__ import annotations
 
@@ -12,16 +16,20 @@ from nav_bringup.navcfg.live_check import Finding, LiveSpec, TopicRule
 
 
 def parameter_sections(tree: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
-    """Resolve explicit ROS YAML node selectors and flatten nested parameter names.
+    """解析显式 ROS 节点选择器并把嵌套参数展开为点分键.
+
+    不接受通配符、混合参数/选择器节点或重复展开键；只校验现有选择器规则，
+    不执行完整 ROS 名称语法检查。叶子对象保留引用，不深复制或限制递归深度。
 
     Args:
-        tree: Parsed parameter document, including namespaced costmap sections.
+        tree: 解析后的参数树，可含带命名空间的 costmap 节点。
 
     Returns:
-        Qualified node names mapped to dot-separated parameter names.
+        带前导斜杠的节点名到参数字典的映射；参数键使用点分路径。
 
     Raises:
-        ValueError: A selector is ambiguous, malformed or a wildcard, or keys collide.
+        ValueError: 选择器、参数节或键不合法，或归一化后出现冲突。
+        RecursionError: 循环映射或嵌套过深。
     """
     output: Dict[str, Dict[str, Any]] = {}
 
@@ -88,17 +96,21 @@ def parameter_sections(tree: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
 
 
 def load_live_spec(run_dir: Path) -> Tuple[LiveSpec, Tuple[Finding, ...]]:
-    """Build live checks from a complete supervisor-prepared navigation run.
+    """从完整导航运行记录加载预期参数、话题和定位契约.
+
+    只认所选进程实际使用的参数文件，额外选择器记警告，不当作活动节点。
+    机器人与模式输入在内存中叠加；不改源文件，也不证明运行节点已采用这些值。
 
     Args:
-        run_dir: Existing run record with launch.json and frozen rendered inputs.
+        run_dir: 含 launch.json、冻结档案及渲染结果的现有运行目录。
 
     Returns:
-        Expected observations and warnings for dormant parameter-file selectors.
+        在线观察规格及未被所选进程消费的参数节警告元组。
 
     Raises:
-        ValueError: Inputs are invalid or not a navigation mode.
-        OSError: A prepared input cannot be read.
+        ValueError: 模式/输入不符、非导航模式、缺节点参数或参数内容冲突。
+        OSError: 运行记录或准备好的输入无法读取。
+        RecursionError: 参数树嵌套过深或递归结构无法展开。
     """
     options = load_options(str(run_dir), {})
     if options.mode not in NAVIGATION_MODES:

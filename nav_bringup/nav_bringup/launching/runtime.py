@@ -1,4 +1,8 @@
-"""Adapt a validated graph to ROS launch, resolving all entry points before startup."""
+"""将已验证进程图转换为受管 ROS launch 动作，构造前统一解析所需入口.
+
+本模块只构造动作及事件处理器，不直接启动子进程。
+组件模式先验证插件，再转换物理进程图；真实启动与收尾由 launch 接管。
+"""
 
 from __future__ import annotations
 
@@ -22,17 +26,22 @@ from nav_bringup.launching.supervision import managed_actions
 
 
 def launch_actions(graph: LaunchGraph, phase: str = 'all') -> List[Action]:
-    """Resolve every selected executable before constructing owned launch actions.
+    """按所选阶段解析可执行入口并构造受管动作，不在此启动进程.
+
+    core 与 executor 阶段按 navigation_executor 名称切分。
+    teleop 要求监督者已拥有键盘，避免在 launch 图中重复启动键盘进程。
+    组件加载处理器排在受管动作之前；构造失败不代表真实进程曾被启动。
 
     Args:
-        graph: Validated graph whose run-local parameters were checked by the loader.
-        phase: Entire graph, core only, or the deferred launch-managed executor.
+        graph: 参数文件已由外层 loader 核对的逻辑图。
+        phase: all 为全图、core 排除执行器、executor 仅选延后执行器。
 
     Returns:
-        Managed ROS nodes and plain executor processes; no process starts here.
+        组件加载处理器与受管 Node/ExecuteProcess 动作列表。
 
     Raises:
-        ValueError: If an executable is invalid, missing or not executable.
+        ValueError: 阶段无效/为空、teleop 所有权不符或入口/组件校验失败。
+        Exception: launch 动作或描述对象构造失败。
     """
     if phase not in ('all', 'core', 'executor'):
         raise ValueError('launch phase must be all, core or executor')

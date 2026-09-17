@@ -1,9 +1,8 @@
-"""Bounded, descriptor-relative reads of run records, without following record links.
+"""使用固定目录描述符及共享预算读取运行记录，不跟随记录内链接.
 
-The caller selects the runs root; its ancestors are trusted. All descendants are
-opened relative to pinned directory descriptors with O_NOFOLLOW. No record is
-created, locked, repaired or treated as proof that a supervisor is still alive.
-Concurrent writers can produce incomplete data: this is not an atomic snapshot.
+调用方选择并信任根目录的祖先；后代逐级以 O_NOFOLLOW 打开。
+不创建、锁定或修复记录，也不把记录存在当作监督者仍存活的证据。
+并发写入可能得到不完整或不同时刻的数据，这不是原子快照。
 """
 
 from __future__ import annotations
@@ -23,14 +22,22 @@ _DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
 
 
 class RecordReader:
-    """Read a single pinned run directory with shared byte and traversal budgets.
+    """表示借用固定运行目录描述符、共享字节及遍历预算的读取器.
+
+    只能在持有描述符的上下文内使用，不自行拥有或关闭借入的根描述符。
+    预算随读取/遍历消耗，失败时不统一回滚，也不提供并发访问同步。
 
     Attributes:
         run_id: 正在读取的固定运行目录标识，不表示该运行仍存活。
     """
 
     def __init__(self, descriptor: int, run_id: str) -> None:
-        """Borrow a directory descriptor for the lifetime of an open_record context."""
+        """借用运行目录描述符，并为本读取器初始化累计预算.
+
+        Args:
+            descriptor: open_record 上下文持有的目录描述符，不在此复制或验证。
+            run_id: 由外层校验的运行标识。
+        """
         self._descriptor = descriptor
         self.run_id = run_id
         self._remaining = MAX_TOTAL_BYTES
@@ -63,18 +70,22 @@ class RecordReader:
             os.close(descriptor)
 
     def read(self, relative: str) -> Optional[str]:
-        """Read UTF-8 from one regular, unaliased file; missing files return None.
+        """读取单硬链接普通文件的 UTF-8 文本，缺失路径返回 None.
+
+        逐级拒绝链接和特殊文件；文件大小与实际读取字节均受单文件及共享预算限制。
+        重复读取重复扣额，UTF-8 解码失败也已扣除读取字节；缺失文件不扣字节。
+        不锁定文件内容，读取结果不是相对于并发写者的原子快照。
 
         Args:
-            relative: Relative path under the pinned run directory.
+            relative: 固定运行目录下的相对路径，不得含空组件、点或父目录组件。
 
         Returns:
-            Exact file text, or None when this artifact has not been recorded.
+            原始文本，文件或其父目录不存在时为 None。
 
         Raises:
-            ValueError: A path, file type, size or byte budget is invalid.
-            OSError: A component is inaccessible or cannot be opened safely.
-            UnicodeError: The content is not UTF-8.
+            ValueError: 路径、文件类型、硬链接数、大小或字节预算不符。
+            OSError: 路径不可访问、不能安全打开或读取/关闭失败。
+            UnicodeError: 内容不是有效 UTF-8。
         """
         parts = relative.split('/')
         if any(part in ('', '.', '..') for part in parts):
@@ -108,17 +119,21 @@ class RecordReader:
             os.close(descriptor)
 
     def tree(self, relative: str) -> Dict[str, str]:
-        """Export saved artifact text, without following links or special files.
+        """有界导出制品目录文本，拒绝链接和特殊文件，不重建配置.
+
+        共享项数与字节预算跨本读取器保留，最大递归深度为八；失败不退还预算。
+        起始目录缺失返回空字典，遍历中子目录或文件消失则报错，不保证原子快照。
 
         Args:
-            relative: Artifact directory, such as params/effective.
+            relative: 运行目录内的相对制品目录，例如 params/effective。
 
         Returns:
-            Paths relative to that artifact directory mapped to exact contents.
+            相对此制品目录的文件路径到原始文本的映射，按路径排序。
 
         Raises:
-            ValueError: Traversal depth, entry count or byte budget is exceeded.
-            OSError: A record component is unsafe or inaccessible.
+            ValueError: 路径/文件不安全、深度/项数/字节超限或文件遍历中消失。
+            OSError: 子目录或记录无法安全读取。
+            UnicodeError: 制品内容不是有效 UTF-8。
         """
         result: Dict[str, str] = {}
 
@@ -167,18 +182,21 @@ class RecordReader:
 
 @contextmanager
 def open_record(root: Path, selector: str) -> Iterator[RecordReader]:
-    """Pin an existing record selected by an ID or a direct relative latest link.
+    """固定运行目录，接受精确 ID 或直接指向 ID 的相对 latest 链接.
+
+    根目录本身及记录路径不跟随链接，但信任根目录祖先。
+    latest 只解析一次，之后依靠已打开描述符，不以路径持续指向同一项为前提。
 
     Args:
-        root: Explicit, trusted runs root; the root itself must not be a symlink.
-        selector: Exact run ID or latest.
+        root: 调用方明确选择并信任的记录根目录，本身不能是符号链接。
+        selector: 精确运行 ID 或 latest。
 
     Yields:
-        A reader whose descriptors remain open for the context lifetime.
+        只在 with 上下文生命期内有效的读取器。
 
     Raises:
-        ValueError: The selector or latest link is not an exact run ID.
-        OSError: The root or record cannot be opened without following links.
+        ValueError: 选择器或 latest 目标不是精确运行 ID。
+        OSError: 根目录、链接或记录不能安全读取/打开，或描述符关闭失败。
     """
     parent = os.open(root.expanduser(), _DIRECTORY_FLAGS)
     try:
@@ -195,17 +213,19 @@ def open_record(root: Path, selector: str) -> Iterator[RecordReader]:
 
 
 def record_ids(root: Path) -> list[str]:
-    """List real record directories newest first, without creating a missing root.
+    """只读列出真实记录目录，按标识逆序返回，不创建缺失根目录.
+
+    按名称排序而非读取实际启动时间；所有扫描项都计入条目预算，包括无关文件。
 
     Args:
-        root: Selected runs root.
+        root: 明确选择的记录根目录，信任其祖先但不跟随根目录链接。
 
     Returns:
-        Existing run IDs; non-record entries and symlink directories are ignored.
+        现有运行 ID 列表，忽略非记录名称和链接目录；根目录缺失时为空。
 
     Raises:
-        ValueError: The directory exceeds the entry budget.
-        OSError: An existing root cannot be read safely.
+        ValueError: 根目录条目数超过预算。
+        OSError: 现有根目录无法安全打开、扫描或关闭。
     """
     try:
         descriptor = os.open(root.expanduser(), _DIRECTORY_FLAGS)

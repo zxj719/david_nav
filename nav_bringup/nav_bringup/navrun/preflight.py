@@ -1,9 +1,8 @@
-"""Plan residual cleanup and resolve chassis ownership before launch.
+"""根据进程快照规划残留清理，并在导航启动前确定底盘所有权.
 
-Planning consumes process snapshots and never probes the host. Execution requires
-explicit snapshot and identity-safe signal callbacks; there is no default kill
-function. Only the initially selected identities may receive signals, and fresh
-localization, external-chassis and user-ownership protection is checked each time.
+规划不读取真实宿主或发送信号；执行必须显式注入快照与身份安全的信号端口，
+没有默认 kill 实现。只允许处理最初选定身份，每次重查定位、外部底盘及
+不同用户的保护边界。计划不是对任意进程的清理授权，也不是事务。
 """
 
 from __future__ import annotations
@@ -19,14 +18,14 @@ from typing import Any, Callable, Dict, Mapping, Sequence, Tuple
 
 @dataclass(frozen=True)
 class ProcessInfo:
-    """One process as observed without ROS discovery.
+    """表示不依赖 ROS 发现的单次进程身份观察.
 
     Attributes:
-        pid: Positive operating-system process id.
-        ppid: Parent id at snapshot time; reparenting does not change identity.
-        started_at: Creation time used to detect PID reuse.
-        argv: Exact command line, not a shell-joined command from another process.
-        uid: Real user id owning the process.
+        pid: 正操作系统进程号。
+        ppid: 快照时的父进程号，重新归属父进程不单独构成身份改变。
+        started_at: 用于识别 PID 复用的创建时间。
+        argv: 真实参数元组，不是其它进程携带的 shell 文本。
+        uid: 进程所属的真实用户编号。
     """
 
     pid: int
@@ -48,14 +47,14 @@ class _Policy:
 
 @dataclass(frozen=True)
 class PreflightPlan:
-    """Resolved chassis choice and the only identities eligible for cleanup.
+    """表示底盘选择及唯一允许参与本次清理的初始进程身份集合.
 
     Attributes:
-        start_chassis: Whether launch should own a new driver.
-        targets: Initial cleanup generation, with ancestors before descendants.
-        protected_pids: Protected self ancestry and external process trees.
-        warnings: Explanations for matched processes intentionally not targeted.
-        own_pid: Supervisor identity whose ancestry and user must be preserved.
+        start_chassis: 启动图是否应拥有新底盘驱动。
+        targets: 初始候选，祖先排在后代之前；执行时不得扩大集合。
+        protected_pids: 监督者祖先及外部受保护进程树的 PID。
+        warnings: 匹配策略但明确保留的进程说明。
+        own_pid: 必须保留其祖先和用户边界的监督者 PID。
     """
 
     start_chassis: bool
@@ -67,7 +66,7 @@ class PreflightPlan:
 
 
 class PreflightError(RuntimeError):
-    """Cleanup cannot safely finish; navigation startup must not assume a clean graph."""
+    """表示无法安全完成残留清理，启动方不能据此假定进程图已干净."""
 
 
 def _patterns(values: Any, label: str) -> Tuple[str, ...]:
@@ -175,14 +174,14 @@ def _matches(command: str, patterns: Sequence[str]) -> bool:
 
 
 def is_task_manager(process: ProcessInfo) -> bool:
-    """Recognize a shared-manager executable, excluding shell text and editor arguments.
+    """按可执行入口识别共享任务管理器，排除普通 shell 文本与编辑器参数.
 
     Args:
-        process: Read-only command-line snapshot; no host probing is performed.
+        process: 只读命令行快照，不在此探测宿主。
 
     Returns:
-        Whether the actual program or ROS run target is a supported manager entry.
-        This classification grants no authority to signal the process.
+        实际程序或 ROS run 目标是否匹配受支持入口；
+        分类结果本身不授予发送信号的权限。
     """
     return _matches(_command(process), (
         r'(?:^|[/\s])nav_task_manager$',
@@ -362,19 +361,19 @@ def plan_preflight(
     profile: Mapping[str, Any], processes: Sequence[ProcessInfo], own_pid: int,
     chassis: str = 'auto',
 ) -> PreflightPlan:
-    """Classify a process snapshot without sending signals or reading the host.
+    """纯粹分类进程快照，生成固定候选及保护边界，不读取宿主或发信号.
 
     Args:
-        profile: Mode-merged robot profile and residual/foreign/driver match patterns.
-        processes: Complete process identities relevant to the supervisor and external trees.
-        own_pid: Supervisor id, present in the snapshot.
-        chassis: auto detects an existing driver; on owns one; off preserves external drivers.
+        profile: 模式叠加后的档案，含残留、外部栈、驱动和保护匹配规则。
+        processes: 覆盖监督者及相关外部树的完整身份快照。
+        own_pid: 快照中必须存在的监督者编号。
+        chassis: auto 按已有驱动决定，on 计划拥有驱动，off 保留外部驱动。
 
     Returns:
-        A frozen cleanup generation, protected PIDs, warnings and resolved driver ownership.
+        冻结的初始清理身份、保护 PID、警告及底盘启动决策。
 
     Raises:
-        ValueError: Invalid policy, selector, process identity or ambiguous ancestry.
+        ValueError: 策略、选择器、进程身份或祖先关系无效。
     """
     if chassis not in ('auto', 'on', 'off'):
         raise ValueError('chassis must be auto, on or off')
@@ -431,29 +430,31 @@ def cleanup_preflight(
     kill_timeout_sec: float = 0.5,
     poll_sec: float = 0.3,
 ) -> Tuple[int, ...]:
-    """TERM and, after a bounded wait, KILL only the initial cleanup generation.
+    """仅对初始清理集合执行 TERM，并在等待后按需 KILL 和再次确认.
 
-    The signal callback must pin/recheck the supplied creation identity at the
-    actual send (for example using pidfd); returning False reports a race or exit.
-    No real signal callback is provided implicitly. All tests inject fake worlds.
+    每个信号与轮询前重新检查快照；发送后端仍须在实际发送时固定创建身份
+    （例如 pidfd），不能用裸 PID 发送代替。回调返回 False 时再查是否已退出。
+    等待预算不限制同步快照、信号回调或被阻塞的时钟/休眠；不是整体硬期限。
+    失败可发生在部分进程已退出之后，不回滚也不扩大清理集合。
 
     Args:
-        plan: Initial read-only cleanup decision.
-        snapshot: Fresh complete process view, consulted before every signal and poll.
-        send_if_same: Identity-safe signal backend, mandatory and never a bare os.kill.
-        clock: Monotonic wall clock, replaceable by virtual time in tests.
-        sleep: Bounded polling delay, replaceable in tests.
-        dry_run: Return planned PIDs without calling runtime hooks.
-        term_timeout_sec: Graceful shutdown wait, preserving the old eight-second policy.
-        kill_timeout_sec: Confirmation wait after the final kill.
-        poll_sec: Maximum delay between observations.
+        plan: 初始只读清理决策。
+        snapshot: 每次取得完整新身份视图的端口。
+        send_if_same: 必需的身份安全信号端口，不隐式提供 os.kill。
+        clock: 单调时钟，测试可使用虚拟时间。
+        sleep: 轮询等待端口，测试可替换。
+        dry_run: 只返回计划 PID；仍校验开关和预算，但不调用运行端口。
+        term_timeout_sec: TERM 后的等待预算，默认保留原八秒策略。
+        kill_timeout_sec: KILL 后确认预算。
+        poll_sec: 两次观察之间请求的最大休眠时间。
 
     Returns:
-        Initial target PIDs confirmed absent, or planned PIDs for dry-run.
+        已确认消失的初始目标 PID 元组；dry-run 返回计划 PID，不证明已消失。
 
     Raises:
-        ValueError: Invalid deadlines, switch or process snapshots.
-        PreflightError: New/protected/reused identities, failed signals or live survivors.
+        ValueError: 开关、预算或进程快照无效。
+        PreflightError: 身份改变、新候选、保护边界变化、信号失败或仍有残留。
+        Exception: 注入快照、时钟、休眠或信号端口的其它异常。
     """
     if type(dry_run) is not bool:
         raise ValueError('dry_run must be a boolean')

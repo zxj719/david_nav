@@ -1,19 +1,11 @@
-"""Doctor checks that look at the running ROS graph (``navrun doctor --live``).
+"""通过可注入的命令与 TF 探针提供只读在线诊断（navrun doctor --live）.
 
-They cover the failure modes of refactor plan §13.3 that only show while the
-stack runs:
-
-* a stale ros2 CLI daemon that hides nodes, found by comparing its node list
-  with discovery without the daemon;
-* more than one publisher on a velocity command topic;
-* publishers on more than one host, the signature of another machine in the
-  DDS domain (Fast DDS derives two GID bytes from the host);
-* no map to odom transform yet, which means localization has not been
-  initialized (a hint, not a failure).
-
-ros2 CLI calls go through an injectable runner and the transform probe is
-injectable too, so unit tests need no ROS graph. A running CLI daemon is only
-queried; the checks never start or stop it.
+检查 daemon 是否漏报直接发现的节点、指令话题是否有多个发布者，以及
+Fast DDS GID 主机片段是否不同。后者只是启发式线索，不证明有外来机器人。
+TF 探针只检查变换可用性，不测新鲜度；缺失时给提示，不直接认定定位故障。
+命令缓存只反映本次首次查询，多个检查不组成同一时刻的 ROS 图快照。
+不主动启停 daemon 或定位栈；调用方必须先加载正确的 ROS/DDS 环境。
+测试注入命令结果和探针，不要求运行 ROS 图。
 """
 
 from __future__ import annotations
@@ -35,13 +27,13 @@ FAST_DDS_VENDOR = ('01', '0f')
 
 @dataclass(frozen=True)
 class Endpoint:
-    """One endpoint listed by ``ros2 topic info --verbose``.
+    """表示话题详情输出中的一个发布或订阅端点.
 
     Attributes:
-        node_name: Node name without namespace.
-        node_namespace: Node namespace.
-        endpoint_type: ``PUBLISHER`` or ``SUBSCRIPTION``.
-        gid: Endpoint GID as dot-separated hexadecimal bytes.
+        node_name: 不含命名空间的节点名称。
+        node_namespace: 输出中的节点命名空间。
+        endpoint_type: 端点类型，常见为 PUBLISHER 或 SUBSCRIPTION。
+        gid: 原样点分 GID 文本，本对象不校验其完整性。
     """
 
     node_name: str
@@ -51,22 +43,22 @@ class Endpoint:
 
     @property
     def qualified_node(self) -> str:
-        """str: Fully qualified node name."""
+        """str: 去除命名空间末尾斜杠后拼接的节点名，不验证 ROS 名称语法."""
         return f"{self.node_namespace.rstrip('/')}/{self.node_name}"
 
 
 @dataclass(frozen=True)
 class LiveContext:
-    """Inputs of the live checks.
+    """表示一轮在线诊断的端口、帧与话题配置，不在构造时查询图.
 
     Attributes:
-        runner: Runs ``ros2`` commands; see :func:`default_runner`.
-        command_topics: Velocity command topics that must have at most one publisher.
-        watched_topics: Topics whose publishers must all run on one host.
-        map_frame: Global frame of the localization transform.
-        odom_frame: Odometry frame of the localization transform.
-        transform_probe: Tells whether a transform exists, or ``None`` to skip.
-        spin_time_sec: Discovery seconds of each query without the daemon.
+        runner: 执行 ros2 命令并返回退出码/文本的端口，环境与超时由外层负责。
+        command_topics: 检查发布者数量是否超过一的指令话题。
+        watched_topics: 用 GID 主机片段比较发布来源的话题。
+        map_frame: 定位变换的目标父帧。
+        odom_frame: 定位变换的源子帧。
+        transform_probe: 返回变换可用性或 None 的探针，缺省不查询。
+        spin_time_sec: 无 daemon 查询的发现等待时间，不是整轮硬期限。
     """
 
     runner: manifest.CommandRunner
@@ -79,13 +71,16 @@ class LiveContext:
 
 
 def caching_runner(runner: manifest.CommandRunner) -> manifest.CommandRunner:
-    """Wrap a runner so that a repeated command runs only once.
+    """按完整 argv 缓存首次返回的命令结果，不缓存抛出的异常.
+
+    非零退出结果同样缓存；重复调用不反映后续图变化。缓存无并发同步或过期机制，
+    应按一次串行诊断创建，不作为持续观察器。
 
     Args:
-        runner: Runner to wrap.
+        runner: 被包装的同步命令端口。
 
     Returns:
-        A runner that replays the first result of each distinct command.
+        按参数元组复用首次返回值的闭包，异常后的同参数调用会重试。
     """
     results: Dict[Tuple[str, ...], Tuple[int, str]] = {}
 
@@ -99,25 +94,25 @@ def caching_runner(runner: manifest.CommandRunner) -> manifest.CommandRunner:
 
 
 def default_runner(timeout_sec: float = 30.0) -> manifest.CommandRunner:
-    """Build the caching command runner of one doctor run.
+    """为一次诊断创建带命令超时的结果缓存端口.
 
     Args:
-        timeout_sec: Seconds before one ``ros2`` call is abandoned.
+        timeout_sec: 传给 run_command 的单条命令超时秒数，不是整轮预算。
 
     Returns:
-        A caching runner around :func:`nav_bringup.recorder.manifest.run_command`.
+        包装 manifest.run_command 的缓存闭包，不在创建时执行命令。
     """
     return caching_runner(functools.partial(manifest.run_command, timeout_sec=timeout_sec))
 
 
 def parse_daemon_status(output: str) -> Optional[bool]:
-    """Parse the output of ``ros2 daemon status``.
+    """按既有英文子串识别 daemon 状态，优先判断未运行.
 
     Args:
-        output: Standard output of the command.
+        output: 命令返回文本，不在此检查退出码或执行 ROS 命令。
 
     Returns:
-        Whether the daemon runs, or ``None`` for unrecognized output.
+        识别到运行/未运行分别为 True/False，否则为 None。
     """
     if 'is not running' in output:
         return False
@@ -127,13 +122,16 @@ def parse_daemon_status(output: str) -> Optional[bool]:
 
 
 def parse_topic_info(output: str) -> Tuple[Optional[str], List[Endpoint]]:
-    """Parse the output of ``ros2 topic info --verbose``.
+    """解析话题详情中的类型和端点，忽略缩进的 QoS 等内容.
+
+    仅保留同时有节点名和端点类型的块，命名空间缺省为根、GID 缺省为空。
+    不核对声明的端点总数、完整 GID 或节点名称是否合法。
 
     Args:
-        output: Standard output of the command.
+        output: ros2 topic info --verbose 的文本。
 
     Returns:
-        ``(message type, endpoints)``; the type is ``None`` if it is absent.
+        首个 Type 字段和按出现次序排列的端点；缺少类型时第一项为 None。
     """
     topic_type = None
     endpoints: List[Endpoint] = []
@@ -166,16 +164,16 @@ def parse_topic_info(output: str) -> Tuple[Optional[str], List[Endpoint]]:
 
 
 def gid_host(gid: str) -> Optional[str]:
-    """Extract the host bytes of a Fast DDS GID.
+    """按现有 Fast DDS 厂商前缀提取 GID 的第三、第四段作为主机线索.
 
-    Fast DDS derives bytes 2 and 3 of the GUID prefix from the host, so all
-    endpoints of one machine share them.
+    仅识别小写 01.0f 且至少四段的文本，不验证十六进制、完整长度或唯一性；
+    相同片段不能证明同一主机，不同片段也不能直接证明外部机器人接入。
 
     Args:
-        gid: Dot-separated hexadecimal bytes.
+        gid: 点分 GID 字符串，不在此归一化大小写。
 
     Returns:
-        The two host bytes, or ``None`` for GIDs of other DDS vendors.
+        两段原文本，前缀或段数不符时为 None。
     """
     parts = gid.split('.')
     if len(parts) < 4 or tuple(parts[:2]) != FAST_DDS_VENDOR:
@@ -184,17 +182,17 @@ def gid_host(gid: str) -> Optional[str]:
 
 
 def check_cli_daemon(context: LiveContext) -> CheckResult:
-    """Compare the nodes seen through the ros2 CLI daemon with direct discovery.
+    """比较直接发现的节点是否被已运行的 daemon 漏报.
 
-    A daemon that kept an old environment silently returns an empty or
-    partial graph, which once looked like "bt_navigator never came up".
+    只检查直接发现减去 daemon 结果的差集，不检测 daemon 独有的过期节点，
+    也不保证两次发现同时发生。这里只查询，不执行提示中的重启操作。
 
     Args:
-        context: Live check inputs.
+        context: 命令端口与发现等待配置。
 
     Returns:
-        ``WARN`` if the daemon misses nodes, ``OK`` if it agrees or does not
-        run, ``SKIP`` if the graph cannot be queried.
+        漏报时 WARN，daemon 未运行或未发现漏报时 OK，查询失败时 SKIP；
+        OK 不证明图完全一致或节点健康。
     """
     name = 'ros2_daemon'
     code, status = context.runner(['ros2', 'daemon', 'status'])
@@ -220,14 +218,14 @@ def check_cli_daemon(context: LiveContext) -> CheckResult:
 
 
 def check_command_publishers(context: LiveContext) -> CheckResult:
-    """Check that each velocity command topic has at most one publisher.
+    """报告指令话题中多个发布端点，不判断实际指令流或底盘状态.
 
     Args:
-        context: Live check inputs.
+        context: 命令端口、指令话题与发现等待配置。
 
     Returns:
-        ``WARN`` for a topic with several publishers, ``SKIP`` without
-        command topics, otherwise ``OK``.
+        多发布者时 WARN，未配置话题时 SKIP，其余为 OK。
+        查询失败沿用“不存在”摘要且不使结果失败；OK 不是单一控制权证明。
     """
     name = 'command_publishers'
     if not context.command_topics:
@@ -253,14 +251,17 @@ def check_command_publishers(context: LiveContext) -> CheckResult:
 
 
 def check_foreign_hosts(context: LiveContext) -> CheckResult:
-    """Check that the publishers of watched topics run on one host.
+    """按发布端点的 GID 主机片段汇总来源，忽略订阅端点.
+
+    监视与指令话题先按次序去重；查询失败或不能识别的 GID 不计入。
+    不同来源只产生警告，不更改域号、白名单或任何进程。
 
     Args:
-        context: Live check inputs.
+        context: 命令端口及要观察的话题。
 
     Returns:
-        ``WARN`` if publishers come from several hosts, ``SKIP`` without
-        topics or Fast DDS publishers, otherwise ``OK``.
+        发现多个片段时 WARN，未配置话题或没有可识别发布端点时 SKIP，
+        只有一个片段时 OK；结果不是网络隔离或主机归属的完整证明。
     """
     name = 'foreign_hosts'
     topics = list(dict.fromkeys(context.watched_topics + context.command_topics))
@@ -285,14 +286,14 @@ def check_foreign_hosts(context: LiveContext) -> CheckResult:
 
 
 def check_map_to_odom(context: LiveContext) -> CheckResult:
-    """Check whether localization provides the map to odom transform yet.
+    """调用注入探针检查指定定位变换是否可用，不检查其时间戳.
 
     Args:
-        context: Live check inputs.
+        context: 父/子帧名称及可选变换探针。
 
     Returns:
-        ``WARN`` while the transform is missing, ``SKIP`` without a probe or
-        when TF cannot be queried, otherwise ``OK``.
+        变换缺失为 WARN，未配置探针或探针返回 None 为 SKIP，存在为 OK。
+        探针异常由外层 run_live_checks 统一转换，本函数不自行吞掉异常。
     """
     name = 'map_to_odom'
     transform = f'{context.map_frame}→{context.odom_frame}'
@@ -320,29 +321,31 @@ def run_live_checks(
     context: LiveContext,
     selected: Sequence[Callable[[LiveContext], CheckResult]] = ALL_LIVE_CHECKS,
 ) -> List[CheckResult]:
-    """Run live checks, turning an unexpected error in a check into ``FAIL``.
+    """按顺序执行诊断，将单项普通异常隔离为 FAIL 结果.
 
     Args:
-        context: Live check inputs.
-        selected: Checks to run, in order.
+        context: 共享诊断上下文，缓存端口可能复用先前查询结果。
+        selected: 要执行的检查序列，缺省为全部在线检查。
 
     Returns:
-        One result per check.
+        每项检查对应的结果列表，不因单项普通异常停止其余检查。
     """
     return checks.run_checks(context, selected)
 
 
 def ros_transform_probe(wait_sec: float = 3.0) -> TransformProbe:
-    """Build a transform probe that uses a short-lived ROS node.
+    """构造使用短命 ROS 节点的 TF 可用性探针，调用时才导入 ROS.
 
-    ROS is imported only when the probe runs.
+    使用默认 context；外层须避免重复初始化冲突并加载正确 DDS 环境。
+    等待预算仅覆盖查询循环，不能抢占同步初始化、spin 或清理操作。
+    不创建定位提供者，也不保证变换新鲜或任意异常路径完整释放资源。
 
     Args:
-        wait_sec: Seconds to wait for the transform.
+        wait_sec: 查询循环的单调时钟预算秒数。
 
     Returns:
-        A callable ``(parent, child)`` that returns whether the transform
-        exists, or ``None`` if ROS is unavailable.
+        接受父/子帧名的闭包；观察到变换为 True，到期为 False，
+        仅导入依赖失败返回 None，其余初始化/查询/清理异常继续传播。
     """
     def probe(parent: str, child: str) -> Optional[bool]:
         """临时驱动 ROS TF 查询，返回可用性；缺少导入依赖时返回 None.
