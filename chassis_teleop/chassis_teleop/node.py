@@ -227,6 +227,20 @@ def _run(
     args: Optional[Sequence[str]], channel: Optional[KeyboardChannel] = None,
     tty_fd: Optional[int] = None,
 ) -> int:
+    """持有键盘节点的 ROS 与信号生命周期，在正常退出和故障时清理自有资源.
+
+    Args:
+        args: 传给 rclpy 的 ROS 参数；None 使用进程参数。
+        channel: 可选的监督者控制通道，调用方持有并负责最终关闭。
+        tty_fd: 可选的已授权终端描述符；键盘对象只复制并关闭自己的副本。
+
+    Returns:
+        正常结束、键盘中断或 ROS 外部关闭时返回零。
+
+    Raises:
+        Exception: 初始化、键盘运行、停止突发或清理失败；终端上下文退出、
+            节点销毁、ROS 关闭及信号处理器恢复按 finally 嵌套顺序尝试。
+    """
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     previous = {}
     stopped = threading.Event()

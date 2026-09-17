@@ -110,6 +110,15 @@ class TerminalKeyboard:
             os.close(descriptor)
 
     def _consume(self, character: str) -> Optional[str]:
+        """消费一个 ASCII 字符，跨读取保留有界转义序列而不把碎片当按键.
+
+        Args:
+            character: read_key 已解码的单个非空 ASCII 字符。
+
+        Returns:
+            普通字符或已完成的转义序列；未完成时为 None，超出 32 字符
+            缓冲区的序列完成时返回空串并复位，不把尾部误作运动按键。
+        """
         if not self._sequence:
             if character == '\x1b':
                 self._sequence = character

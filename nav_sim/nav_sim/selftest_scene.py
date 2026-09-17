@@ -60,6 +60,19 @@ def _write(root, name, value):
 
 
 def _validate(root, robot, mode, namespace, uri):
+    """在创建实验目录前校验身份、模式和无凭据的本地 WS 地址.
+
+    Args:
+        root: 尚不存在的绝对规范输出目录，不允许根目录或符号链接。
+        robot: 机器人资源名称。
+        mode: tour 或 precise。
+        namespace: selftest_ 后接 32 位小写 UUID 十六进制的命名空间。
+        uri: 仅允许带有效端口的 ws://127.0.0.1 地址，无路径或查询参数。
+
+    Raises:
+        ValueError: 身份、模式、路径或 URI 不符合私有实验约束。
+        FileExistsError: 输出已存在，拒绝覆盖。
+    """
     if mode not in ('tour', 'precise'):
         raise ValueError('selftest mode must be tour or precise')
     if re.fullmatch(r'[a-z][a-z0-9_]*', robot) is None:
@@ -78,6 +91,21 @@ def _validate(root, robot, mode, namespace, uri):
 
 
 def _profile(original, mode, prefix, root):
+    """保留机器人几何和模式调参，仅替换为私有仿真接线及无硬件策略.
+
+    Args:
+        original: 只读源机器人档案，深合并后修改副本。
+        mode: 已解析的模式叠加对象。
+        prefix: 本次实验的绝对 ROS 命名空间话题前缀。
+        root: 私有输出目录，POI 可写缓存定位于其下。
+
+    Returns:
+        使用假底盘/假定位、禁用点云转扫描及平台提频/杀进程操作的新档案。
+
+    Raises:
+        ValueError: footprint 坐标不是有限数值或超出实验房间几何范围。
+        KeyError: 源档案缺少所需的配置节。
+    """
     profile = render.deep_merge(original, mode.profile)
     polygon = profile.get('footprint', [])
     if (not isinstance(polygon, list) or len(polygon) < 3
@@ -106,6 +134,22 @@ def _profile(original, mode, prefix, root):
 
 
 def _assets(root, profile, namespace, uri):
+    """独占创建两任务点位、合成静态房间地图和私有场地档案.
+
+    Args:
+        root: 已创建的本次实验目录，目标资产不应存在。
+        profile: 选定模式下的机器人档案，提供地图帧及米/弧度容差。
+        namespace: 用于唯一请求 ID 的实验命名空间。
+        uri: 已验证的本地 WS 对端地址，仅写入私有配置。
+
+    Returns:
+        普通 POI 后 Dock 的两用例元组；地图为 12 米方形、0.05 米分辨率，
+        边界占用两格。此步骤没有发送目标或启动仿真。
+
+    Raises:
+        OSError: 创建资产失败；可能保留部分文件供诊断，不覆盖现有文件。
+        KeyError: 档案缺少所需帧或目标容差。
+    """
     frame = profile['frames']['map']
     cases = tuple(ExpectedCase(
         namespace + '_' + kind, index, 'selftest_' + kind, kind, (float(index), 0.0, 0.0),
@@ -129,6 +173,23 @@ def _assets(root, profile, namespace, uri):
 
 
 def _private_graph(bundle, profile, namespace, cases):
+    """扩展准备包为私有双用例图，保留所选模式调参并为两模式接入 Dock.
+
+    Args:
+        bundle: 已准备的普通启动包，原对象不修改。
+        profile: 私有仿真档案，明确区分机身和导航基准帧。
+        namespace: 所有 ROS 参与者共用的独占实验命名空间。
+        cases: 预期用例参数；当前实现未读取，身份由其它准备步骤绑定。
+
+    Returns:
+        新准备包与启动图；附加假机器人参数、TF/事件重映射及执行器 Dock
+        配置。普通 ROS 节点和非 ROS 包装入口分别注入命名空间，不启动进程。
+
+    Raises:
+        ValueError: 现有配置路径不属于实验根目录或图构建校验失败。
+        KeyError: 准备包缺少所需资产、帧或 Dock 参数。
+        yaml.YAMLError: 已准备参数无法解析。
+    """
     root, prefix = Path(bundle.options.run_dir), '/' + namespace + '/'
     artifacts = dict(bundle.artifacts)
     # Both modes exercise Dock. Reuse the existing precise-mode Dock policy,

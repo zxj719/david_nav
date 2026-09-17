@@ -92,6 +92,15 @@ class LocalizationMonitor(Node):
             raise
 
     def _odometry(self, message):
+        """把轮式里程计样本换算到配置的导航基准，坏样本立即清空缓存.
+
+        Args:
+            message: 轮式里程计消息，位置为米，时间为 ROS 秒，角度由四元数
+                求得；子帧不同于导航基准时使用该样本时间的 TF 偏移。
+
+        关闭后忽略消息；帧不符、转换不可用或数值转换异常不保留旧好样本。
+        此回调只观察，不修改发布方或 Lightning/uslam 的话题接线。
+        """
         if self._closed:
             return
         try:
@@ -112,6 +121,16 @@ class LocalizationMonitor(Node):
             self._wheel = None  # Never keep a previous good sample after bad/new evidence.
 
     def _sample(self):
+        """以当前 ROS 时间采样健康状态，只发布诊断和告警，不执行停车或重定位.
+
+        定位就绪转换时单独发事件；状态变化立即上报，稳定状态按单调时钟
+        最多每五秒重报一次。诊断消息每次定时回调发布，失败走节流告警。
+        TF 查询失败按不可用样本处理，不伪造健康状态。
+
+        Raises:
+            Exception: 健康核心、消息构造或日志操作失败；诊断发布异常由
+                _publication_failed 处理，不操作定位或运动资源。
+        """
         if self._closed:
             return
         clock = self.get_clock().now()
@@ -150,6 +169,19 @@ class LocalizationMonitor(Node):
             self._publication_failed(error)
 
     def _event(self, name, severity, values):
+        """发布带唯一递增标识的 warn 策略事件，并在独立日志调用点输出等级.
+
+        Args:
+            name: 健康事件名称；等待定位时日志提示人工初始化。
+            severity: info、warn 或 error 的事件等级，不改变只告警策略。
+            values: 观察数据映射，序列化时拒绝非有限数值。
+
+        时间戳使用墙钟秒；序列化/发布失败只节流报告，不回滚序号或重发。
+        不同日志级别使用独立调用位置以满足 Humble 日志器约束。
+
+        Raises:
+            Exception: 数据映射构造或日志操作失败，发布异常本身会被捕获。
+        """
         self._sequence += 1
         payload = dict(values, action='warn')
         try:

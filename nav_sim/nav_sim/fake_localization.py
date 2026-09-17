@@ -34,6 +34,18 @@ class FakeLocalization(Node):
         self._subscription = self.create_subscription(Odometry, source, self._odometry, 10)
 
     def _odometry(self, message: Odometry) -> None:
+        """从仿真里程计发布两段 TF，拒绝帧不符或非有限/非单位四元数样本.
+
+        Args:
+            message: 配置的里程计帧到机身帧消息，位置使用米；沿用原时间戳。
+                地图到里程计变换为单位变换，机身到导航基准仍由 URDF 持有。
+
+        验证失败仅警告并忽略；可选输出话题发布深拷贝，不修改输入消息。
+        这是假定位组件，不启动或控制 Lightning/uslam。
+
+        Raises:
+            Exception: TF 广播或可选里程计发布失败，交给节点外层处理。
+        """
         if message.header.frame_id != self._odom or message.child_frame_id != self._body:
             self.get_logger().warning('simulated odometry frame mismatch; ignoring sample')
             return

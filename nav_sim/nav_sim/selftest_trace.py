@@ -31,6 +31,19 @@ def _tree(value, depth=0):
 
 
 def _decode(raw):
+    """严格解码不超过 64 KiB 的 JSON 对象，拒绝重复键和结构/数值超限.
+
+    Args:
+        raw: 待记录的字符串帧，以 UTF-8 编码后的字节数计上限。
+
+    Returns:
+        已检查非有限浮点数和嵌套深度的对象字典，不执行或落盘。
+
+    Raises:
+        ValueError: 类型、大小、JSON 语法、重复键、深度或数值不合法；
+            解析递归/溢出异常也转换为此类型。
+        UnicodeError: 字符串不能编码为有效 UTF-8。
+    """
     if not isinstance(raw, str) or len(raw.encode('utf-8')) > 65536:
         raise ValueError('invalid frame type or size limit')
     try:

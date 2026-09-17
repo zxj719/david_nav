@@ -81,6 +81,14 @@ class Observer:
             raise
 
     def _event(self, message):
+        """接收导航事件并交给严格证据解码器，保留原始 JSON 以检测重复键.
+
+        Args:
+            message: NavEvent 消息，data_json 的 UTF-8 字节数不得超过 60000。
+
+        解析、序列化或落盘失败时记录 error，使外层验证失败；不把坏观察
+        丢弃后继续宣称成功，也不向运动接口发布内容。
+        """
         try:
             # Enforce raw payload cap before decoding or serializing its envelope.
             if len(message.data_json.encode('utf-8')) > 60000:

@@ -46,6 +46,14 @@ class FakeChassis(Node):
             self._linear, self._angular = linear, angular
 
     def _tick(self) -> None:
+        """以配置的固定秒制步长积分缓存速度，只发布仿真里程计.
+
+        线速度为米/秒、角速度为弧度/秒；消息时间使用节点当前时钟，而积分
+        不按回调实际间隔补偿。本回调不打开硬件，也不发布速度命令。
+
+        Raises:
+            Exception: 积分、读取时钟、构造或发布消息失败，交给节点外层处理。
+        """
         self._pose = integrate(self._pose, self._linear, self._angular, self._dt)
         message = Odometry()
         message.header.stamp = self.get_clock().now().to_msg()

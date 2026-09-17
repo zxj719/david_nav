@@ -165,6 +165,17 @@ class ContractProbe:
                 self._cloud_stamp = None
 
     def _snapshot(self):
+        """汇总本采样窗口的消息、端点与 TF 证据，不记录点云负载或控制定位.
+
+        常规帧链查询当前可用 TF；点云转换必须使用最后收到样本的时间戳。
+        速度端点仅统计 Twist 订阅者，不创建发布者或发送命令。
+
+        Returns:
+            当前接口证据快照；没有样本或变换时保留缺失，不推断定位成功。
+
+        Raises:
+            Exception: ROS 端点查询或未被变换探针处理的底层错误。
+        """
         pairs = [(self.frames[target], self.frames[source]) for target, source in (
             ('map', 'odom'), ('odom', 'body'), ('body', 'nav_base'))]
         transforms = {pair for pair in pairs if self._has_transform(*pair)}

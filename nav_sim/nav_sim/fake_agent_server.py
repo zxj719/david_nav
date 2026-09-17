@@ -157,6 +157,17 @@ class AgentSession:
 
 
 async def _serve(options: argparse.Namespace) -> None:
+    """监听回环地址并串行接收自测客户端，不自行授予脚本目标执行权限.
+
+    Args:
+        options: 已经由 main 校验的端口、脚本、秒制超时和可选事件输出路径；
+            有脚本时调用方必须已检查 --allow-goals。事件文件采用追加写入。
+
+    Raises:
+        OSError: 脚本读取或监听端口失败；会话事件写入异常由服务回调报告。
+        ValueError: 脚本内容不符合命令步骤格式。
+        asyncio.CancelledError: 外层终止服务，异步上下文负责关闭监听资源。
+    """
     from websockets.legacy.server import serve
 
     steps = load_script(options.script) if options.script else []

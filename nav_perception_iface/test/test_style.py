@@ -7,6 +7,14 @@ from ament_pep257.main import main as pep257
 
 from nav_bringup.lint import docstrings, literals
 
+
+def test_long_private_functions_are_documented():
+    """Require nonblank documentation for private definitions over ten lines."""
+    paths = [Path(__file__).resolve().parents[1] / 'nav_perception_iface']
+    violations = docstrings.check_private_paths(paths)
+    assert not violations, docstrings.format_violations(violations)
+
+
 ROOT = Path(__file__).resolve().parents[1]
 
 

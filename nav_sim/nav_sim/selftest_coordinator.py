@@ -148,6 +148,18 @@ async def drive(scene: Scene, trace: EvidenceTrace, peer: Peer, observer: Any,
 
 
 def _arrivals(trace, cases):
+    """按 WS 接收顺序提取到达通知，并拒绝关联错误、失败或终态后的帧.
+
+    Args:
+        trace: 已解码的观察记录，读取其 ws 列表，不发送命令。
+        cases: 含预期任务 ID 和整数 sub_id 的实验用例。
+
+    Returns:
+        到达通知的任务 ID 列表；跨用例的期望顺序由调用方继续校验。
+
+    Raises:
+        RuntimeError: 任务关联不符、终态后仍有任务帧，或收到错误/暂停事件。
+    """
     expected = {case.task_id: case for case in cases}
     arrivals = []
     for row in trace.ws:

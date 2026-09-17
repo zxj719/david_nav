@@ -28,6 +28,19 @@ _PROGRAMS = {
 
 
 def _read(root, name):
+    """读取私有实验内的规范相对路径文件，拒绝符号链接和超大内容.
+
+    Args:
+        root: 调用方独占的实验根目录。
+        name: 必须保持规范拼写、无上级跳转的相对路径字符串。
+
+    Returns:
+        最多 16 MiB 的文件字节；不执行内容，不验证其哈希。
+
+    Raises:
+        ValueError: 路径越界/非规范、任一路径父级为符号链接或文件超限。
+        OSError: 文件无法打开或读取。本检查不防御同用户并发替换路径。
+    """
     relative = Path(name)
     if relative.is_absolute() or '..' in relative.parts or relative.as_posix() != name:
         raise ValueError('non-private experiment artifact')
@@ -42,6 +55,22 @@ def _read(root, name):
 
 
 def _graph(root, record, assets):
+    """把已读取的计划重建为私有启动图，校验程序白名单与配置引用.
+
+    Args:
+        root: 实验根目录，配置路径必须属于此目录。
+        record: 含模式、命名空间和进程图的计划映射。
+        assets: 已在 load_scene 中逐项核对哈希的资产清单。
+
+    Returns:
+        普通单实例 Nav2、任务管理器和假机器人组成的 LaunchGraph；
+        只构建描述，不启动进程，也不赋予发送目标的权限。
+
+    Raises:
+        ValueError: 模式、程序、重启/延迟策略、私有接线或进程集合不符。
+        KeyError: 计划缺少所需结构字段。
+        TypeError: 进程记录不能构造成 ProcessSpec。
+    """
     namespace, value = record['namespace'], record['graph']
     if (value['mode'] != record['mode'] or value['composition'] is not False
             or value['supervisor_keyboard'] is not False):

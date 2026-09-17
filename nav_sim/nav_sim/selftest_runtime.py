@@ -21,6 +21,22 @@ from nav_sim.selftest_trace import audit_processes, EvidenceTrace
 
 
 async def _cleanup(scene, child, observer, server, peer, result):
+    """停止自有实验资源并在退出期间继续排空观察，不把尾部清理错误漏判.
+
+    Args:
+        scene: 私有实验场景，用于核对所有计划子进程的退出证据。
+        child: 本次创建的启动器所有者，或尚未创建时的 None。
+        observer: 只读 ROS 观察器，或 None；关闭前保留十次 0.02 秒排空机会。
+        server: 本次持有的 WS 服务端，子进程结束后关闭并等待。
+        peer: 服务端会话，先标记 stopping，避免把预期断联认作运行故障。
+        result: 原地追加错误并记录 cleanup_complete 的结果字典。
+
+    观察失败记入 errors，但 cleanup_complete 只表示相应资源清理状态；
+    最终成功必须另行要求 errors 为空。排空窗口不保证远端 DDS 持久交付。
+
+    Raises:
+        asyncio.CancelledError: 清理任务自身被取消；外层用 shield 保留它的所有权。
+    """
     peer.stopping = True
     clean = child is not None
     observing = observer is not None

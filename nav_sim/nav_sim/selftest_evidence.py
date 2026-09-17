@@ -64,6 +64,15 @@ def _number(value):
 
 
 def _validate(cases):
+    """校验普通 POI 后两段 Dock 的固定实验身份、位姿及容差.
+
+    Args:
+        cases: 两个 ExpectedCase；目标位置/距离为米，角度/角容差为弧度。
+
+    Raises:
+        ValueError: 用例数量/顺序、标识、整数 sub_id、有限位姿、正容差无效，
+            或两个用例复用了请求/POI 标识。
+    """
     if (len(cases) != 2 or not all(isinstance(case, ExpectedCase) for case in cases)
             or tuple(case.kind for case in cases) != ('poi', 'dock')):
         raise ValueError('selftest requires one POI followed by one two-stage Dock case')
@@ -81,6 +90,18 @@ def _validate(cases):
 
 
 def _nav_records(cases, records, errors):
+    """按任务归组导航观察，检查来源、序号和重复事件而不重排接收顺序.
+
+    Args:
+        cases: 已验证的预期用例。
+        records: 归一化 NavEvent 序列，data 是映射，stamp 使用秒。
+        errors: 原地追加有界标签的错误列表，不写入原始负载。
+
+    Returns:
+        请求 ID 到序号、事件名、来源、数据四元组列表的映射。
+        相同事件 ID 的一致副本去重；发现错误后仍可保留记录供后续诊断，
+        调用方必须同时检查 errors，不能仅凭返回列表判成功。
+    """
     selected = {case.task_id: [] for case in cases}
     seen, producer, last_sequence = {}, None, 0
     for record in records:
@@ -141,6 +162,15 @@ def _pose(data, expected):
 
 
 def _dock(case, records, errors):
+    """核对健康且无需旋转修正的两段 Dock 事件链及最终实测容差.
+
+    Args:
+        case: 含目标、预备距离和容差的预期 Dock 用例（米、弧度）。
+        records: 已按此任务归组的导航记录，保持接收顺序。
+        errors: 原地追加顺序、位姿、静态净空或停稳实测不符的错误标签。
+
+    此函数只验证收到的观察，不独立证明实际运动、进程隔离或资源收尾。
+    """
     dock = [(name, data) for _, name, source, data in records if source == 'dock']
     names = [name for name, _ in dock]
     if names != ['dock_started', 'dock_approach_checked', 'dock_stage_started',
@@ -166,6 +196,17 @@ def _dock(case, records, errors):
 
 
 def _case(case, records, errors):
+    """验证单个任务的准入、代次、阶段与成功释放所有权边界.
+
+    Args:
+        case: 已校验身份及容差的预期用例。
+        records: 此任务的归组导航记录，序号顺序已经由上层检查。
+        errors: 原地追加关联、入口、阶段或所有权不符的标签列表。
+
+    Returns:
+        准入序号、成功序号和代次三元组；缺少唯一边界或有效代次时为 None。
+        返回三元组不等于通过，调用方还须检查 errors 是否新增。
+    """
     tasks = [(seq, name, data) for seq, name, source, data in records if source == 'tasks']
     names = [name for _, name, _ in tasks]
     if names.count('task_admitted') != 1 or names.count('task_succeeded') != 1:
@@ -210,6 +251,13 @@ def _case(case, records, errors):
 
 
 def _ws(cases, records, errors):
+    """检查两用例 WS 任务事件的关联与唯一到达顺序，不混入状态/心跳帧.
+
+    Args:
+        cases: 按普通 POI、Dock 排列的预期用例。
+        records: 独立 WS 接收顺序下的已解码帧，不与 ROS 时间强行合并排序。
+        errors: 原地追加未知任务、关联错误、暂停/失败或到达顺序异常标签。
+    """
     selected = {case.task_id: case for case in cases}
     arrivals = []
     for record in records:
