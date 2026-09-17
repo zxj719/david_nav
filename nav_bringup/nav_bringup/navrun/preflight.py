@@ -71,6 +71,20 @@ class PreflightError(RuntimeError):
 
 
 def _patterns(values: Any, label: str) -> Tuple[str, ...]:
+    """检查并预编译进程匹配正则，返回原样模式元组.
+
+    允许空模式集合；字符串必须非空但不会 strip，不改写任何匹配规则。
+
+    Args:
+        values: 正则字符串列表或元组。
+        label: 无效规则错误中的配置字段名称。
+
+    Returns:
+        保留输入次序与文本的模式元组。
+
+    Raises:
+        ValueError: 容器、模式类型或正则语法不合法。
+    """
     if not isinstance(values, (list, tuple)) or any(
             not isinstance(item, str) or not item for item in values):
         raise ValueError(f'{label} must be a list of nonempty regex strings')
@@ -234,6 +248,17 @@ def _ancestry(pid: int, table: Mapping[int, ProcessInfo]) -> set[int]:
 
 
 def _is_launch_wrapper(process: ProcessInfo) -> bool:
+    """按命令行形状识别 ROS 启动包装器与 shell 包装器.
+
+    用于现有进程分类启发式，不证明进程归属或安全可终止；不执行命令。
+    shell 识别沿用 -c 或非选项脚本参数的规则。
+
+    Args:
+        process: 已读取的进程身份与 argv 快照。
+
+    Returns:
+        命令是否匹配已知包装器形状。
+    """
     command = _command(process)
     if re.search(r'(?:^|/)ros2 (?:launch|run) ', command):
         return True

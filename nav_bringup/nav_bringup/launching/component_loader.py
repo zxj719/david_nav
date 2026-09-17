@@ -94,6 +94,22 @@ class CheckedComponentLoader(Action):
             # The launch ROS adapter owns and destroys this client on shutdown.
 
     async def _poll(self, context, deadline, name):
+        """在组件加载轮询间隙响应启动关闭与超时，不判断组件就绪本身.
+
+        关闭状态优先于截止时间；等待 0.05 秒后再次检查关闭，超时由下次调用检查。
+
+        Args:
+            context: 含关闭标志与 asyncio 循环的 launch 上下文。
+            deadline: 与该循环 time 使用相同时基的绝对截止时刻。
+            name: 失败信息中的组件名称。
+
+        Returns:
+            是否应继续轮询；启动关闭时返回 False。
+
+        Raises:
+            RuntimeError: 本次检查时已经到达截止时间。
+            asyncio.CancelledError: 轮询等待被外层取消。
+        """
         if context.is_shutdown:
             return False
         if context.asyncio_loop.time() >= deadline:

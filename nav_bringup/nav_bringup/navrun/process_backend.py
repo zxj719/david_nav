@@ -16,6 +16,20 @@ from nav_bringup.navrun.preflight import PreflightError, ProcessInfo
 
 
 def _read(process: psutil.Process) -> ProcessInfo:
+    """在 psutil oneshot 中读取进程身份，只返回内存快照不输出命令行.
+
+    读取 PID、父 PID、创建时间、argv 和真实 UID；不是原子身份锁，
+    需要发信号的调用方仍须固定并复核实际进程。
+
+    Args:
+        process: 指定进程的 psutil 只读访问对象。
+
+    Returns:
+        用于前置检查与后续身份比对的 ProcessInfo。
+
+    Raises:
+        psutil.Error: 进程消失、权限不足或属性查询失败。
+    """
     with process.oneshot():
         return ProcessInfo(process.pid, process.ppid(), process.create_time(),
                            tuple(process.cmdline()), process.uids().real)

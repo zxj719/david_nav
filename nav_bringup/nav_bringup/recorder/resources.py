@@ -246,6 +246,22 @@ def summarize_resources(csv_path: Union[str, Path]) -> ResourceSummary:
 
 
 def _aggregate(name: str, rows: List[Dict[str, str]]) -> ProcessStats:
+    """按已有资源采样行计算均值和峰值，不再次查询进程.
+
+    调用方须提供非空且可转数值的行；CPU 为采样百分比，RSS 字段单位为 MB。
+
+    Args:
+        name: 汇总结果中使用的进程名称。
+        rows: 已读取的非空 CSV 记录，含 cpu_percent 与 rss_mb。
+
+    Returns:
+        样本数、CPU 平均值/峰值和 RSS 峰值组成的 ProcessStats。
+
+    Raises:
+        KeyError: 必需列不存在。
+        ValueError: 采样文本不能转换为数值。
+        ZeroDivisionError: 调用方违反非空行前提。
+    """
     cpu_values = [float(row['cpu_percent']) for row in rows]
     rss_values = [float(row['rss_mb']) for row in rows]
     return ProcessStats(

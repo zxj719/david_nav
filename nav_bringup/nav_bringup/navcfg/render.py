@@ -42,12 +42,40 @@ class RenderError(ValueError):
 
 
 def _index(node: List[Any], segment: str, path: str) -> int:
+    """把列表路径段转换为现有元素下标，不允许负索引或追加位置.
+
+    Args:
+        node: 当前基础参数列表。
+        segment: 应表示非负下标的路径段文本。
+        path: 错误信息中使用的完整参数路径。
+
+    Returns:
+        小于列表长度的整数下标。
+
+    Raises:
+        RenderError: 路径段不是数字形状或下标超出列表。
+        ValueError: isdigit 接受但 int 无法转换的特殊数字字符。
+    """
     if not segment.isdigit() or int(segment) >= len(node):
         raise RenderError(f'{path}: {segment!r} is not an index of a list of {len(node)} items')
     return int(segment)
 
 
 def _child(node: Any, segment: str, path: str) -> Any:
+    """沿字典键或列表下标读取基础树，不创建缺失项.
+
+    Args:
+        node: 当前基础树节点。
+        segment: 字典键或列表下标文本。
+        path: 错误信息中的完整参数路径。
+
+    Returns:
+        已存在的子节点，直接引用原对象而非复制。
+
+    Raises:
+        RenderError: 字典键缺失、列表下标不合法或当前节点不可继续下钻。
+        ValueError: 特殊数字字符无法转换成列表下标。
+    """
     if isinstance(node, dict):
         if segment not in node:
             raise RenderError(f'{path}: parameter does not exist in the base tree')
@@ -62,6 +90,21 @@ def _format_value(value: Any) -> Any:
 
 
 def _format_footprint_string(value: Any) -> str:
+    """把至少三个二维数值点格式化为 Nav2 footprint 字符串.
+
+    拒绝布尔坐标，按 float 的 repr 保留确定格式；此处不验证有限性、
+    凸性、面积或碰撞可行性，不替代其它几何与安全检查。
+
+    Args:
+        value: 由列表组成的至少三个 [x, y] 点。
+
+    Returns:
+        既有带逗号与空格格式的多边形字符串。
+
+    Raises:
+        RenderError: 输入不是要求的数值点列表。
+        OverflowError: 某个整数坐标无法转换为浮点数。
+    """
     points_ok = isinstance(value, list) and len(value) >= 3 and all(
         isinstance(point, list) and len(point) == 2 and all(
             isinstance(coordinate, (int, float)) and not isinstance(coordinate, bool)

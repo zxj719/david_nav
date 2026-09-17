@@ -104,6 +104,17 @@ class LiveSnapshot:
 
 
 def _equal(expected: Any, actual: Any) -> bool:
+    """比较参数类型和值，列表元素逐层核对以区分 bool 与 int.
+
+    顶层类型必须相同；只对 list 特别递归，其它容器沿用自身等值运算。
+
+    Args:
+        expected: 期望的 ROS 参数值。
+        actual: 实际读回的参数值。
+
+    Returns:
+        类型与当前规则下的值是否一致。
+    """
     if type(expected) is not type(actual):
         return False
     if isinstance(expected, list):

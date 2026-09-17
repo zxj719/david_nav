@@ -473,12 +473,34 @@ def _collect_garbage(
 
 
 def _naive_local(value: datetime.datetime) -> datetime.datetime:
+    """统一到本地无时区时间，供既有运行保留策略比较.
+
+    无时区输入原样返回；有时区输入先换算本地时区再移除时区信息，
+    不是直接丢弃原时区偏移。
+
+    Args:
+        value: 运行开始等日历时间。
+
+    Returns:
+        表示本地时间的无时区 datetime。
+    """
     if value.tzinfo is None:
         return value
     return value.astimezone().replace(tzinfo=None)
 
 
 def _tee(source: IO[bytes], outputs: Sequence[Any]) -> None:
+    """持续读取子进程字节输出并分发，优先使用 read1 避免等待填满缓冲.
+
+    空读表示 EOF；不解码文本或关闭借入的流，输出失败处理由 _write_all 负责。
+
+    Args:
+        source: 已打开的二进制输入流。
+        outputs: 要复制到的二进制输出流序列。
+
+    Raises:
+        Exception: 输入读取或未被输出助手处理的写入异常。
+    """
     read = getattr(source, 'read1', source.read)
     while True:
         chunk = read(_READ_CHUNK_BYTES)
@@ -488,6 +510,18 @@ def _tee(source: IO[bytes], outputs: Sequence[Any]) -> None:
 
 
 def _write_all(outputs: Sequence[Any], data: bytes) -> None:
+    """逐个写入并刷新输出流，单个终端或日志关闭不阻断其它输出.
+
+    OSError 和 ValueError 按既有策略忽略；不是可靠持久化确认，
+    也不补写 write 返回的部分字节。
+
+    Args:
+        outputs: 当前需要接收字节的输出流序列。
+        data: 原样分发的字节块。
+
+    Raises:
+        Exception: 输出流抛出未被忽略的其它异常。
+    """
     for output in outputs:
         try:
             output.write(data)

@@ -322,6 +322,17 @@ def summarize_topics(path: Union[str, Path]) -> TopicsSummary:
 
 
 def _row(sample: Union[TopicSample, TfSample]) -> List[object]:
+    """按冻结的 CSV 列布局序列化话题或 TF 采样，缺失字段留空.
+
+    时间戳和话题频率保留三位小数，TF 延迟保留一位；
+    话题计数与 TF 延迟占不同列，不能把两种样本混作同一量。
+
+    Args:
+        sample: 已校验的 TopicSample 或 TfSample，不在此判定新鲜度。
+
+    Returns:
+        按时间、类型、名称、计数、频率、发布者数、延迟排列的七列值。
+    """
     stamp = f'{sample.stamp:.3f}'
     if isinstance(sample, TopicSample):
         publishers = '' if sample.publishers is None else sample.publishers

@@ -186,6 +186,16 @@ def _members(node):
 
 
 def _class_statements(node):
+    """按源码遍历次序展开类体 AST，保留方法声明但不进入方法体.
+
+    嵌套类整体跳过；条件块等继续展开，因此产出不只限于 ast.stmt 节点。
+
+    Args:
+        node: 待扫描字段声明的类 AST。
+
+    Yields:
+        类作用域内可供字段规则检查的节点，不执行类体。
+    """
     pending = list(reversed(node.body))
     while pending:
         statement = pending.pop()
@@ -226,6 +236,18 @@ def _canonical(name, aliases):
 
 
 def _delegates(method, name):
+    """查找形如 super(...).指定方法(...) 的语法调用，不证明运行委托.
+
+    使用 ast.walk，包含嵌套节点和不可达分支；不解析 super 重绑定或调用参数，
+    因此结果仅作现有属性规则中的语法证据，不能当作完整控制流保证。
+
+    Args:
+        method: 待扫描的方法 AST。
+        name: 期望委托的父类方法名称。
+
+    Returns:
+        是否至少存在一个符合语法形状的调用。
+    """
     return any(
         isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         and node.func.attr == name and isinstance(node.func.value, ast.Call)

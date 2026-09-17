@@ -443,6 +443,16 @@ def _compose(
 def _inverse(
     transform: Tuple[List[List[float]], List[float]]
 ) -> Tuple[List[List[float]], List[float]]:
+    """对正交旋转和平移组成的刚体变换求逆，旋转用转置代替矩阵逆.
+
+    输入必须已满足刚体旋转假设；此函数不做正交性或维度校验。
+
+    Args:
+        transform: 旋转矩阵与平移向量组成的二元组。
+
+    Returns:
+        转置旋转矩阵与其作用于负平移得到的逆变换，不修改原对象。
+    """
     rotation, translation = transform
     inverse_rotation = [list(row) for row in zip(*rotation)]
     inverse_translation = [-value for value in _matrix_vector(inverse_rotation, translation)]

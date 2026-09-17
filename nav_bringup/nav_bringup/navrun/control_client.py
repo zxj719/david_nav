@@ -67,6 +67,19 @@ def _snapshot(path: Path) -> Tuple[bool, Dict[str, Any], Tuple[int, int]]:
 
 
 def _peer(sock: socket.socket) -> Tuple[int, int]:
+    """从已连接 Unix socket 的内核凭据读取对端 PID 与 UID.
+
+    忽略 GID；本函数只提供身份数据，授权判定仍由调用方完成。
+
+    Args:
+        sock: 已建立连接、支持 Linux SO_PEERCRED 的 socket。
+
+    Returns:
+        内核报告的对端 PID 和 UID 二元组。
+
+    Raises:
+        OSError: 凭据读取失败或平台/连接不支持该选项。
+    """
     pid, uid, _ = struct.unpack('3i', sock.getsockopt(
         socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i')))
     return pid, uid

@@ -13,6 +13,22 @@ from nav_bringup.navcfg import render
 
 
 def _path(value: Any, directory: Path) -> str:
+    """将场地路径相对指定目录解析为绝对路径，并展开用户目录及链接.
+
+    此处只解析路径，不保证文件存在或内容可信；不改变配置文件。
+
+    Args:
+        value: 非空路径字符串，空白只用于校验而不从有效路径中剔除。
+        directory: 相对路径所依据的场地配置目录。
+
+    Returns:
+        resolve 后的路径字符串。
+
+    Raises:
+        ValueError: 路径不是非空字符串。
+        OSError: 路径解析失败。
+        RuntimeError: 解析遇到符号链接循环。
+    """
     if not isinstance(value, str) or not value.strip():
         raise ValueError('executor site paths must be nonempty strings')
     path = Path(value).expanduser()
@@ -20,6 +36,22 @@ def _path(value: Any, directory: Path) -> str:
 
 
 def _duration(value: Any, name: str, allow_zero: bool = False) -> float:
+    """验证有限的秒制预算，明确区分允许零和严格为正的策略.
+
+    布尔值不作为数值接收，不从字符串推断单位。
+
+    Args:
+        value: 整数或浮点秒数。
+        name: 错误信息中的预算名称。
+        allow_zero: True 允许零，否则要求严格大于零。
+
+    Returns:
+        转成 float 的已检查预算。
+
+    Raises:
+        ValueError: 类型、有限性或符号不符合策略。
+        OverflowError: 超大整数在有限性检查时无法转换。
+    """
     if (isinstance(value, bool) or not isinstance(value, (int, float))
             or not math.isfinite(value) or value < 0 or (value == 0 and not allow_zero)):
         requirement = 'nonnegative' if allow_zero else 'positive'

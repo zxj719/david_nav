@@ -311,6 +311,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 def _run_directory(explicit: Optional[Path]) -> Optional[run_dir.RunDirectory]:
+    """从显式路径或环境变量选择已有运行目录描述，不创建目录.
+
+    显式路径优先；仅展开用户主目录，不解析绝对路径、符号链接或读取清单。
+
+    Args:
+        explicit: 可选显式运行目录；None 时读取 NAVRUN_RUN_DIR。
+
+    Returns:
+        根与运行 ID 组成的 RunDirectory；两种来源均无值时返回 None。
+    """
     directory = explicit
     if directory is None and os.environ.get('NAVRUN_RUN_DIR'):
         directory = Path(os.environ['NAVRUN_RUN_DIR'])

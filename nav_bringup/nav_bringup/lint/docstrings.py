@@ -197,6 +197,16 @@ def format_violations(violations: Sequence[Violation]) -> str:
 
 
 def _iter_python_files(paths: Iterable[Union[str, Path]]) -> Iterator[Path]:
+    """展开待检查的 Python 路径，目录递归扫描时跳过 test_ 文件.
+
+    显式给出的 .py 文件仍会返回，包括 test_ 文件；此迭代器不排序或去重。
+
+    Args:
+        paths: 文件或目录路径序列。
+
+    Yields:
+        应交给上层策略检查的 Python 文件路径。
+    """
     for raw_path in paths:
         path = Path(raw_path)
         if path.is_dir():
@@ -326,6 +336,16 @@ def _check_function(node: FunctionNode, path: str, qualified_name: str) -> List[
 
 
 def _split_sections(docstring: str) -> Dict[str, str]:
+    """按已识别的 Google 分节标题切出文本，不验证段落内容.
+
+    仅识别独占一行的已知标题；重复标题采用最后一次内容，不合并同名段落。
+
+    Args:
+        docstring: 已取得的说明文本。
+
+    Returns:
+        原始标题名到标题后、下一标题前文本的映射；保留段内空白。
+    """
     matches = list(_SECTION_RE.finditer(docstring))
     sections: Dict[str, str] = {}
     for index, match in enumerate(matches):
@@ -335,6 +355,17 @@ def _split_sections(docstring: str) -> Dict[str, str]:
 
 
 def _documentable_args(node: FunctionNode) -> List[str]:
+    """汇总需要 Args 说明的参数名，按名字排除 self 与 cls.
+
+    覆盖仅位置、普通、仅关键字、可变位置和可变关键字参数，
+    但不推断装饰器或接收者别名；self/cls 即使不在首位也被排除。
+
+    Args:
+        node: 同步或异步函数 AST。
+
+    Returns:
+        参数名称列表，普通参数在前，可变参数追加在后。
+    """
     arguments = node.args
     names = [arg.arg for arg in arguments.posonlyargs + arguments.args + arguments.kwonlyargs]
     if arguments.vararg is not None:
@@ -376,6 +407,17 @@ def _annotation_is_none(annotation: ast.expr) -> bool:
 
 
 def _returns_value(node: FunctionNode) -> bool:
+    """用返回注解优先判断是否需要 Returns，没有注解才扫描函数自身.
+
+    已识别的 None/NoReturn 注解免除要求；其它注解保守视作返回值。
+    无注解时忽略嵌套作用域，只找非空且不是字面 None 的 return。
+
+    Args:
+        node: 待检查的同步或异步函数 AST。
+
+    Returns:
+        当前静态规则是否要求返回值说明，不证明真实控制流或注解正确性。
+    """
     if node.returns is not None:
         return not _annotation_is_none(node.returns)
     for child in _walk_own_body(node):
@@ -386,6 +428,16 @@ def _returns_value(node: FunctionNode) -> bool:
 
 
 def _raises_explicitly(node: FunctionNode) -> bool:
+    """检测函数自身作用域内显式抛出的异常，不推断间接调用异常.
+
+    裸 raise 不计入，嵌套函数/类体不展开；不判断抛出路径是否可达。
+
+    Args:
+        node: 待检查的同步或异步函数 AST。
+
+    Returns:
+        是否找到带异常表达式的 raise 语句。
+    """
     return any(
         isinstance(child, ast.Raise) and child.exc is not None
         for child in _walk_own_body(node)

@@ -99,6 +99,20 @@ def _text(value: Any) -> str:
 
 
 def _duration(seconds: Any) -> str:
+    """把秒数舍入到整数秒并格式化为时长，非数值返回占位符.
+
+    沿用 Python round 的半偶数舍入，不另行限制负数或布尔值。
+
+    Args:
+        seconds: 记录中的秒数；期望为可舍入的有限数值。
+
+    Returns:
+        小时:两位分钟:两位秒文本，或非数值输入对应的横线。
+
+    Raises:
+        ValueError: NaN 等值不能转换为整数秒。
+        OverflowError: 无穷等值不能转换为整数秒。
+    """
     if not isinstance(seconds, (int, float)):
         return '-'
     total = int(round(seconds))
@@ -108,6 +122,14 @@ def _duration(seconds: Any) -> str:
 
 
 def _clock_time(stamp: float) -> str:
+    """按系统本地时区显示墙钟时刻，超出平台日期范围时保留数值说明.
+
+    Args:
+        stamp: Unix 时间戳，单位秒。
+
+    Returns:
+        HH:MM:SS 文本；日期转换失败时返回原数值和超范围标记。
+    """
     try:
         return datetime.datetime.fromtimestamp(stamp).strftime('%H:%M:%S')
     except (OverflowError, OSError, ValueError):

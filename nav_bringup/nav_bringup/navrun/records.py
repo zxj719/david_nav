@@ -27,6 +27,21 @@ _FIELDS = ('run_id', 'mode', 'robot', 'site', 'started_at', 'ended_at',
 def _mapping(text: str) -> Dict[str, Any]:
     # Reject aliases before loading: expansion/recursive merges are not needed
     # for recorder-generated artifacts, and must not become unbounded work.
+    """在加载 YAML 前拒绝别名，再要求记录制品的顶层为字典.
+
+    记录检查不需要别名展开或递归合并，先扫描可避免这些结构造成额外展开工作。
+    这不是全部 YAML 资源限制；字节预算由外层读取器执行。
+
+    Args:
+        text: 已由有界读取器取得的 YAML 制品文本。
+
+    Returns:
+        无 YAML 别名且顶层为字典的解析结果。
+
+    Raises:
+        ValueError: 检测到别名或顶层不是字典。
+        yaml.YAMLError: YAML 扫描或安全加载失败。
+    """
     for token in yaml.scan(text):
         if isinstance(token, yaml.tokens.AliasToken):
             raise ValueError('aliases are not supported in inspected mappings')

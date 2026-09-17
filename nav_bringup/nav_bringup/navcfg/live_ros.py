@@ -129,6 +129,16 @@ class RosProbe:
         return (self.node.get_clock().now().nanoseconds - stamp_ns) / 1e9
 
     def _counts(self) -> Dict[str, int]:
+        """按完整节点名计数，保留重复实例而不把节点列表转成集合.
+
+        命名空间去掉尾斜杠再拼接名称，用于发现同名节点；不判断节点所在主机。
+
+        Returns:
+            完整节点名到当前发现数量的映射。
+
+        Raises:
+            Exception: ROS 图节点查询失败。
+        """
         return dict(Counter('/'.join((namespace.rstrip('/'), name))
                             for name, namespace in self.node.get_node_names_and_namespaces()))
 

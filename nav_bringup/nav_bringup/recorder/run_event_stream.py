@@ -235,6 +235,13 @@ class RunEventStream:
                 temporary_path.unlink(missing_ok=True)
 
     def _warning(self, category):
+        """尽力报告事件发布诊断，日志接收器的普通异常不会再次外抛.
+
+        不重发事件、不更改原失败类别，也不把日志写出视作事件发布成功。
+
+        Args:
+            category: 当前事件发布问题的分类文本。
+        """
         try:
             self._warn(f'navrun event publication: {category}')
         except Exception:

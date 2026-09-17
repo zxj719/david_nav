@@ -328,8 +328,24 @@ def read_manifest(path: Union[str, Path]) -> Dict[str, Any]:
 
 
 def _aware(value: datetime.datetime) -> datetime.datetime:
+    """为无时区时间补本地时区，已有时区时保留原对象.
+
+    Args:
+        value: 待用于运行清单的 datetime，无时区值按系统本地时间解释。
+
+    Returns:
+        带时区的 datetime，不统一转换到 UTC。
+    """
     return value if value.tzinfo is not None else value.astimezone()
 
 
 def _iso(value: datetime.datetime) -> str:
+    """以秒精度生成带时区的清单时间文本，省略微秒.
+
+    Args:
+        value: 日历时间，无时区值先按本地时间补时区。
+
+    Returns:
+        带偏移信息的 ISO 时间字符串。
+    """
     return _aware(value).isoformat(timespec='seconds')

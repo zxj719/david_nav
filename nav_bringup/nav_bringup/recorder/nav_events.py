@@ -91,6 +91,21 @@ class NavEventRecorder:
 
 
 def _nonempty(value, limit):
+    """验证非空事件字符串及 UTF-8 字节上限，保留原文不 strip.
+
+    长度限制按编码字节而非字符数量，纯空白文本不被接受。
+
+    Args:
+        value: 待写入事件的文本。
+        limit: 调用方选定的最大 UTF-8 字节数。
+
+    Returns:
+        通过检查的原字符串。
+
+    Raises:
+        ValueError: 类型、空白内容或编码后长度不符合要求。
+        UnicodeError: 输入不能编码为有效 UTF-8。
+    """
     if not isinstance(value, str) or not value.strip() or len(value.encode('utf-8')) > limit:
         raise ValueError('invalid event string')
     return value

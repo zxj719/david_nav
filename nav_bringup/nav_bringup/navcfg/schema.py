@@ -471,6 +471,20 @@ def _parse_spec(key: Any, fields: Any, package: str, source: str) -> ParameterSp
 
 
 def _parse_range(value: Any, where: str) -> Tuple[Optional[float], Optional[float]]:
+    """解析上下界二元列表，允许 null 表示开放边界并拒绝布尔值.
+
+    两端都有值时检查下界不大于上界；不在此另行检查非有限浮点值。
+
+    Args:
+        value: 待解析的 [minimum, maximum] 列表。
+        where: schema 错误的来源描述。
+
+    Returns:
+        原样保留数值类型的上下界元组，不强制转换为 float。
+
+    Raises:
+        SchemaError: 结构、边界类型或上下界顺序不合要求。
+    """
     if not isinstance(value, list) or len(value) != 2:
         raise SchemaError(f'{where}: range must be [minimum, maximum]')
     low, high = value
@@ -506,6 +520,18 @@ def _has_type(value: Any, value_type: str) -> bool:
 
 
 def _ignored_by_colcon(package_dir: Path, root: Path) -> bool:
+    """从包目录向上查找 COLCON_IGNORE，避免重新纳入被忽略的包.
+
+    给定根本身也参与检查；到给定根或文件系统根后停止。
+    不解析 colcon 的其它忽略机制，也不证明 package_dir 确实位于 root 之下。
+
+    Args:
+        package_dir: 待检查的包目录。
+        root: 此次源码发现的预期扫描根。
+
+    Returns:
+        访问的目录链上是否存在 COLCON_IGNORE。
+    """
     directory = package_dir
     while True:
         if (directory / 'COLCON_IGNORE').exists():

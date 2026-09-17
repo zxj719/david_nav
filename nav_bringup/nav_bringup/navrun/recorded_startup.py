@@ -112,6 +112,14 @@ class _Signals:
         return self
 
     def _handle(self, number, _frame):
+        """只保存首个终止信号，后续信号不覆盖最初的退出原因.
+
+        这里只记录，不在信号回调里清理资源或转发给外部进程。
+
+        Args:
+            number: 收到的信号编号。
+            _frame: Python 信号处理器传入的栈帧，此处不用。
+        """
         if self.received is None:
             self.received = number
 
@@ -333,6 +341,16 @@ def _check_plan(options, plan, path):
 
 
 def _check_signal(stopped):
+    """把已记录的停止请求转为启动中断异常，不自行发信号.
+
+    停止读取器会被调用两次，应在记录首个信号后保持返回值稳定。
+
+    Args:
+        stopped: 返回已记录信号编号或 None 的无参读取函数。
+
+    Raises:
+        StartupInterrupted: 已收到停止请求，由外层负责自有资源收尾。
+    """
     if stopped() is not None:
         raise StartupInterrupted(stopped())
 
@@ -447,6 +465,17 @@ def _gc(options, run, started, events):
 
 
 def _summary(run, finalized):
+    """从已落盘事件和采样文件生成最终摘要，不重新查询运行进程.
+
+    解析时跳过的事件数量仍传入摘要，不把缺失数据改写成成功。
+
+    Args:
+        run: 本次运行的事件、指标及摘要目标路径集合。
+        finalized: 已收尾的运行清单记录。
+
+    Raises:
+        Exception: 记录读取、汇总或摘要写入失败。
+    """
     from nav_bringup.recorder import summary, topic_stats
     from nav_bringup.recorder.resources import summarize_resources
 
