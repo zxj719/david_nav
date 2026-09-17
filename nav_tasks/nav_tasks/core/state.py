@@ -1,4 +1,4 @@
-"""Loop-confined task manager with serialized admission and cancellation cleanup."""
+"""在单一事件循环内管理任务所有权，串行处理准入和取消清理."""
 
 import asyncio
 from dataclasses import dataclass
@@ -32,28 +32,29 @@ class _Active:
 
 
 class TaskManager:
-    """Own at most one motion task on one asyncio loop.
+    """在一个 asyncio 循环上持有至多一个运动任务.
 
-    Admission and cancellation are short owned background operations. Canceling
-    an API await does not undo an accepted request: use cancel explicitly. A
-    loop-local admission lock serializes transitions across cleanup awaits; it
-    is not a thread lock and never wraps normal skill execution.
+    准入/取消由强引用后台任务托管，调用方取消等待不撤销已托管操作。
+    转换锁覆盖准入和清理等待，不包住正常技能执行，也不是跨线程锁。
 
-    External CANCELED retains the legacy paused active task (G12). Unexpected
-    skill exceptions are reported and trigger supervised backend cleanup. Ownership
-    is released only after cleanup succeeds; failure retains ERROR for retry.
+    后端 CANCELED 保留旧 G12 的 paused 活动任务语义。技能异常触发监督式
+    清理，失败保留 ERROR 所有者；正常技能终态则按技能已完成清理的契约释放，
+    管理器不会再次测量到达或停车。
     """
 
     def __init__(
         self, registry: CommandRegistry, cancel_backend: Callable[[], Awaitable[None]],
         *, on_event: Callable[[str, Mapping[str, object]], None] | None = None,
     ) -> None:
-        """Construct on the event loop that will own all task state.
+        """绑定当前运行事件循环并创建空闲管理器，不启动技能.
 
         Args:
-            registry: Skill decoders and handlers configured by the assembly root.
-            cancel_backend: Cleanup operation for the single shared motion backend.
-            on_event: Optional synchronous observation sink, separate from legacy WS events.
+            registry: 由组装根配置的解码器和技能注册表。
+            cancel_backend: 单一共享运动后端的清理协程。
+            on_event: 可选同步观察回调，与旧 WS 领域事件队列分离。
+
+        Raises:
+            RuntimeError: 当前没有运行中的事件循环。
         """
         self._loop = asyncio.get_running_loop()
         self._registry = registry
@@ -71,20 +72,26 @@ class TaskManager:
     async def submit(
         self, task: TaskRequest, *, on_settled: Callable[[TaskCompletion], None] | None = None,
     ) -> TaskSnapshot:
-        """Decode and admit a motion task without awaiting its navigation result.
+        """先同步解码再托管准入，不等待新任务导航终态.
+
+        允许抢占时须先确认旧任务清理；等待者取消不撤销已托管准入。
+        返回快照捕获在新技能执行前，但调用方收到时技能可能已开始或结束。
 
         Args:
-            task: Domain request with explicit ingress preemption policy.
-            on_settled: Optional loop-thread receipt after ownership release, including preemption.
+            task: 领域请求及显式入站抢占策略。
+            on_settled: 所有权释放后在本循环调用一次的同步回调，含抢占收尾回执。
 
         Returns:
-            Snapshot of the accepted task before its skill starts running.
+            新任务接纳时的 STARTING 快照，不是实时状态或到达证明。
 
         Raises:
-            ConfigError: Task identity or preemption policy is invalid.
-            ClosedError: Closing has started.
-            BusyError: Another task owns motion and preemption is rejected.
-            UnknownActionError: No skill is registered for the action.
+            ConfigError: 任务标识、来源、抢占策略或回执回调不合法。
+            ClosedError: 准入已关闭，含等待旧任务期间关闭。
+            BusyError: 现有任务仍持有所有权且新请求不允许抢占。
+            UnknownActionError: 动作没有注册解码器和技能。
+            RuntimeError: 不在所有者事件循环调用。
+            asyncio.CancelledError: 外部取消本次等待，已托管操作不因此撤销。
+            Exception: 解码、旧任务清理或托管任务创建失败。
         """
         self._check_loop()
         self._check_open()
@@ -102,27 +109,34 @@ class TaskManager:
         return await asyncio.shield(operation)
 
     async def cancel(self, task_id: str | None = None, *, generation: int | None = None) -> bool:
-        """Cancel current ownership, waiting for backend and skill cleanup.
+        """在转换锁内匹配当前任务，等待后端和技能收尾后才返回.
+
+        不匹配的过期代次不会取消后继任务。外部取消本次等待不取消受屏蔽的收尾。
 
         Args:
-            task_id: Matching task ID, or None to cancel the current owner.
-            generation: Optional admission generation, checked inside the transition lock.
+            task_id: 需要匹配的任务 ID；None 表示不限 ID。
+            generation: 可选准入代次，与 ID 在转换锁内同时检查。
 
         Returns:
-            True when a matching task was canceled; False for no match.
+            成功匹配并清理为 True，无活动任务或不匹配为 False。
 
         Raises:
-            Exception: Backend cleanup failed; ownership remains in ERROR.
+            RuntimeError: 不在所有者事件循环调用。
+            asyncio.CancelledError: 等待者被取消，或底层收尾报告取消。
+            Exception: 后端或技能清理失败，所有权保留于 ERROR。
         """
         self._check_loop()
         operation = self._supervisor.spawn(self._cancel(task_id, generation), 'cancel-task')
         return await asyncio.shield(operation)
 
     def status(self) -> TaskSnapshot:
-        """Read a detached immutable observation on the manager event loop.
+        """在所有者循环读取独立冻结的观察快照，不查传感器或 TF.
 
         Returns:
-            Current ownership state and generation.
+            当前状态及活动任务身份/代次；无活动任务时返回无身份的状态快照。
+
+        Raises:
+            RuntimeError: 不在所有者事件循环调用。
         """
         self._check_loop()
         active = self._active
@@ -133,17 +147,18 @@ class TaskManager:
             active.generation, active.remaining, active.target_id, active.phase)
 
     def subscribe_events(self) -> asyncio.Queue[TaskEvent]:
-        """Subscribe to subsequent events without replaying earlier events.
+        """分配无容量上限的内存队列，订阅后续事件而不重放历史.
 
-        Consumers must drain their queue and unsubscribe on teardown. Queues do
-        not drop terminal events and allocate nothing until explicitly created.
-        Durable delivery and feedback throttling belong to adapter/skill policy.
+        消费者须持续取出事件并在退出时解除订阅；慢消费者可能积压。
+        不持久化、不自行丢弃终态，也不在关闭时入队结束标记；
+        反馈限频由技能/适配器负责，入队不等于对外送达。
 
         Returns:
-            Subscriber-owned queue used on the manager event loop.
+            在管理器事件循环使用的订阅队列。
 
         Raises:
-            ClosedError: Closing has started.
+            ClosedError: 准入已开始关闭。
+            RuntimeError: 不在所有者事件循环调用。
         """
         self._check_loop()
         self._check_open()
@@ -152,22 +167,27 @@ class TaskManager:
         return queue
 
     def unsubscribe_events(self, queue: asyncio.Queue[TaskEvent]) -> None:
-        """Detach a subscriber without discarding its already queued events.
+        """移除订阅关系，保留消费者队列中已有的事件.
 
         Args:
-            queue: Queue returned by subscribe_events; unknown queues are ignored.
+            queue: 先前返回的订阅队列；未登记队列被忽略。
+
+        Raises:
+            RuntimeError: 不在所有者事件循环调用。
         """
         self._check_loop()
         self._subscribers.discard(queue)
 
     async def close(self) -> None:
-        """Seal admission immediately and wait for owned motion cleanup.
+        """开始执行时封闭准入，并等待自有运动清理后标为 CLOSED.
 
-        Repeated callers join the same close operation. A failed cleanup can be
-        retried by calling close again; admission never reopens in the meantime.
+        并发调用等待同一关闭任务；失败后可再次调用重试，但准入不会重新开放。
+        等待者取消不取消已托管收尾；成功时解除所有订阅，不清空消费者已有队列。
 
         Raises:
-            Exception: Cleanup failed; the task remains owned in ERROR.
+            RuntimeError: 不在所有者事件循环调用。
+            asyncio.CancelledError: 调用方停止等待或底层收尾被取消。
+            Exception: 清理失败，任务仍被持有且状态为 ERROR。
         """
         self._check_loop()
         self._closing = True

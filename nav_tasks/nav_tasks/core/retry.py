@@ -1,4 +1,4 @@
-"""Single-task retry policy separated from backend goal submission."""
+"""实现与底层目标下发分离的单任务失败重试策略."""
 
 import asyncio
 from dataclasses import dataclass
@@ -12,28 +12,31 @@ from nav_tasks.domain.tasks import NavOutcome, NavStatus
 
 
 class MonotonicClock:
-    """Default clock for intervals, never for source-pose timestamp comparisons."""
+    """提供间隔计时用单调时钟，不能用来比较来源位姿时间戳."""
 
     def now(self) -> float:
-        """Read monotonic seconds.
+        """读取单调时钟秒数.
 
         Returns:
-            Current monotonic time.
+            time.monotonic 的当前值，不是墙钟时间戳。
         """
         return time.monotonic()
 
     async def sleep(self, seconds: float) -> None:
-        """Wait without blocking the event loop.
+        """通过 asyncio.sleep 让出循环等待，不阻塞事件线程.
 
         Args:
-            seconds: Nonnegative duration.
+            seconds: 调用方提供的等待秒数，通常应非负；本方法不另行校验范围。
+
+        Raises:
+            asyncio.CancelledError: 等待被取消。
         """
         await asyncio.sleep(seconds)
 
 
 @dataclass(frozen=True)
 class RetryFailure:
-    """Read-only failure observation emitted before retry delay or exhaustion.
+    """保存每次 FAILED 后的只读观察值，在延迟或耗尽返回前发出.
 
     Attributes:
         attempt: 本次已失败的尝试序号，从 1 开始。
@@ -50,7 +53,10 @@ class RetryFailure:
 
 @dataclass(frozen=True)
 class RetryPolicy:
-    """Retry FAILED outcomes only; never catch cancellation or backend crashes.
+    """只对 FAILED 结果重试，不把协程取消或后端异常改写为导航失败.
+
+    retry_count 是首次之后的额外次数；取消结果直接返回，不重试。
+    该策略不验证结果对象类型，尝试函数须遵守 NavOutcome 契约。
 
     Attributes:
         retry_count: FAILED 后允许的额外尝试次数。
@@ -61,10 +67,14 @@ class RetryPolicy:
     retry_delay_sec: float = 1.0
 
     def __post_init__(self) -> None:
-        """Validate the retry budget before an attempt can run.
+        """在首次尝试前验证重试次数与延迟预算.
+
+        次数要求非负且类型恰为 int；延迟只做有限性和非负检查，不执行严格类型门禁。
 
         Raises:
-            ConfigError: Count or delay is invalid.
+            ConfigError: 次数或受检延迟范围不合法。
+            TypeError: 延迟不能参与有限性检查。
+            OverflowError: 延迟数值过大，不能转换为有限性检查所需的浮点值。
         """
         if type(self.retry_count) is not int or self.retry_count < 0:
             raise ConfigError('retry_count must be a nonnegative integer')
@@ -75,18 +85,22 @@ class RetryPolicy:
         self, attempt: Callable[[], Awaitable[NavOutcome]], clock: Clock,
         on_failure: Callable[[RetryFailure], None] | None = None,
     ) -> NavOutcome:
-        """Run attempts sequentially and preserve the frozen exhaustion text.
+        """顺序执行尝试，保持既有耗尽错误文本和次数语义.
+
+        每次 FAILED 都先通知同步观察者，含最后一次；仅仍有预算时等待再试。
+        不捕获尝试、观察者或时钟错误，也不代替后端取消清理。
 
         Args:
-            attempt: Factory for a fresh one-attempt coroutine.
-            clock: Injectable interval clock.
-            on_failure: Optional synchronous audit observer; exceptions propagate.
+            attempt: 每次创建全新单次尝试协程的工厂。
+            clock: 可注入的间隔时钟。
+            on_failure: 可选同步失败观察者，异常原样传播并中止后续重试。
 
         Returns:
-            First nonfailure outcome or a failure with the legacy retry count.
+            第一个非 FAILED 结果，或附旧格式总尝试次数说明的 FAILED。
 
         Raises:
-            asyncio.CancelledError: Cancellation stops the current attempt or delay.
+            asyncio.CancelledError: 当前尝试或等待间隔被取消。
+            Exception: 尝试、观察者或时钟失败。
         """
         total = self.retry_count + 1
         for index in range(total):

@@ -1,1 +1,1 @@
-"""Loop-confined task ownership, policy and ports with no ROS or transport I/O."""
+"""提供同一事件循环内的任务所有权、策略和端口，不执行 ROS 或传输 I/O."""

@@ -1,1 +1,1 @@
-"""Transport-independent task and administrative handlers."""
+"""提供不依赖传输层的任务和点位管理处理器."""
