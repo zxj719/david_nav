@@ -1,1 +1,1 @@
-"""Pure legacy WS v1 command and event contracts."""
+"""提供既有 WS v1 命令和事件的纯数据契约."""

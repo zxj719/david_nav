@@ -1,4 +1,4 @@
-"""Process-lifetime ordered outbox retaining in-flight frames across reconnects."""
+"""在进程存活期间有序缓存待发送帧，跨连接保留未完成的发送."""
 
 import asyncio
 import json
@@ -6,23 +6,27 @@ from typing import Awaitable, Callable
 
 
 class ReliableOutbox:
-    """Retain pending serialized frames until a send successfully completes.
+    """保留已序列化帧直到本地 send 正常返回，不等待服务端业务确认.
 
-    Construct and use on the task event loop. No background tasks or sockets are
-    created here. A runtime supervisor owns one drain coroutine per connection;
-    reconnect keeps this outbox, not the failed drain. Ambiguous transport failure
-    can cause replay: this is not an exactly-once or server-acknowledged protocol.
+    须在同一任务事件循环中构造和使用。本对象不创建连接或后台任务；
+    运行器为连接持有 drain，重连复用 outbox 而非失败的 drain。
+    发送结果不明时可能重发，因此不保证恰好一次交付。队列仅驻内存且无容量上限，
+    不保证进程重启后恢复，也不证明服务端已收到或处理。
     """
 
     def __init__(
         self, *, on_sending: Callable[[str], None] | None = None,
         on_sent: Callable[[str, bool], None] | None = None,
     ) -> None:
-        """Construct an empty outbox and optional audit callbacks.
+        """在当前事件循环创建空发送队列和可选审计回调.
 
         Args:
-            on_sending: Called with encoded frame before each send attempt.
-            on_sent: Called with encoded frame and replay flag after successful send.
+            on_sending: 每次尝试 send 前接收已编码帧；异常会阻止本次发送。
+            on_sent: send 正常返回并移除待发帧后接收帧和重发标志；
+                此回调失败不将帧放回队列。
+
+        Raises:
+            RuntimeError: 当前线程没有运行中的事件循环。
         """
         self._loop = asyncio.get_running_loop()
         self._queue: asyncio.Queue[str] = asyncio.Queue()
@@ -34,41 +38,47 @@ class ReliableOutbox:
 
     @property
     def in_flight_count(self) -> int:
-        """Number of frames retained from an unfinished send, for legacy reconnect logs."""
+        """返回保留中的单个发送槽占用数（0 或 1），供既有重连日志使用."""
         self._check_loop()
         return int(self._pending is not None)
 
     @property
     def pending_count(self) -> int:
-        """Number of queued frames including any in-flight send."""
+        """返回队列长度加当前发送槽占用数，不代表服务端未确认消息数."""
         self._check_loop()
         return self._queue.qsize() + int(self._pending is not None)
 
     def put(self, frame: dict) -> None:
-        """Freeze and enqueue one frame with the legacy JSON serialization.
+        """按既有 JSON 格式立即序列化后入队，随后修改原对象不影响帧.
+
+        保持键插入顺序与 Unicode；沿用 json.dumps 默认的非有限数策略，
+        不是严格 schema 校验或持久存储。
 
         Args:
-            frame: Ordered WS mapping; subsequent caller mutation is harmless.
+            frame: 有序 WS 字典，由上层负责业务字段合法性。
 
         Raises:
-            TypeError: The frame is not JSON serializable; nothing is enqueued.
+            RuntimeError: 在其它或未运行的事件循环中使用。
+            TypeError: 内容无法 JSON 序列化，不入队。
+            ValueError: 序列化检测到循环引用，不入队。
         """
         self._check_loop()
         self._queue.put_nowait(json.dumps(frame, ensure_ascii=False))
 
     async def drain(self, send: Callable[[str], Awaitable[None]]) -> None:
-        """Send in order until canceled or a transport/audit callback raises.
+        """有序发送直到取消或回调失败，用锁保证同一时刻只有一个发送者.
 
-        One drainer owns the outbox at a time. A canceled or failed send leaves its
-        frame pending, ahead of frames arriving later. Successful send removes the
-        frame before the audit callback, so a logging error cannot resend it.
+        失败或被取消的 send 保留当前槽，优先于后续新帧。
+        on_sending 失败也保留并标记下次重发；send 正常返回后先清槽再调用 on_sent，
+        因此发送后日志失败不会重发。这里只依据本地 send 返回，不检查远端 ACK。
 
         Args:
-            send: Awaitable transport send operation, normally websocket.send.
+            send: 异步传输发送操作，通常为 websocket.send。
 
         Raises:
-            asyncio.CancelledError: Caller canceled; an in-flight frame is retained.
-            Exception: Send or audit callback failed; reconnect may call drain again.
+            RuntimeError: 在非所属事件循环使用。
+            asyncio.CancelledError: 调用方取消；已有的未完成发送槽仍保留。
+            Exception: 发送或审计回调失败，调用方可在重连后再次 drain。
         """
         self._check_loop()
         async with self._drain_lock:

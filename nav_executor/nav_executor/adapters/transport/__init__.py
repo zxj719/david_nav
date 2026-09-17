@@ -1,1 +1,1 @@
-"""Transport support whose import does not open connections."""
+"""提供传输支持，导入时不建立连接."""

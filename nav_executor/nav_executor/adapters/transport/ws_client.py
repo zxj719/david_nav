@@ -1,4 +1,4 @@
-"""Reconnect and connection-scoped WS work, independent of ROS and motion policy."""
+"""管理 WS 重连和单连接任务，不依赖 ROS 或承担导航策略."""
 
 import asyncio
 from dataclasses import dataclass
@@ -13,33 +13,33 @@ from nav_executor.protocol.messages import MalformedCommandError
 
 
 class WebSocketLike(Protocol):
-    """Minimal connected transport contract for real sockets or in-memory tests."""
+    """定义已连接传输的最小接口，可由真实 WebSocket 或内存替身实现."""
 
     def __aiter__(self) -> AsyncIterator[str | bytes]:
-        """Iterate inbound text/binary frames until the connection closes.
+        """异步迭代收到的文本或二进制帧，直到连接结束.
 
         Returns:
-            Async frame iterator.
+            入站帧的异步迭代器；传输错误可由具体实现向外传播。
         """
         ...
 
     async def send(self, message: str) -> None:
-        """Send one serialized text frame.
+        """发送一条已序列化文本帧，返回不等于服务端业务确认.
 
         Args:
-            message: JSON text, preserving the existing wire format.
+            message: 保持既有线上格式的 JSON 文本。
         """
         ...
 
 
 @dataclass(frozen=True)
 class WsOptions:
-    """Transport configuration; the robot-aware outer root supplies the server URI.
+    """保存外层提供的连接与时间选项，构造时不自行验证数值.
 
     Attributes:
-        heartbeat_interval: 应用层 JSON 心跳周期（秒）。
-        reconnect_delay: 连接失败后的重连间隔（秒）。
-        server_uri: 连接 Agent 的 WebSocket URI。
+        heartbeat_interval: 应用层 JSON 心跳周期，单位秒。
+        reconnect_delay: 一次连接尝试或已建立连接结束后的重试等待，单位秒。
+        server_uri: 外层按机器人配置选定的 Agent WebSocket URI。
     """
 
     server_uri: str
@@ -52,20 +52,23 @@ async def receive_messages(
     last_inbound: list[float], *, emit: Callable[[str], None] = log_line,
     now: Callable[[], float] = time.monotonic,
 ) -> None:
-    """Decode frames and isolate a bad application message without dropping its socket.
+    """逐帧解码，按既有策略记录并跳过应用层坏消息，不主动因此断开连接.
 
-    JSON/non-object/unsupported frames retain their ignore policy. Malformed
-    commands with request context are answered by the adapter; uncorrelated
-    errors and unexpected per-message failures are logged and skipped. Socket
-    iteration/send errors and BaseException cancellation still reach the owner.
+    任何入站帧先更新时间，包括坏 JSON 和非对象帧；ping 直接回复 pong，
+    pong 忽略。带可恢复身份的坏命令由适配器生成错误应答，其它消息级错误记录后继续。
+    标记 POI 的异步处理期间本收包循环会等待，导航请求则不等导航终态。
 
     Args:
-        socket: Connected frame transport.
-        adapter: Process-lifetime public task command adapter.
-        outbox: Same reliable outbox across reconnects.
-        last_inbound: One-element monotonic timestamp shared with heartbeat.
-        emit: Unprefixed legacy log sink.
-        now: Monotonic timestamp source.
+        socket: 已建立的帧传输连接。
+        adapter: 跨重连复用的进程生命周期命令适配器。
+        outbox: 应答帧进入的同一个跨连接发送队列。
+        last_inbound: 与心跳共享的单元素单调时间秒数列表。
+        emit: 接收不含前缀的既有日志文本。
+        now: 返回单调时钟秒数的函数。
+
+    Raises:
+        Exception: 迭代连接、发送 pong、计时或日志回调在消息隔离范围外失败。
+        asyncio.CancelledError: 收包任务被取消，交给连接所有者处理。
     """
     async for raw in socket:
         last_inbound[0] = now()
@@ -102,15 +105,22 @@ async def send_heartbeat(
     emit: Callable[[str], None] = log_line, now: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
-    """Send legacy JSON pings and warn once per prolonged inbound silence episode.
+    """周期发送既有 JSON ping，对持续未收任何帧的状态单次告警.
+
+    先等待再发送；入站静默严格超过三个周期时告警，回到不超过一个周期时重置。
+    本函数不主动断开连接，不核验 pong 内容，也不保证链路或导航健康。
 
     Args:
-        socket: Connected frame transport.
-        interval_sec: Existing heartbeat interval.
-        last_inbound: Shared one-element monotonic timestamp.
-        emit: Unprefixed legacy log sink.
-        now: Monotonic timestamp source.
-        sleep: Injectable asynchronous delay.
+        socket: 已建立的传输连接。
+        interval_sec: 秒制心跳间隔，由调用方提供；本函数不自行校验。
+        last_inbound: 任意入站帧更新的单元素单调时间列表。
+        emit: 接收不含前缀的既有日志文本。
+        now: 返回单调时钟秒数的函数。
+        sleep: 可注入的秒制异步等待操作。
+
+    Raises:
+        Exception: 等待、发送、计时或日志操作失败，向连接所有者传播。
+        asyncio.CancelledError: 心跳任务被取消。
     """
     warned = False
     while True:
@@ -125,22 +135,24 @@ async def send_heartbeat(
 
 
 async def _connection(socket, adapter, outbox, options, last_inbound, emit, now):
-    """持有单次连接的收包、心跳与发包任务，任一结束后取消并等待其余任务.
+    """持有单连接的收包、心跳和发送任务，任一结束后取消并等待其它任务.
 
-    不关闭跨重连复用的命令适配器和 outbox，也不取消导航任务。
+    不关闭跨连接适配器或 outbox，不取消导航。子任务创建在 try 前；
+    finally 的 gather 未用 shield，不应承诺重复取消下仍保留全部清理责任。
+    等待没有独立超时，不把进入 finally 当成子任务已经全部退出。
 
     Args:
-        socket: 已建立连接的 WebSocket。
+        socket: 已建立的 WebSocket 连接。
         adapter: 进程生命周期的命令适配器。
-        outbox: 跨连接保留未送达帧的可靠队列。
+        outbox: 跨连接保留待发帧的队列，不含服务端确认协议。
         options: 含秒制心跳间隔的传输选项。
-        last_inbound: 与心跳共享的单元素单调时钟秒数列表。
-        emit: 原有无前缀日志接收函数。
+        last_inbound: 与心跳共享的单元素单调时间秒数列表。
+        emit: 接收既有无前缀日志的函数。
         now: 返回单调时钟秒数的函数。
 
     Raises:
-        Exception: 子任务失败；其余子任务已在 finally 中取消并等待。
-        asyncio.CancelledError: 连接所有者被取消，仍先等待子任务清理。
+        Exception: 子任务失败；进入 finally 后会尝试取消并等待其它任务。
+        asyncio.CancelledError: 连接所有者被取消；清理等待本身也可能再次被取消。
     """
     # Strong local references survive until all children have been joined. A
     # failed sender must wake the connection owner even if receive is blocked.
@@ -171,27 +183,27 @@ async def reconnect(
     emit: Callable[[str], None] = log_line, now: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> None:
-    """Reconnect without replacing the adapter/outbox or canceling navigation.
+    """循环连接，不替换适配器或发送队列，也不在断连时取消导航.
 
-    The outer root owns the persistent event pump, status loop and this coroutine.
-    It passes its configured library's connect function; no monkeypatch or library
-    version choice occurs here. Connection children are strongly owned and joined.
-    Sender failure triggers reconnect even when no inbound frame arrives, so a
-    failed outbox cannot silently strand terminal events on an apparently live link.
+    外层持有跨连接事件泵、本协程及状态任务，并注入选定库的 connect。
+    任一发送任务失败会唤醒连接所有者，不必等待新入站帧。普通连接异常记录后重试；
+    断连回调仍可能覆盖原异常，日志/计时/重试等待异常也不统一吞掉。
+    子任务清理由 _connection 尝试完成，不承诺重复取消或回调失败下全部清理成功。
 
     Args:
-        options: Explicit server and timing configuration.
-        adapter: Same process-lifetime adapter on every attempt.
-        outbox: Reliable queued/in-flight frames retained between attempts.
-        connect: Async context-manager factory, called with ping_interval=None.
-        on_connected: Start the runtime's connection-scoped observer.
-        on_disconnected: Stop/join that observer; must not cancel motion.
-        emit: Unprefixed log sink.
-        now: Monotonic timestamp source.
-        sleep: Reconnection delay implementation.
+        options: 显式服务地址与秒制时间配置。
+        adapter: 每次重试复用的进程生命周期适配器。
+        outbox: 重试间保留队列和发送槽的同一对象，不保证服务端确认。
+        connect: 异步上下文管理器工厂，调用时禁用库级 ping_interval。
+        on_connected: 同步启动本连接的观察任务。
+        on_disconnected: 异步停止并等待该观察任务，不应取消运动任务。
+        emit: 接收无前缀日志文本的函数。
+        now: 返回单调时钟秒数的函数。
+        sleep: 秒制重试等待实现。
 
     Raises:
-        asyncio.CancelledError: Outer shutdown; connection children are joined first.
+        asyncio.CancelledError: 外层取消向外传播，除非被收尾回调的其它异常覆盖。
+        Exception: 未被重试处理包围的时间、日志或等待操作失败。
     """
     attempt = 0
     disconnected_since = None

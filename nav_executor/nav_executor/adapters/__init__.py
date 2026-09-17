@@ -1,1 +1,1 @@
-"""Ingress transport adapters independent of task implementation details."""
+"""提供入口与传输适配器，不依赖任务实现细节."""

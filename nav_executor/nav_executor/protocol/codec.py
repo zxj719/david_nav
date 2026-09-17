@@ -1,4 +1,4 @@
-"""Decode legacy commands and build ordered event mappings without I/O."""
+"""解码既有命令并构造有序事件字典，不执行网络或仓库 I/O."""
 
 from __future__ import annotations
 
@@ -33,17 +33,20 @@ def _extract_request_context(payload: dict) -> tuple[str | None, int]:
 
 
 def parse_command(payload: object) -> Command:
-    """Decode a v1 command, normalizing malformed input before any side effects.
+    """把已解码 JSON 字典转换为 v1 命令，在调用业务 API 前归一化格式错误.
+
+    沿用旧协议的标量文本及整数转换策略，不是严格 JSON schema 验证。
+    导航只使用 target_id，残留 target_pose/label 不转为直接坐标目标。
 
     Args:
-        payload: Already decoded JSON value; commands require a mapping.
+        payload: 已由 JSON 解码器得到的值，命令顶层必须是 dict。
 
     Returns:
-        The corresponding command value object.
+        对应动作的命令数据对象，不在此启动导航或修改 POI。
 
     Raises:
-        MalformedCommandError: Missing/invalid fields, with best-effort request context.
-        UnsupportedActionError: An unknown action; retain log-and-ignore behavior.
+        MalformedCommandError: 顶层类型、字段或转换不合法，附带尽力恢复的请求身份。
+        UnsupportedActionError: 动作未知，交给上层按既有策略记录并忽略。
     """
     if not isinstance(payload, dict):
         raise MalformedCommandError('command must be a JSON object')
@@ -157,16 +160,21 @@ def build_progress_event(
     remaining_distance: float,
     status: str,
 ) -> dict:
-    """Build the ordered progress mapping with legacy three-decimal rounding.
+    """构造有序进度字典，沿用距离转 float 后 round 到三位小数的规则.
 
     Args:
-        request_id: Request correlation identifier.
-        sub_id: Subtask correlation number.
-        remaining_distance: Remaining distance in meters.
-        status: Legacy running/paused status string.
+        request_id: 请求关联标识，原样保留。
+        sub_id: 子任务关联编号，原样保留。
+        remaining_distance: 剩余距离，单位米；不在此额外检查有限性。
+        status: 上层提供的既有 running/paused 状态文本。
 
     Returns:
-        Ordered protocol mapping, ready for unchanged JSON serialization.
+        待后续 JSON 序列化的有序 on_progress 字典，不在此发送。
+
+    Raises:
+        TypeError: 距离不支持浮点转换。
+        ValueError: 距离文本不能转换为浮点数。
+        OverflowError: 距离数值转换超出浮点范围。
     """
     return {
         "event_type": "on_progress",
@@ -182,15 +190,15 @@ def build_mark_poi_success_event(
     sub_id: int,
     poi: StoredPoi,
 ) -> dict:
-    """Build the successful mark acknowledgement using the stored POI identity.
+    """使用已存 POI 的身份构造标记成功事件，不在此执行存储.
 
     Args:
-        request_id: Request correlation identifier.
-        sub_id: Subtask correlation number.
-        poi: Stored POI providing its identifier and name.
+        request_id: 请求关联标识。
+        sub_id: 子任务关联编号。
+        poi: 提供 poi_id 与 name 的已存 POI 对象。
 
     Returns:
-        Ordered legacy on_mark_poi_success event mapping.
+        保持既有字段顺序的 on_mark_poi_success 字典。
     """
     return {
         "event_type": "on_mark_poi_success",
@@ -204,14 +212,14 @@ def build_mark_poi_success_event(
 
 
 def build_arrived_event(request_id: str, sub_id: int) -> dict:
-    """Build the successful navigation terminal event.
+    """构造导航成功终态字典，不自行判断到点、脱困或停稳.
 
     Args:
-        request_id: Request correlation identifier.
-        sub_id: Subtask correlation number.
+        request_id: 请求关联标识。
+        sub_id: 子任务关联编号。
 
     Returns:
-        Ordered legacy on_arrived event mapping.
+        保持既有字段顺序的 on_arrived 字典，由上层负责成功判定及发送。
     """
     return {
         "event_type": "on_arrived",
@@ -221,15 +229,15 @@ def build_arrived_event(request_id: str, sub_id: int) -> dict:
 
 
 def build_error_event(request_id: str, sub_id: int, error_message: str) -> dict:
-    """Build the navigation failure event without altering its error text.
+    """构造导航失败字典，错误详情只做既有 str 转换.
 
     Args:
-        request_id: Request correlation identifier.
-        sub_id: Subtask correlation number.
-        error_message: Failure detail converted with the legacy str operation.
+        request_id: 请求关联标识。
+        sub_id: 子任务关联编号。
+        error_message: 转换成字符串后写入的错误详情，不额外改写或清洗。
 
     Returns:
-        Ordered legacy on_error event mapping.
+        保持既有字段顺序的 on_error 字典。
     """
     return {
         "event_type": "on_error",
@@ -240,14 +248,17 @@ def build_error_event(request_id: str, sub_id: int, error_message: str) -> dict:
 
 
 def build_mark_poi_ack(request_id: str, sub_id: int) -> dict:
-    """Build the immediate acknowledgement before pose capture completes.
+    """构造 accepted 标记应答，不决定它何时发送或证明 POI 已存储.
+
+    适配器可先构造本字典再等待 mark，但本函数没有任何发送副作用；
+    当前适配器在 mark 返回后才将 ACK 与结果一同返回。
 
     Args:
-        request_id: Request correlation identifier.
-        sub_id: Subtask correlation number.
+        request_id: 请求关联标识。
+        sub_id: 子任务关联编号。
 
     Returns:
-        Ordered accepted acknowledgement mapping.
+        保持既有字段顺序、status 为 accepted 的 on_mark_poi_ack 字典。
     """
     return {
         "event_type": "on_mark_poi_ack",
@@ -258,15 +269,15 @@ def build_mark_poi_ack(request_id: str, sub_id: int) -> dict:
 
 
 def build_mark_poi_error(request_id: str, sub_id: int, error_message: str) -> dict:
-    """Build a capture/storage failure event with the existing wire field order.
+    """按既有字段顺序构造位姿采集或 POI 存储失败事件.
 
     Args:
-        request_id: Request correlation identifier.
-        sub_id: Subtask correlation number.
-        error_message: Failure detail converted with the legacy str operation.
+        request_id: 请求关联标识。
+        sub_id: 子任务关联编号。
+        error_message: 只做既有 str 转换的错误详情。
 
     Returns:
-        Ordered legacy on_mark_poi_error event mapping.
+        有序 on_mark_poi_error 字典，不在此发送。
     """
     return {
         "event_type": "on_mark_poi_error",

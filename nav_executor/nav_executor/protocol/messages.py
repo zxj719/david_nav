@@ -1,4 +1,4 @@
-"""Legacy WS v1 command values and contextual parse errors, independent of I/O."""
+"""定义既有 WS v1 命令数据和携带请求身份的解析错误，不执行 I/O."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from typing import Union
 
 
 class NavExecutorError(Exception):
-    """Base for executor-owned protocol failures, separate from public task errors."""
+    """作为执行器协议错误基类，与公共任务 API 的错误体系分开."""
 
 
 class ProtocolError(NavExecutorError, ValueError):
-    """Retain legacy ValueError compatibility and recoverable wire request context.
+    """保留 ValueError 兼容性，并携带尽力恢复的协议请求身份.
 
     Attributes:
         request_id: 可恢复的请求标识；无法恢复时为 None。
@@ -19,12 +19,12 @@ class ProtocolError(NavExecutorError, ValueError):
     """
 
     def __init__(self, message: str, request_id: str | None = None, sub_id: int = 0) -> None:
-        """Retain recoverable request context with the original error text.
+        """保存原始错误文本和已恢复请求身份，不在异常对象中重新校验.
 
         Args:
-            message: Human-readable protocol failure.
-            request_id: Recovered request identity, or None.
-            sub_id: Recovered subtask number, defaulting to zero at decoding.
+            message: 可读的协议错误说明。
+            request_id: 已恢复请求标识或 None。
+            sub_id: 已恢复子任务编号，解码时可退回默认零。
         """
         super().__init__(message)
         self.request_id = request_id
@@ -32,20 +32,20 @@ class ProtocolError(NavExecutorError, ValueError):
 
 
 class CommandParseError(ProtocolError):
-    """Compatibility base for contextual malformed-command errors at the old import path."""
+    """兼容旧导入路径的命令解析错误基类，可携带恢复出的请求身份."""
 
 
 class MalformedCommandError(CommandParseError):
-    """A missing field or invalid shape/conversion; reply only with recoverable context."""
+    """表示字段缺失、形状或转换错误，上层仅在身份可恢复时构造应答."""
 
 
 class UnsupportedActionError(ProtocolError):
-    """An unknown action to log and ignore, without inventing a response frame."""
+    """表示未知动作，供上层记录并忽略，不自行生成协议应答."""
 
 
 @dataclass(frozen=True)
 class NavigateToCommand:
-    """A v1 navigation request referring only to a stored POI identifier.
+    """保存只引用 POI 标识的 v1 导航请求，构造器不重复执行解析校验.
 
     Attributes:
         action: 命令动作名 navigate_to。
@@ -62,7 +62,7 @@ class NavigateToCommand:
 
 @dataclass(frozen=True)
 class MarkCurrentPoiCommand:
-    """A request to capture the current pose as a named POI.
+    """保存将当前位姿标记为命名 POI 的请求，不在构造时采集或存储.
 
     Attributes:
         action: 命令动作名 mark_current_poi。
@@ -81,7 +81,7 @@ class MarkCurrentPoiCommand:
 
 @dataclass(frozen=True)
 class AbortNavigationCommand:
-    """A cancellation request scoped to one navigation request identifier.
+    """保存按请求标识取消导航的命令，不代表取消已被接受或完成.
 
     Attributes:
         action: 命令动作名 abort_navigation。
@@ -94,12 +94,13 @@ class AbortNavigationCommand:
 
 @dataclass(frozen=True)
 class UpdatePoiListCommand:
-    """A versioned semantic directory update, preserving the legacy list payload.
+    """保存带版本号的目录更新，字段冻结不等于列表和内部字典深冻结.
 
     Attributes:
         action: 命令动作名 update_poi_list。
-        poi_list: 保留原输入值的目录项列表，只更新已有 POI 名称。
-        version: 已解码的目录版本号；当前不参与版本冲突裁决。
+        poi_list: 保留原输入值的目录项列表，业务层只更新已有 POI 名称；
+            解码只浅拷贝列表，不复制各项字典。
+        version: 已解码的目录版本号，当前不参与版本冲突裁决。
     """
 
     action: str
