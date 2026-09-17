@@ -1,17 +1,12 @@
-"""Dump the effective parameters of every node of a running ROS graph.
+"""通过无 daemon 的 ROS CLI 记录当前发现节点的参数文本.
 
-The run recorder keeps what the nodes actually use, after launch
-substitutions, overrides and defaults, in ``params/effective/`` (refactor plan
-§13.2). Dumps go through the ``ros2`` command line without the CLI daemon,
-because a stale daemon silently returns an empty graph.
+按 PLAN §13.2 写入 params/effective，沿用金样采集的跳过模式、
+每命令超时及节点重试规则。非空且退出码为零的文本才写入，
+不解析 YAML 或验证它覆盖全部参数，也不保证跨节点一致快照。
 
-The rules come from the golden capture of PROGRESS P0.7
-(``david_nav/test/golden/capture_nav2_param_golden.sh``):
-
-* helper nodes that expose no parameter services make ``ros2 param dump``
-  block forever, so they are skipped;
-* discovery without the daemon is occasionally too slow, so every call has a
-  timeout, dumps are retried, and a dump must produce non-empty output.
+不同非跳过节点映射到同名文件，或命中报告保留文件名时，
+整组冲突节点失败并跳过请求，不覆盖节点文件。合法无冲突名字仍使用
+既有斜杠转双下划线的金样格式，报告数据结构不变。
 """
 
 from __future__ import annotations
@@ -38,14 +33,14 @@ REPORT_FILE_NAME = 'dump_report.yaml'
 
 @dataclass(frozen=True)
 class DumpSettings:
-    """How nodes are listed and dumped.
+    """保存图发现与参数采集选项，不在构造时验证数值.
 
     Attributes:
-        spin_time_sec: Discovery time passed to ``--spin-time``.
-        timeout_sec: Seconds before one ``ros2`` call is abandoned.
-        attempts: Dump attempts per node.
-        retry_delay_sec: Pause between attempts.
-        skip_patterns: ``fnmatch`` patterns of node names that are not dumped.
+        spin_time_sec: 传给 --spin-time 的发现等待秒数。
+        timeout_sec: 默认 runner 的每条命令超时秒数，不是整图采集上限。
+        attempts: 每个节点最多尝试次数；非正数会使该节点不尝试而失败。
+        retry_delay_sec: 相邻失败尝试之间的等待秒数。
+        skip_patterns: 不采集的节点名称模式，使用大小写敏感 fnmatch。
     """
 
     spin_time_sec: float = 5.0
@@ -57,16 +52,15 @@ class DumpSettings:
 
 @dataclass(frozen=True)
 class DumpReport:
-    """Outcome of dumping a graph.
+    """保存本次图发现和参数写入的分类结果.
 
     Attributes:
-        nodes: Node names found, unique and sorted.
-        dumped: Nodes whose parameters were written.
-        skipped: Nodes that match a skip pattern.
-        failed: Nodes that could not be dumped.
-        duplicates: Names used by more than one node, which usually means a
-            stale or foreign process shares the DDS domain.
-        list_failed: Whether listing the nodes failed.
+        nodes: 去重且排序后的节点名。
+        dumped: 本次返回成功写入的节点，不证明参数文本语义有效。
+        skipped: 匹配跳过模式的节点。
+        failed: 转储失败、输出为空或输出文件名冲突的节点。
+        duplicates: 图列表里重复出现的名称，仅提示重名，不证明有外来进程。
+        list_failed: 节点列表命令是否返回非零。
     """
 
     nodes: Tuple[str, ...]
@@ -78,14 +72,14 @@ class DumpReport:
 
     @property
     def ok(self) -> bool:
-        """bool: Whether nodes were listed and every node not skipped was dumped."""
+        """bool: 列表未失败且 failed 为空；空图、全部跳过或有重名仍可为真."""
         return not self.list_failed and not self.failed
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert the report to YAML- and JSON-serializable data.
+        """复制分类元组为可写入 YAML/JSON 的列表.
 
         Returns:
-            A mapping with one list per node category and ``list_failed``.
+            含各节点分类列表与 list_failed 布尔值的映射，不重新校验报告。
         """
         return {
             'nodes': list(self.nodes),
@@ -98,17 +92,17 @@ class DumpReport:
 
 
 def node_file_name(node: str) -> str:
-    """Map a node name to the name of its dump file.
+    """将节点名映射为金样兼容的参数文件名，不保证映射唯一.
 
     Args:
-        node: Fully qualified node name, for example ``/local_costmap/local_costmap``.
+        node: 预期为完整 ROS 节点名；本函数不验证完整名称语法。
 
     Returns:
-        The name without its leading slash, other slashes replaced by ``__``,
-        plus ``.yaml``, matching the golden parameter files.
+        去掉一个开头斜杠、其它斜杠改为双下划线，再添加 .yaml。
+        /a/b 与 /a__b 会得到相同结果，整图写入前由 dump_graph 排除冲突。
 
     Raises:
-        ValueError: If the name is empty.
+        ValueError: 输入为空或只有一个斜杠。
     """
     stripped = node[1:] if node.startswith('/') else node
     if not stripped:
@@ -117,28 +111,27 @@ def node_file_name(node: str) -> str:
 
 
 def should_skip(node: str, patterns: Sequence[str]) -> bool:
-    """Check whether a node matches a skip pattern.
+    """判断节点名是否匹配任一大小写敏感跳过模式.
 
     Args:
-        node: Fully qualified node name.
-        patterns: ``fnmatch`` patterns.
+        node: 要匹配的完整节点名。
+        patterns: fnmatchcase 支持的模式序列。
 
     Returns:
-        ``True`` if any pattern matches the whole name.
+        至少一个模式匹配整名时为 True。
     """
     return any(fnmatch.fnmatchcase(node, pattern) for pattern in patterns)
 
 
 def parse_node_list(output: str) -> Tuple[List[str], List[str]]:
-    """Parse the output of ``ros2 node list``.
+    """从命令输出提取以斜杠开头的非空名称行.
 
     Args:
-        output: Standard output of the command.
+        output: 节点列表命令返回的文本，可包含告警行。
 
     Returns:
-        ``(names, duplicates)``: unique node names in sorted order, and the
-        names listed more than once. Lines that are not node names, such as
-        warnings, are ignored.
+        (唯一排序名称, 重复出现的排序名称)。去掉每行两侧空白并忽略
+        不以斜杠开头的行，不执行完整 ROS 名称语法验证。
     """
     counts = Counter(line.strip() for line in output.splitlines() if line.strip().startswith('/'))
     names = sorted(counts)
@@ -146,13 +139,14 @@ def parse_node_list(output: str) -> Tuple[List[str], List[str]]:
 
 
 def default_runner(settings: DumpSettings) -> manifest.CommandRunner:
-    """Build a command runner with the call timeout of the settings.
+    """绑定每命令超时选项，构造默认执行器但不启动命令.
 
     Args:
-        settings: Dump settings.
+        settings: 参数采集选项。
 
     Returns:
-        :func:`nav_bringup.recorder.manifest.run_command` bound to the timeout.
+        绑定 timeout_sec 的 manifest.run_command；注入的其它 runner
+        不自动获得此包装，也不能据此承诺整图采集总时限。
     """
     return functools.partial(manifest.run_command, timeout_sec=settings.timeout_sec)
 
@@ -163,23 +157,26 @@ def dump_graph(
     settings: DumpSettings = DumpSettings(),
     sleep: Callable[[float], None] = time.sleep,
 ) -> DumpReport:
-    """Dump the parameters of every node of the current ROS graph.
-
-    Writes one ``<node file name>.yaml`` per dumped node, ``nodes.txt`` with
-    the listed names, and ``dump_report.yaml`` with the report.
+    """采集已发现且不冲突的节点参数，写入节点列表和分类报告.
 
     不同的非跳过节点映射为相同文件名，或命中报告保留文件名时，
     将所有冲突节点列入 failed，不请求其参数或写入该节点文件。
-    既有冲突文件保留，不重命名；无冲突节点仍按原规则采集。
+    普通冲突目标的旧文件保留，无冲突节点仍按原规则采集；
+    保留的报告路径仍用于写入本次报告，不保留其旧内容。
+
+    列表只请求一次，参数命令按节点重试；没有整图总时限。
+    失败转储不清除已有节点文件，列表失败也不删除旧 nodes.txt，
+    调用方须结合本次报告而非仅凭文件存在判断成功。文件写入非事务，
+    未处理的文件或 runner 异常可能留下部分制品并阻止报告更新。
 
     Args:
-        output_dir: Destination directory; created if missing.
-        runner: Runs ``ros2`` commands; defaults to :func:`default_runner`.
-        settings: Discovery, timeout, retry and skip settings.
-        sleep: Pause function between attempts, replaceable in tests.
+        output_dir: 输出目录，不存在时创建。
+        runner: 命令执行器；None 时使用带单次超时的默认实现。
+        settings: 发现、超时、重试和跳过设置。
+        sleep: 失败尝试之间的等待函数，可在测试中替换。
 
     Returns:
-        What was dumped, skipped and failed.
+        本次写入、跳过、失败和重复名称的报告；非空参数文本不做 YAML 校验。
     """
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -229,13 +226,16 @@ def _dump_node(
     settings: DumpSettings,
     sleep: Callable[[float], None],
 ) -> bool:
-    """按固定尝试次数采集一个节点参数，只有成功且非空输出才写文件.
+    """按固定尝试次数采集节点参数，仅成功且非空的输出才覆盖写入.
+
+    不解析 YAML；失败或空白输出不清除既有目标。命令超时依赖传入 runner，
+    不限制 runner 或 sleep 自身的阻塞时间，写入失败可能部分覆盖文件。
 
     Args:
         node: ROS 节点完整名称。
         destination: 已选定的输出文件，成功时覆盖写入。
-        run: 已配置命令超时的 runner，返回退出码和文本。
-        settings: 发现等待、重试次数和间隔（时间单位秒）。
+        run: 返回退出码和文本的执行器，默认调用方会配置单命令超时。
+        settings: 发现等待、重试次数和间隔，时间单位秒。
         sleep: 可注入的秒制等待函数。
 
     Returns:

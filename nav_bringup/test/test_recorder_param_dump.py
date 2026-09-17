@@ -173,3 +173,16 @@ def test_cli_dump_params_needs_a_destination(monkeypatch):
         cli.main(['dump-params'])
 
     assert raised.value.code == 2
+
+
+def test_failed_listing_reports_failure_without_removing_old_artifacts(tmp_path):
+    """失败报告优先于文件存在性；不把旧参数文件当作本次成功."""
+    (tmp_path / 'nodes.txt').write_text('/previous\n', encoding='utf-8')
+    (tmp_path / 'previous.yaml').write_text('previous data\n', encoding='utf-8')
+    runner, calls = _fake_runner('', {}, list_code=1)
+    report = param_dump.dump_graph(tmp_path, runner=runner)
+    assert not report.ok and report.list_failed
+    assert report.dumped == () and len(calls) == 1
+    assert (tmp_path / 'nodes.txt').read_text() == '/previous\n'
+    assert (tmp_path / 'previous.yaml').read_text() == 'previous data\n'
+    assert yaml.safe_load((tmp_path / 'dump_report.yaml').read_text()) == report.to_dict()

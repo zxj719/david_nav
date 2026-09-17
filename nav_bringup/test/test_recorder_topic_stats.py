@@ -93,3 +93,34 @@ def test_summary_of_missing_or_unmeasured_files(tmp_path):
     assert (transform.samples, transform.missing_samples) == (1, 1)
     assert (transform.lag_p50_ms, transform.lag_p95_ms, transform.lag_max_ms) == (
         None, None, None)
+
+
+@pytest.mark.parametrize('sample_time', [10.0, 9.0])
+def test_nonpositive_period_still_consumes_counts(sample_time):
+    """零间隔或时间倒退报告零频率，但计数仍进入新周期."""
+    ticks = iter([10.0, sample_time, sample_time + 2.0])
+    counter = topic_stats.RateCounter(['/topic'], clock=lambda: next(ticks))
+    counter.record('/topic')
+    assert counter.sample(1000) == [TopicSample(1000, '/topic', 1, 0.0, None)]
+    assert counter.sample(1002) == [TopicSample(1002, '/topic', 0, 0.0, None)]
+
+
+def test_empty_write_creates_header_without_sample_rows(tmp_path):
+    """空批次仍创建表头，但返回的数据行数为零."""
+    path = tmp_path / 'topics.csv'
+    writer = topic_stats.MetricsCsvWriter(path)
+    assert writer.write([]) == 0
+    assert path.read_text() == ','.join(topic_stats.CSV_COLUMNS) + '\n'
+    assert topic_stats.summarize_topics(path) == topic_stats.TopicsSummary()
+
+
+def test_summary_averages_rates_not_period_durations(tmp_path):
+    """不等长周期按行平均，不从时间戳重建加权接收频率."""
+    path = tmp_path / 'topics.csv'
+    topic_stats.MetricsCsvWriter(path).write([
+        TopicSample(1, '/topic', 10, 10.0),
+        TopicSample(6, '/topic', 10, 2.0),
+    ])
+    result = topic_stats.summarize_topics(path).topics[0]
+    assert result.rate_avg_hz == 6.0
+    assert result.publishers_max is None

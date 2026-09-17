@@ -159,3 +159,30 @@ def test_publisher_failure_keeps_incoming_recording_available(tmp_path, fake_ros
     assert json.loads(run.events.read_text())['source'] == 'tasks'
     assert 'cannot publish navrun events' in output.getvalue()
     assert fake_ros.destroyed and fake_ros.shutdown
+
+
+def test_dump_start_failure_does_not_retry_on_next_sample(tmp_path, fake_ros, monkeypatch):
+    """就绪已见标记在启动之前设置，Popen 失败只报告一次而不重试."""
+    requested = []
+
+    def fail_start(command, **kwargs):
+        requested.append(command)
+        raise OSError('fixture spawn failure')
+
+    def sample_twice(node):
+        node.count_publishers = lambda topic: 1
+        fake_ros.timers[0][1]()
+        fake_ros.timers[0][1]()
+
+    monkeypatch.setattr(monitor.subprocess, 'Popen', fail_start)
+    fake_ros.during_spin = sample_twice
+    run = _run(tmp_path)
+    options = monitor.MonitorOptions(
+        base_frame='robot', bt_topic=None, ready_action='/navigate_to_pose',
+        dump_params_on_ready=True)
+    assert monitor.spin(run, options, io.StringIO()) == 0
+    records = [json.loads(line) for line in run.events.read_text().splitlines()]
+    assert [item['type'] for item in records] == [
+        'ready_action_available', 'params_dump_start_failed']
+    assert len(requested) == 1
+    assert fake_ros.destroyed and fake_ros.shutdown

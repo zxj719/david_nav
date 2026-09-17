@@ -1,28 +1,15 @@
-"""One ROS node that watches a navigation run (``navrun monitor``).
+"""用一个监控节点采集导航运行的行为树、话题、TF 与事件观测.
 
-The recorder probes that need a ROS graph share this node, so a run costs a
-single extra DDS participant (refactor plan §10.3, §13.2):
+需要 ROS 图的观察共用 spin 创建的节点：行为树触发器查询最新 TF 位姿，
+话题用 best-effort、raw 订阅计数，周期追加 metrics/topics.csv。
+raw 不反序列化消息，但仍有传输开销，调用方应优先选择轻量话题。
 
-* behavior tree escape and recovery triggers, reported through
-  :class:`~nav_bringup.recorder.bt_log_watcher.TriggerReporter` with the robot
-  pose looked up in TF;
-* message rates and publisher counts of key topics, and the lag of the map to
-  robot transform, appended to ``metrics/topics.csv`` once per sampling
-  period (:mod:`~nav_bringup.recorder.topic_stats`);
-* optionally the moment an action server such as ``/navigate_to_pose``
-  appears: a ``ready_action_available`` event, and ``navrun dump-params`` into
-  the run directory in its own session. A dump still running when the monitor
-  stops is interrupted.
-* structured ``/nav/events`` observations appended to the run timeline, without
-  changing their source time or adding another ROS node; local navrun records
-  are projected back onto that topic with persistent identities and no echo writes.
+可按动作状态话题的发布者数触发一次参数转储，子进程使用独立会话。
+该图观察不证明动作服务可用、生命周期激活或导航健康。运行目录存在时，
+同一节点还接收 /nav/events，并投射本地运行事件，通过身份前缀避免回写。
 
-Counted topics are subscribed with best-effort QoS, which matches reliable
-and best-effort publishers, and as raw bytes, so messages are never
-deserialized. Choose light topics: heavy ones still cost transport.
-
-ROS packages are imported only inside :func:`spin`, so the rest of
-``nav_bringup`` and its unit tests do not need a ROS environment.
+ROS 包在 spin 内导入；模块导入本身不创建 DDS 参与者。
+资源清理有初始化及顺序异常边界，不能承诺任意失败下都完整关闭。
 """
 
 from __future__ import annotations
@@ -50,22 +37,18 @@ DUMP_STOP_TIMEOUT_SEC = 10.0
 
 @dataclass(frozen=True)
 class MonitorOptions:
-    """What the monitor watches.
+    """保存监控话题、参考系、采样周期及参数转储选项.
 
     Attributes:
-        base_frame: Robot frame for the pose and TF lag; from the robot
-            profile (``frames.nav_base``), never defaulted (plan §5.4).
-        map_frame: Global frame for the pose and TF lag.
-        bt_topic: Behavior tree log topic, or ``None`` to skip triggers.
-        topics: Topics whose rates and publishers are recorded.
-        period_sec: Seconds between ``topics.csv`` samples.
-        min_trigger_interval_sec: Minimum tree time between reports of one
-            trigger rule.
-        node_name: Name of the monitor node.
-        ready_action: Action whose server marks the stack as ready, for
-            example ``/navigate_to_pose`` of Nav2; ``None`` disables the check.
-        dump_params_on_ready: Whether to dump effective parameters into the
-            run directory once ``ready_action`` has a server.
+        base_frame: 位姿和 TF 时间差的机器人帧，必须显式从档案提供。
+        map_frame: 位姿和 TF 时间差的全局参考系。
+        bt_topic: 行为树日志话题，None 时不创建该订阅。
+        topics: 要记录接收频率与发布者数的话题。
+        period_sec: 周期采样的秒数，不保证实际回调严格按期执行。
+        min_trigger_interval_sec: 同一触发规则的最小树时间报告间隔。
+        node_name: 监控 ROS 节点名。
+        ready_action: 用其状态话题观察首次发布者的动作名；None 关闭此检查。
+        dump_params_on_ready: 首次观察到发布者且有运行目录时尝试启动参数转储。
     """
 
     base_frame: str
@@ -79,12 +62,13 @@ class MonitorOptions:
     dump_params_on_ready: bool = False
 
     def __post_init__(self) -> None:
-        """Validate the options.
+        """检查参考系、周期及参数转储的基本配置关系.
+
+        不做 ROS 名称语法或数值有限性验证，空白字符串也不自动剥除。
 
         Raises:
-            ValueError: If a frame is empty, the period is not positive, the
-                trigger interval is negative, or a parameter dump is requested
-                without a ready action.
+            ValueError: 参考系为空、周期非正、触发间隔为负，
+                或请求转储但未提供 ready_action。
         """
         if not self.base_frame or not self.map_frame:
             raise ValueError('map and base frames must not be empty')
@@ -99,14 +83,15 @@ class MonitorOptions:
 def resolve_message_type(
     topic: str, names_and_types: Sequence[Tuple[str, Sequence[str]]],
 ) -> Optional[str]:
-    """Find the message type of a topic in a graph listing.
+    """从图列表找到精确匹配话题的首个非空类型列表.
 
     Args:
-        topic: Topic name.
-        names_and_types: Output of ``Node.get_topic_names_and_types()``.
+        topic: 要匹配的话题名。
+        names_and_types: get_topic_names_and_types 返回的名称和类型列表。
 
     Returns:
-        The first type advertised for the topic, or ``None`` if it is unknown.
+        首个匹配且非空类型列表的第一项；没有则为 None。
+        不检测同名话题的类型冲突，也不验证消息类型可导入。
     """
     for name, types in names_and_types:
         if name == topic and types:
@@ -115,29 +100,29 @@ def resolve_message_type(
 
 
 def action_status_topic(action: str) -> str:
-    """Name the status topic of an action.
+    """拼出动作状态话题名，不查询图或校验动作名称.
 
-    Only action servers publish this topic, so a publisher on it means that a
-    server exists; clients such as rviz panels only subscribe.
+    标准动作服务端发布此话题；监控器只用发布者存在作为观察条件，
+    不能把它等同于服务就绪、生命周期激活或发送目标能力。
 
     Args:
-        action: Fully qualified action name.
+        action: 调用方提供的动作名，预期为完整名称。
 
     Returns:
-        ``<action>/_action/status``.
+        去掉结尾斜杠后拼接 /_action/status 的字符串。
     """
     return action.rstrip('/') + '/_action/status'
 
 
 def dump_params_command(run: run_dir.RunDirectory, python: str = sys.executable) -> List[str]:
-    """Build the command that dumps effective parameters into a run directory.
+    """构造向指定运行目录转储参数的命令列表，不启动进程.
 
     Args:
-        run: Run whose ``params/effective`` receives the dumps.
-        python: Interpreter that runs ``navrun``.
+        run: params/effective 接收转储结果的运行目录。
+        python: 执行 navrun 模块的解释器路径。
 
     Returns:
-        Program and arguments of ``navrun dump-params``.
+        解释器及 navrun dump-params 的参数列表，不经 shell 展开。
     """
     return [python, '-m', 'nav_bringup.navrun.cli', 'dump-params', '--run-dir', str(run.path)]
 
@@ -147,15 +132,21 @@ def spin(
     options: MonitorOptions,
     stdout: TextIO = sys.stdout,
 ) -> int:
-    """Monitor until interrupted or ROS shuts down.
+    """运行监控节点，直到被中断或 ROS 停止.
+
+    使用默认 rclpy 上下文。初始化、文件打开、初次订阅和定时器创建有部分
+    位于 try/finally 之前，失败不保证回滚。进入 finally 后按顺序清理，
+    前一步异常仍可能阻止后续资源释放。参数转储停止的十秒仅为 SIGINT 等待，
+    不是整个退出流程的硬时限；不接管定位或其它外部进程。
 
     Args:
-        run: Run directory to record into, or ``None`` to only print triggers.
-        options: What to watch.
-        stdout: Terminal stream for trigger lines and notices.
+        run: 记录目标目录；None 时不写运行文件，但仍可订阅并执行周期观察。
+        options: 监控配置。
+        stdout: 接收触发文本和提示的流，默认标准输出。
 
     Returns:
-        Exit status 0.
+        spin 正常返回或捕获 KeyboardInterrupt/ExternalShutdownException，
+        且清理完成后返回零；其它异常可传播，不保证总是返回状态码。
     """
     from nav2_msgs.msg import BehaviorTreeLog
     import rclpy
@@ -172,10 +163,11 @@ def spin(
     transform_name = f'{options.map_frame}->{options.base_frame}'
 
     def lookup() -> Any:
-        """Look up the latest map to robot transform.
+        """查询 map 到机器人帧的最新 TF，不检查新鲜度.
 
         Returns:
-            The transform, or ``None`` while it is unavailable.
+            查询到的变换；仅 tf2 TransformException 被转为 None，
+            其它异常仍传播。
         """
         try:
             return tf_buffer.lookup_transform(options.map_frame, options.base_frame, Time())
@@ -183,10 +175,11 @@ def spin(
             return None
 
     def lookup_pose() -> Optional[bt_triggers.Pose2D]:
-        """Return the robot pose from TF.
+        """从最新 TF 的平移和四元数构造平面位姿.
 
         Returns:
-            The pose, or ``None`` while the transform is unavailable.
+            查询缺失时为 None，否则返回位姿。不归一化四元数、核验时间同步
+            或吞掉变换对象字段访问异常。
         """
         transform = lookup()
         if transform is None:
@@ -209,10 +202,11 @@ def spin(
         writer = topic_stats.MetricsCsvWriter(run.metrics / topic_stats.TOPICS_CSV_NAME)
 
     def say(message: str) -> None:
-        """Write a notice line to every sink.
+        """按顺序向所有输出流写提示并刷新.
 
         Args:
-            message: Notice text.
+            message: 添加监控前缀和换行的文本。写入或刷新失败直接传播，
+                不保证其余流仍收到该提示。
         """
         for sink in sinks:
             sink.write(f'navrun monitor: {message}\n')
@@ -238,7 +232,12 @@ def spin(
     dump_processes: List[subprocess.Popen] = []
 
     def subscribe_discovered() -> None:
-        """Subscribe to counted topics whose type has been discovered."""
+        """为已发现类型的待订阅话题创建 raw best-effort 订阅.
+
+        没有发现类型的项保留到下次；一旦发现即先移出 pending。
+        类型导入的指定异常记录提示但不重新入队，订阅创建异常则传播；
+        不支持运行中类型变化后的自动重建。
+        """
         if not pending:
             return
         names_and_types = node.get_topic_names_and_types()
@@ -257,7 +256,12 @@ def spin(
                 lambda _message, name=topic: counter.record(name), qos, raw=True))
 
     def check_ready() -> None:
-        """Record when the ready action gets a server, and dump parameters once."""
+        """首次观察到状态话题发布者时记录事件并可选启动转储.
+
+        ready_seen 在事件写入和启动进程之前置位，失败不会自动重试。
+        转储用自有独立会话；日志打开或 Popen 的 OSError 记录告警，
+        其它异常直接传播。这里只观察发布者数量，不调用动作服务。
+        """
         if ready_topic is None or ready_seen or node.count_publishers(ready_topic) == 0:
             return
         ready_seen.append(True)
@@ -279,7 +283,13 @@ def spin(
                     EVENT_SOURCE, 'params_dump_start_failed', 'warn', {'error': str(error)})
 
     def sample() -> None:
-        """Check readiness and append one sampling period to ``topics.csv``."""
+        """依次投射事件、检查就绪、补订阅并生成话题/TF 周期行.
+
+        样本 stamp 用墙钟，计数间隔用 RateCounter 的时钟，
+        TF 时间差用节点 ROS 时钟与变换头时间；不构成同步快照。
+        TF 查询缺失记为 None，只有配置了 writer 才追加 CSV；
+        任何未处理异常都会中断本次回调，未写部分不回滚或补写。
+        """
         if event_stream is not None:
             event_stream.pump()
         check_ready()
