@@ -1,4 +1,8 @@
-"""Read TF, graph discovery and parameter services through one disposable ROS context."""
+"""用一个用完即弃的私有 ROS 上下文读取 TF、图发现与参数服务.
+
+全程只读：不建发布者、不建动作客户端、不写参数，也不安装信号处理器。所有资源都属于
+本对象，关闭时只销毁自己的监听器、节点与上下文，不影响同机其它 ROS 参与者。
+"""
 
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ from nav_bringup.navcfg.live_check import LiveSnapshot, LiveSpec
 
 
 class RosProbe:
-    """Own a read-only ROS observer, with no action client or command publisher.
+    """持有一个只读 ROS 观察者，没有动作客户端，也没有速度发布者.
 
     Attributes:
         buffer: 本对象使用的 TF 缓冲区。
@@ -32,10 +36,10 @@ class RosProbe:
     """
 
     def __init__(self, spec: LiveSpec) -> None:
-        """Describe the observation without initializing ROS.
+        """只描述这次观察，不初始化 ROS.
 
         Args:
-            spec: Expected frames, topics and parameters.
+            spec: 期望的坐标系、话题与参数。
         """
         self.spec = spec
         self.context = None
@@ -45,10 +49,12 @@ class RosProbe:
         self.executor = None
 
     def __enter__(self) -> 'RosProbe':
-        """Create one private context and TF listener, cleaning up partial failures.
+        """建立一个私有上下文与 TF 监听器，部分失败时自行清理.
+
+        用独立的 Context 并关闭信号处理，既不接管调用方的信号，也不影响同机其它参与者。
 
         Returns:
-            This initialized observer.
+            已初始化的本观察者。
         """
         try:
             self.context = Context()
@@ -66,17 +72,21 @@ class RosProbe:
 
     def __exit__(self, exc_type: Optional[Type[BaseException]],
                  exc_value: Optional[BaseException], traceback: Any) -> None:
-        """Release only this observer's resources.
+        """只释放本观察者自己的资源.
 
         Args:
-            exc_type: Active exception type, if any.
-            exc_value: Active exception, if any.
-            traceback: Active traceback, if any.
+            exc_type: 当前异常类型，没有则为 None。
+            exc_value: 当前异常对象，没有则为 None。
+            traceback: 当前异常栈，没有则为 None。
         """
         self.close()
 
     def close(self) -> None:
-        """Destroy this listener/node/context without touching another ROS participant."""
+        """销毁本对象的监听器、节点与上下文，不碰其它 ROS 参与者.
+
+        按执行器、监听器、节点、上下文的顺序释放，前一步失败也继续走完后面几步；
+        只关闭本对象持有的上下文，不做全局 rclpy 关闭。
+        """
         try:
             if self.executor is not None:
                 executor, self.executor = self.executor, None
@@ -94,18 +104,18 @@ class RosProbe:
                     self.context.shutdown()
 
     def spin(self, duration_sec: float) -> None:
-        """Process observer callbacks for at most one bounded poll.
+        """处理一次有界的观察者回调，必须在上下文内调用.
 
         Args:
-            duration_sec: Maximum wall-clock poll duration.
+            duration_sec: 本次轮询最多等待的墙钟秒数。
         """
         self.executor.spin_once(timeout_sec=duration_sec)
 
     def localized(self) -> bool:
-        """Check whether the configured global-to-odometry transform exists.
+        """判断配置的全局到里程计变换是否存在.
 
         Returns:
-            True only for an available transform (or identical configured frames).
+            变换可用返回 True；两个坐标系配置成同一个时直接返回 True，不查 TF。
         """
         return self.spec.map_frame == self.spec.odom_frame or self.buffer.can_transform(
             self.spec.map_frame, self.spec.odom_frame, Time())
@@ -143,22 +153,27 @@ class RosProbe:
                             for name, namespace in self.node.get_node_names_and_namespaces()))
 
     def snapshot(self, stopped: Callable[[], bool], timeout_sec: float = 5.0) -> LiveSnapshot:
-        """Discover TF/declarations and query selected values within one global deadline.
+        """在一个全局期限内完成图/声明发现与选定参数的读取.
 
-        C++ services can reject an entire GetParameters batch containing one
-        undeclared key. ListParameters first preserves the known values while
-        keeping absent keys explicit; neither service writes parameters.
+        C++ 的参数服务会因为批次里有一个未声明的键而整批拒绝，所以先用 ListParameters
+        取回已声明的键，再只读这些键的值：未声明的键保持缺失，其余值照常拿到。两个服务
+        都只读，不写参数。
+
+        期限是整体预算，不是每个节点各有一份：节点迟迟未被发现、参数服务不响应、导航 TF
+        还没出现，都在同一个预算里消耗。单个节点查询过程中抛出的异常会被吞掉，该节点的
+        参数保持缺失，由评估方报成发现，这里不区分“查询失败”与“从未答复”。返回的快照也
+        不是同一瞬间的一致视图：TF、发布者数与节点列表是在循环结束后分别采集的。
 
         Args:
-            stopped: Caller-owned interrupt flag.
-            timeout_sec: Global parameter-discovery/response budget, not per-node timeout.
+            stopped: 调用方持有的中断标志。
+            timeout_sec: 参数发现/响应的全局预算，不是每节点超时。
 
         Returns:
-            Fresh graph/TF facts and successful parameter responses. Failed, missing
-            and undeclared parameters remain absent so the assessor reports them.
+            新鲜的图/TF 事实与成功取回的参数。失败、缺失、未声明以及取值未设定的参数
+            一律保持缺失，交由评估方报出。
 
         Raises:
-            ValueError: The time budget is not finite and positive.
+            ValueError: 时间预算不是有限正数。
         """
         if not math.isfinite(timeout_sec) or timeout_sec <= 0:
             raise ValueError('parameter timeout must be finite and positive')

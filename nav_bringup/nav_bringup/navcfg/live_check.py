@@ -1,4 +1,8 @@
-"""Assess read-only runtime observations and wait for operator-owned localization."""
+"""只读地评估运行时观测，并等待由现场人工完成的定位.
+
+本模块自己不碰 ROS：输入是已渲染的期望值和一次观测快照，输出是发现列表。缺失的证据
+一律不算通过；定位完成之前只给等待提示，不做其它判定，更不会代替现场发布初始位姿。
+"""
 
 from __future__ import annotations
 
@@ -9,12 +13,12 @@ from typing import Any, Callable, Mapping, Optional, Tuple
 
 @dataclass(frozen=True)
 class Finding:
-    """One operational finding, also suitable for a run event.
+    """一条运行期发现，同时可以直接作为运行事件.
 
     Attributes:
-        severity: info, warn or error.
-        code: Stable event/check identifier.
-        message: Human-readable evidence or operator hint.
+        severity: info、warn 或 error，本模块不再细分。
+        code: 稳定的事件/检查标识，供上层按码处理。
+        message: 人读的证据或操作提示。
     """
 
     severity: str
@@ -24,13 +28,13 @@ class Finding:
 
 @dataclass(frozen=True)
 class TopicRule:
-    """Expected publisher multiplicity for one resolved topic.
+    """某个已解析话题上期望的发布者数量.
 
     Attributes:
-        topic: Absolute topic name.
-        minimum: Required number of publishers.
-        maximum: Maximum permitted publishers, or None without an upper bound.
-        message_type: Expected ROS interface name, or empty to check only multiplicity.
+        topic: 绝对话题名。
+        minimum: 要求的发布者数量下限。
+        maximum: 发布者数量上限；None 表示不设上限。
+        message_type: 期望的 ROS 接口名；留空表示只查数量、不查类型。
     """
 
     topic: str
@@ -41,15 +45,15 @@ class TopicRule:
 
 @dataclass(frozen=True)
 class LiveSpec:
-    """Inputs obtained from the prepared run, never from robot-specific literals.
+    """来自已准备好的运行的输入，绝不写死机器人相关字面量.
 
     Attributes:
-        map_frame: Global localization frame.
-        odom_frame: Localization odometry frame.
-        nav_frame: Navigation reference frame, distinct from the body frame.
-        topics: Publisher-count contracts.
-        parameters: Exact flattened rendered parameters, keyed by qualified node.
-        max_tf_age_sec: Age above which the navigation transform is a warning.
+        map_frame: 全局定位坐标系。
+        odom_frame: 定位里程计坐标系。
+        nav_frame: 导航基准坐标系，与机身帧不是同一个。
+        topics: 发布者数量约定。
+        parameters: 已展平的渲染参数，按完整节点名分组。
+        max_tf_age_sec: 超过该秒数的导航变换记为告警。
     """
 
     map_frame: str
@@ -60,10 +64,10 @@ class LiveSpec:
     max_tf_age_sec: float = 0.5
 
     def __post_init__(self) -> None:
-        """Reject malformed or unbounded configuration before any ROS sampling.
+        """在任何 ROS 采样之前先拒绝畸形或没有边界的配置.
 
         Raises:
-            ValueError: A frame, topic rule, parameter selector or threshold is invalid.
+            ValueError: 坐标系、话题规则、参数选择器或阈值不合法。
         """
         if not all(isinstance(frame, str) and frame.strip() for frame in (
                 self.map_frame, self.odom_frame, self.nav_frame)):
@@ -84,15 +88,15 @@ class LiveSpec:
 
 @dataclass(frozen=True)
 class LiveSnapshot:
-    """Evidence from one bounded observation, with failed queries kept distinguishable.
+    """一次有界观测得到的证据，查询失败与“确实没有”保持可区分.
 
     Attributes:
-        localized: Whether the global-to-odometry transform can be queried.
-        tf_age_sec: Navigation transform age, or None if absent.
-        publishers: Observed topic publisher counts; missing keys mean unavailable.
-        parameters: Successfully fetched parameter values; missing nodes/keys are failures.
-        node_counts: Number of discovered nodes for each qualified name.
-        topic_types: Discovered message types, including conflicting topic types.
+        localized: 全局到里程计的变换是否可查询。
+        tf_age_sec: 导航变换的年龄；没有该变换时为 None。
+        publishers: 观测到的各话题发布者数；键缺失表示没能查到。
+        parameters: 成功取回的参数值；缺节点或缺键都算失败，不是空的成功。
+        node_counts: 每个完整节点名当前发现到的数量。
+        topic_types: 发现到的消息类型，包含同名话题类型冲突的情况。
     """
 
     localized: bool
@@ -124,14 +128,18 @@ def _equal(expected: Any, actual: Any) -> bool:
 
 
 def assess(spec: LiveSpec, snapshot: LiveSnapshot) -> Tuple[Finding, ...]:
-    """Compare the live graph with rendered inputs without changing either.
+    """把在线图与渲染输入做对比，两边都不修改.
+
+    定位完成之前只返回一条等待提示，不做其它判定。比较是单向的：只报缺失、不匹配、
+    节点重名与话题类型不符，运行时多出来的参数不算问题。参数不匹配时只报名字，不打印
+    实际值——值里可能整段带着机器人描述。
 
     Args:
-        spec: Validated expected graph and flattened parameters.
-        snapshot: Observations; absent evidence is never a successful match.
+        spec: 已校验的期望图与展平参数。
+        snapshot: 观测结果；证据缺失一律不算匹配成功。
 
     Returns:
-        All findings. Before localization, only an informational waiting hint.
+        全部发现；定位完成之前只有一条等待提示。
     """
     if not snapshot.localized:
         return (Finding('info', 'localization_waiting', '等待在 RViz 手动给初始位姿'),)
@@ -182,21 +190,25 @@ def wait_localization(
     probe: Callable[[], bool], spin: Callable[[float], None], clock: Callable[[], float],
     stopped: Callable[[], bool], emit: Callable[[Finding], None], timeout_sec: float = 0.0,
 ) -> bool:
-    """Wait without initializing localization or imposing a default startup deadline.
+    """等待定位就绪：既不代为初始化定位，也不强加默认启动期限.
+
+    定位由现场人工完成（在 RViz 给初始位姿），这里只反复做只读探测，并每 5 秒发一次
+    等待提示。timeout_sec 为 0 表示一直等；正数只用于独立诊断，到期返回的是“还在等”，
+    不是“定位失败”。探测已成功但调用方同时在收尾时返回 False，不报就绪。
 
     Args:
-        probe: Read-only test for the global-to-odometry transform.
-        spin: Discover ROS data or wait for at most the supplied seconds.
-        clock: Monotonic wall clock for hint cadence and an optional diagnostic bound.
-        stopped: Whether the caller is shutting down.
-        emit: Print/record informational waiting and ready events.
-        timeout_sec: Zero waits indefinitely; positive bounds a standalone diagnostic.
+        probe: 只读判断全局到里程计的变换是否可用。
+        spin: 处理 ROS 数据，或至多等待给定秒数。
+        clock: 单调时钟，用于提示节奏与可选的诊断上限。
+        stopped: 调用方是否正在收尾。
+        emit: 打印或记录等待与就绪事件。
+        timeout_sec: 0 为无限等待；正数为独立诊断的时间上限。
 
     Returns:
-        True on localization availability, False on interruption or bounded pending wait.
+        定位可用返回 True；被中断或有界等待到期返回 False。
 
     Raises:
-        ValueError: The timeout is negative or non-finite.
+        ValueError: 期限为负数或非有限值。
     """
     if isinstance(timeout_sec, bool) or not math.isfinite(timeout_sec) or timeout_sec < 0:
         raise ValueError('localization wait timeout must be finite and nonnegative')
