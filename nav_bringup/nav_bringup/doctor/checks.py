@@ -1,14 +1,11 @@
-"""Read-only health checks for a navigation machine (``navrun doctor``).
+"""执行不依赖 ROS 图的只读导航诊断，输出状态与人工复核提示.
 
-Each check encodes a failure mode that cost debugging time before (refactor
-plan §13.3) and reports ``OK``, ``WARN``, ``FAIL`` or ``SKIP`` with a hint on
-how to fix it. Checks never modify files, processes or ROS state and start no
-subprocesses.
+检查读取环境、文件和进程观察，不启动子进程、不删除文件、不发信号或
+修改 ROS 状态。实时图检查位于 doctor.live；这里的 OK 只表示已实现的
+局部检查通过，不证明整机健康或拥有清理权限。注入的自定义检查由调用方负责。
 
-This module holds the checks that need no running ROS graph; the checks of a
-live graph are in :mod:`nav_bringup.doctor.live`.
-
-Messages and hints are written in Chinese for the people operating the robot.
+历史观察原文保留在 docs/adr/0013-doctor-observation-history.md。
+提示文本保持既有内容；不能将其中的维护建议视为自动执行授权。
 """
 
 from __future__ import annotations
@@ -35,7 +32,7 @@ _IGNORED_PROCESS_NAMES = frozenset({'pgrep', 'grep', 'pkill', 'ps'})
 
 
 class Status(str, enum.Enum):
-    """Outcome of a check.
+    """表示诊断结果等级，不触发任何系统操作.
 
     Attributes:
         FAIL: 检查失败。
@@ -55,13 +52,13 @@ _SEVERITY_ORDER = (Status.OK, Status.SKIP, Status.WARN, Status.FAIL)
 
 @dataclass(frozen=True)
 class CheckResult:
-    """Result of one check.
+    """保存单项诊断结果，构造时不验证字段.
 
     Attributes:
-        name: Stable check identifier, for example ``map_yaml_mode``.
-        status: Outcome.
-        message: What was found.
-        hint: How to fix a warning or failure, or ``None``.
+        name: 稳定检查标识，例如 map_yaml_mode。
+        status: Status 枚举结果。
+        message: 观察到的情况。
+        hint: 可选人工复核建议，不代表已执行修复。
     """
 
     name: str
@@ -70,10 +67,10 @@ class CheckResult:
     hint: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert the result to JSON-serializable data.
+        """将结果转为可序列化字段并展开状态枚举值.
 
         Returns:
-            A mapping with ``name``, ``status``, ``message`` and ``hint``.
+            含 name、status、message、hint 的新映射。
         """
         data = asdict(self)
         data['status'] = self.status.value
@@ -82,20 +79,22 @@ class CheckResult:
 
 @dataclass(frozen=True)
 class DoctorContext:
-    """Machine facts the checks inspect; every path is injectable for tests.
+    """保存只读诊断输入，各路径可注入临时夹具.
+
+    字段只是一组参数，不代表已经采样的一致系统快照或可信路径证明。
 
     Attributes:
-        repo_dir: Source repository, for example ``~/ros2_ws/src``.
-        install_dir: colcon install directory of that workspace.
-        environ: Environment of the shell running the doctor.
-        shm_dir: Shared memory directory.
-        proc_dir: procfs mount point.
-        serial_device: Chassis controller serial device.
-        map_yamls: Map yaml files used by navigation.
-        shm_orphan_warn_threshold: Orphan Fast DDS segment count that warns.
-        ros_log_dir: ROS log directory, or ``None`` to skip its check.
-        ros_log_warn_entries: Entry count of the ROS log directory that warns.
-        ros_log_warn_bytes: Size of the ROS log directory that warns.
+        repo_dir: 源码仓库根目录。
+        install_dir: 对应工作空间安装目录。
+        environ: 检查使用的环境映射，不在此验证导出状态。
+        shm_dir: 共享内存目录。
+        proc_dir: procfs 根目录。
+        serial_device: 预期底盘串口路径，仅检查不打开。
+        map_yamls: 要检查 mode 的地图 YAML 路径。
+        shm_orphan_warn_threshold: 未映射候选条目数达到此值时告警。
+        ros_log_dir: ROS 日志目录，None 时跳过。
+        ros_log_warn_entries: 日志目录顶层条目数告警阈值。
+        ros_log_warn_bytes: 估算日志字节数告警阈值。
     """
 
     repo_dir: Path
@@ -112,13 +111,14 @@ class DoctorContext:
 
 
 def ros_log_directory(environ: Mapping[str, str]) -> Path:
-    """Locate the ROS log directory the way ROS 2 logging does.
+    """按 ROS_LOG_DIR、ROS_HOME/log、默认目录的优先级选择日志路径.
 
     Args:
-        environ: Environment, typically ``os.environ``.
+        environ: 用于读取两个 ROS 变量的环境映射。
 
     Returns:
-        ``$ROS_LOG_DIR``, else ``$ROS_HOME/log``, else ``~/.ros/log``.
+        展开用户目录后的路径，不验证存在性；expanduser 使用当前进程环境，
+        不读取传入映射里的 HOME 来替换真实用户目录。
     """
     if environ.get('ROS_LOG_DIR'):
         return Path(environ['ROS_LOG_DIR']).expanduser()
@@ -128,15 +128,14 @@ def ros_log_directory(environ: Mapping[str, str]) -> Path:
 
 
 def default_context(environ: Mapping[str, str]) -> DoctorContext:
-    """Build the context for this machine.
+    """根据环境和仓库地图目录构造诊断输入，不执行诊断.
 
     Args:
-        environ: Environment, typically ``os.environ``.
+        environ: 环境映射，结果保留其外层副本。
 
     Returns:
-        A context for ``$NAVRUN_REPO`` (default ``~/ros2_ws/src``), its
-        sibling ``install`` directory, ``david_nav/config/maps/*.yaml`` and
-        the ROS log directory.
+        NAVRUN_REPO 或默认 ~/ros2_ws/src、同级 install、仓库地图 YAML
+        及日志目录组成的上下文；地图只按 *.yaml 发现，不证明正在被导航使用。
     """
     repo_dir = Path(environ.get('NAVRUN_REPO', '~/ros2_ws/src')).expanduser()
     maps_dir = repo_dir / 'david_nav' / 'config' / 'maps'
@@ -150,17 +149,17 @@ def default_context(environ: Mapping[str, str]) -> DoctorContext:
 
 
 def check_ros_environment(context: DoctorContext) -> CheckResult:
-    """Check that the shell loaded the ROS and DDS environment.
+    """检查关键 ROS 环境变量与 DDS 配置文件路径存在性.
 
-    A shell without the DDS whitelist profile sees only part of the ROS graph,
-    which once looked exactly like "the TF tree is empty".
+    不解析 XML、验证白名单内容、检查实际中间件或尝试 ROS 发现。
+    环境隔离历史见 docs/adr/0013-doctor-observation-history.md。
 
     Args:
-        context: Machine facts.
+        context: 诊断输入。
 
     Returns:
-        ``FAIL`` without ``ROS_DISTRO``; ``WARN`` without ``ROS_DOMAIN_ID`` or
-        an existing ``FASTRTPS_DEFAULT_PROFILES_FILE``; otherwise ``OK``.
+        ROS_DISTRO 为空时 FAIL；domain 或 profile 缺失、profile 非文件时
+        WARN；其余为 OK，不保证与正式进程使用同一传输配置。
     """
     name = 'ros_environment'
     env = context.environ
@@ -189,17 +188,18 @@ def check_ros_environment(context: DoctorContext) -> CheckResult:
 
 
 def check_dds_shared_memory(context: DoctorContext) -> CheckResult:
-    """Count orphan Fast DDS shared memory segments.
+    """对共享内存目录项与进程映射做只读候选计数.
 
-    Orphan segments accumulate when ROS processes are killed; enough of them
-    once broke same-host discovery completely.
+    计数包含 fastrtps_ 前缀的全部目录项，_el 项归并判断占用但分别计数。
+    有候选且映射观察不完整时不宣称孤儿数量；结果不是删除授权。
+    相关历史见 docs/adr/0013-doctor-observation-history.md。
 
     Args:
-        context: Machine facts.
+        context: 目录、procfs 路径及告警阈值。
 
     Returns:
-        ``WARN`` when orphans reach the threshold or observations are incomplete,
-        ``SKIP`` without the shared memory directory, otherwise ``OK``.
+        目录不存在为 SKIP；目录不可读、有候选但映射不完整、
+        或未映射条目数达到阈值为 WARN；其余为 OK。
     """
     name = 'dds_shared_memory'
     if not context.shm_dir.is_dir():
@@ -228,17 +228,17 @@ def check_dds_shared_memory(context: DoctorContext) -> CheckResult:
 
 
 def check_map_yaml_modes(context: DoctorContext) -> CheckResult:
-    """Check that navigation map yamls use ``mode: trinary``.
+    """检查地图 YAML 的 mode 字段，不读取图像或验证地图内容.
 
-    With ``mode: scale`` the unknown cells of a lightning map (gray value 128)
-    become lethal obstacles in the static costmap layer.
+    缺省 mode 按 trinary 处理；YAML 假值先视为空映射。
+    只核对配置文本，不能单凭此结果证明未知栅格或代价地图的运行行为。
 
     Args:
-        context: Machine facts.
+        context: 提供地图 YAML 路径的诊断输入。
 
     Returns:
-        ``FAIL`` if any map yaml uses another mode, ``WARN`` if a file cannot
-        be read, ``SKIP`` without map yamls, otherwise ``OK``.
+        任一可读文件 mode 非 trinary 时优先 FAIL；仅有读取/解析错误时 WARN；
+        没有路径为 SKIP，其余 OK。UTF-8 解码等未捕获异常由外层处理。
     """
     name = 'map_yaml_mode'
     if not context.map_yamls:
@@ -265,15 +265,16 @@ def check_map_yaml_modes(context: DoctorContext) -> CheckResult:
 
 
 def check_robot_state_publishers(context: DoctorContext) -> CheckResult:
-    """Check that at most one robot_state_publisher runs.
+    """按进程命令行子串观察 robot_state_publisher 的匹配数量.
 
-    Two URDF publishers give ``base_link`` two parents and split the TF tree.
+    不查询 ROS 图或 URDF，不证明重复 TF 发布者存在。包装器或命令行参数
+    包含该名称也可能被计入，读取失败的进程可能漏计。
 
     Args:
-        context: Machine facts.
+        context: 提供 procfs 路径的诊断输入。
 
     Returns:
-        ``WARN`` with more than one process, otherwise ``OK``.
+        多于一个匹配时 WARN，否则 OK；不停止任何匹配进程。
     """
     name = 'robot_state_publishers'
     found = find_processes(context.proc_dir, 'robot_state_publisher')
@@ -286,14 +287,15 @@ def check_robot_state_publishers(context: DoctorContext) -> CheckResult:
 
 
 def parse_installed_programs(cmake_text: str) -> List[Tuple[str, str]]:
-    """Extract ``install(PROGRAMS ...)`` entries from a CMakeLists.txt.
+    """用受限正则提取单来源 install(PROGRAMS ...) 片段.
+
+    不执行 CMake、不处理完整语法或剥除注释；多文件、复杂变量和其它目标可能遗漏。
 
     Args:
-        cmake_text: Contents of ``CMakeLists.txt``.
+        cmake_text: CMakeLists.txt 原始文本。
 
     Returns:
-        ``(source_path, installed_name)`` pairs in file order; the installed
-        name defaults to the source file name when no ``RENAME`` is given.
+        按文本顺序的 (来源路径, 安装名) 列表，无 RENAME 时用来源 basename。
     """
     programs = []
     for match in _INSTALL_PROGRAMS_RE.finditer(cmake_text):
@@ -303,17 +305,17 @@ def parse_installed_programs(cmake_text: str) -> List[Tuple[str, str]]:
 
 
 def check_stale_installed_programs(context: DoctorContext) -> CheckResult:
-    """Compare copied executables in the install directory with their sources.
+    """比较 david_nav 中可识别的拷贝安装脚本与源码的哈希.
 
-    ``install(PROGRAMS)`` copies scripts even with ``--symlink-install``, so an
-    edited source keeps running the old copy until the next build.
+    只检查受限 CMake 正则识别的条目，跳过符号链接、缺失来源和缺失目标；
+    OK 不证明整个 install 完整或可执行内容均为最新，零项比较也可为 OK。
 
     Args:
-        context: Machine facts.
+        context: 仓库及安装目录。
 
     Returns:
-        ``WARN`` listing copies that differ from their sources, ``SKIP`` when
-        the package or its install directory is missing, otherwise ``OK``.
+        缺少 CMake 文件或目标 lib 目录时 SKIP，有哈希不一致时 WARN，
+        否则 OK。IO/解码异常可传播给外层 run_checks。
     """
     name = 'stale_installed_programs'
     package_dir = context.repo_dir / 'david_nav'
@@ -341,16 +343,15 @@ def check_stale_installed_programs(context: DoctorContext) -> CheckResult:
 
 
 def check_serial_device(context: DoctorContext) -> CheckResult:
-    """Check that the chassis controller serial device is present and accessible.
+    """检查预期串口路径存在性和 os.access 权限，不打开设备.
 
-    The device is only inspected with ``os.access``; it is never opened.
+    不验证字符设备类型、波特率、占用情况或下位机响应；普通文件也可能通过。
 
     Args:
-        context: Machine facts.
+        context: 含设备路径的诊断输入。
 
     Returns:
-        ``WARN`` if the device is missing or not readable and writable,
-        otherwise ``OK``.
+        路径缺失或不可同时读写时 WARN，其余 OK。
     """
     name = 'serial_device'
     device = context.serial_device
@@ -367,17 +368,17 @@ def check_serial_device(context: DoctorContext) -> CheckResult:
 
 
 def check_ros_log_dir(context: DoctorContext) -> CheckResult:
-    """Check how much the ROS log directory has accumulated.
+    """统计日志目录顶层条目数与尽力估算的递归字节数.
 
-    Every ros2 command and every ROS process writes a log file there, and
-    nothing removes them; on David it once held about 40,000 files.
+    子项读取错误被跳过，不代表完整容量统计；无跨文件快照。
+    目录遍历错误可能传播。历史数量观察见 docs/adr/0013-doctor-observation-history.md。
 
     Args:
-        context: Machine facts.
+        context: 日志目录及条目/字节阈值。
 
     Returns:
-        ``WARN`` at or above the entry count or size limit, ``SKIP`` without
-        the directory, otherwise ``OK``.
+        目录未提供或不是目录时 SKIP；任一统计达到阈值时 WARN；其余 OK。
+        不删除、截断或改变日志位置。
     """
     name = 'ros_log_dir'
     directory = context.ros_log_dir
@@ -419,14 +420,17 @@ def run_checks(
     context: Any,
     checks: Sequence[Callable[[Any], CheckResult]] = ALL_CHECKS,
 ) -> List[CheckResult]:
-    """Run checks, turning an unexpected error in a check into a ``FAIL`` result.
+    """依次执行诊断，并将普通异常转为 FAIL 后继续.
+
+    不捕获 BaseException；异常处理依赖检查对象有 __name__ 属性。
+    对注入检查不强制只读、副作用隔离或结果类型校验。
 
     Args:
-        context: Facts passed to every check, such as a :class:`DoctorContext`.
-        checks: Checks to run, in order.
+        context: 原样传给各检查的上下文。
+        checks: 按顺序调用的具名检查函数。
 
     Returns:
-        One result per check.
+        每个成功返回或成功转换异常的检查对应一项结果。
     """
     results = []
     for check in checks:
@@ -440,13 +444,13 @@ def run_checks(
 
 
 def worst_status(results: Sequence[CheckResult]) -> Status:
-    """Return the most severe status among results.
+    """按诊断枚举顺序选出最严重结果.
 
     Args:
-        results: Check results.
+        results: 含合法 Status 的检查结果序列。
 
     Returns:
-        ``FAIL`` > ``WARN`` > ``SKIP`` > ``OK``; ``OK`` for no results.
+        FAIL 高于 WARN、SKIP、OK；空序列返回 OK，不代表实际检查已执行。
     """
     worst = Status.OK
     for result in results:
@@ -456,14 +460,14 @@ def worst_status(results: Sequence[CheckResult]) -> Status:
 
 
 def format_report(results: Sequence[CheckResult]) -> str:
-    """Format results as terminal text.
+    """按冻结的终端布局生成结果和状态计数.
 
     Args:
-        results: Check results.
+        results: 有效的 CheckResult 序列。
 
     Returns:
-        One line per check plus an indented hint line for each hint, and a
-        final line with the counts per status.
+        每项一行，只为 WARN/FAIL 输出非空 hint，末尾附计数行及换行。
+        消息与 hint 中的换行不做清理，不代表提示动作已执行。
     """
     lines = []
     for result in results:
@@ -478,15 +482,16 @@ def format_report(results: Sequence[CheckResult]) -> str:
 
 
 def find_processes(proc_dir: Path, needle: str) -> List[Tuple[int, str]]:
-    """Find processes whose command line contains a string.
+    """按拼接命令行的子串查找 procfs 进程，不验证可执行文件身份.
 
     Args:
-        proc_dir: procfs mount point.
-        needle: Substring to look for in the command line.
+        proc_dir: procfs 根目录。
+        needle: 在空格拼接命令行中查找的子串。
 
     Returns:
-        ``(pid, command_line)`` pairs sorted by pid, excluding search tools
-        such as ``pgrep``.
+        按 PID 排序的 (pid, 命令行) 列表。忽略空参数、已知搜索工具及
+        cmdline 读取失败项；不剥离其它包装器、不防 PID 复用。
+        根目录非目录时返回空列表，目录遍历异常仍可传播。
     """
     found = []
     if not proc_dir.is_dir():

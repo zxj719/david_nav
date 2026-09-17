@@ -1,30 +1,27 @@
-"""Parameter schemas declared by each package, and their aggregation.
+"""解析各包声明的参数 schema，并汇总为档案校验目录.
 
-Every package that consumes robot profile keys declares them in its own
-``config/schema.yaml`` (refactor plan §12.1); there is no separate parameter
-module. This module parses those files, merges them into one
-:class:`ParameterCatalog` and checks profile values against it. ``navcfg
-validate`` and ``navcfg doc`` (PROGRESS P2.5, P2.6) build on the catalog.
+各消费包在 config/schema.yaml 声明自己的参数，ParameterCatalog 合并后
+供 navcfg validate/doc 使用。这里实现自有 schema_version 1 格式，
+不是 JSON Schema 通用实现，也不应用或写回默认参数值。
 
-Schema file format, version 1::
+格式示例::
 
     schema_version: 1
     package: nav_bringup
     parameters:
       record.storage:
         type: string            # bool | int | float | string | list | map
-        description: rosbag2 storage plugin
-        default: sqlite3        # optional; null means "unset"; required keys have none
-        choices: [sqlite3]      # optional, scalar types only
-        unit: s                 # optional, free text
-        range: [0.0, null]      # optional, int and float only; inclusive; null is open
-        items: string           # optional, list only: type of every element
-        required: false         # optional
-        tuning: docs/tuning.md  # optional link to tuning notes
+        description: 存储插件
+        default: sqlite3        # 可选；null 表示未设置；required 键不能有默认
+        choices: [sqlite3]      # 可选，仅标量类型
+        unit: s                 # 可选，自由文本
+        range: [0.0, null]      # 可选，仅数值；闭区间，null 为开放端
+        items: string           # 可选，list 的标量元素类型
+        required: false
+        tuning: docs/tuning.md  # 可选，调参说明链接
 
-Keys are dotted profile paths of lowercase words, for example
-``limits.max_vel_x``. A key may not be declared by two packages, and no key may
-be nested inside another declared key.
+点分键和包名须完整匹配小写命名规则；目录拒绝重复声明及键的祖先/后代冲突。
+数据类不自行验证，校验入口仍保留版本数值相等及空值处理等既有语义。
 """
 
 from __future__ import annotations
@@ -52,26 +49,26 @@ _SPEC_FIELDS = frozenset({
 
 
 class SchemaError(ValueError):
-    """A schema file is malformed or conflicts with another schema."""
+    """表示 schema 读取、格式或声明合并冲突，不包含所有 Python 异常."""
 
 
 @dataclass(frozen=True)
 class ParameterSpec:
-    """Declaration of one profile key.
+    """保存一个档案键的声明，冻结字段但不深度冻结默认值.
 
     Attributes:
-        key: Dotted profile path, for example ``limits.max_vel_x``.
-        package: Package that consumes and documents the key.
-        value_type: One of :data:`TYPES`; the ``type`` field in the file.
-        description: What the key controls.
-        has_default: Whether the declaration has a ``default`` field.
-        default: Value used when a profile omits the key; ``None`` means unset.
-        unit: Unit of the value, if any.
-        value_range: Inclusive ``(minimum, maximum)``; a ``None`` bound is open.
-        choices: Allowed values, if restricted.
-        items: Element type of a ``list`` value, if restricted.
-        required: Whether every profile must set the key.
-        tuning: Link to tuning notes, if any.
+        key: 点分档案路径，例如 limits.max_vel_x。
+        package: 消费并声明该键的包名。
+        value_type: 文件 type 字段，对应 TYPES 中的类型名。
+        description: 参数用途说明。
+        has_default: 是否显式声明 default 字段，区别于默认值为 None。
+        default: 声明的默认值；None 表示未设置，不会由目录自动写回档案。
+        unit: 可选单位文本。
+        value_range: 可选闭区间 (下界, 上界)，None 端表示开放边界。
+        choices: 可选允许值元组。
+        items: list 元素的可选标量类型约束。
+        required: 是否要求档案显式包含该键。
+        tuning: 可选调参说明链接。
     """
 
     key: str
@@ -90,12 +87,12 @@ class ParameterSpec:
 
 @dataclass(frozen=True)
 class PackageSchema:
-    """The parameters one package declares.
+    """保存一个包的 schema 解析结果，不自行验证内容.
 
     Attributes:
-        package: Package name.
-        path: File the schema was read from.
-        parameters: Declarations ordered by key.
+        package: 包名。
+        path: schema 来源路径，用于诊断。
+        parameters: 声明元组，parse_schema 返回时按键排序。
     """
 
     package: str
@@ -105,12 +102,12 @@ class PackageSchema:
 
 @dataclass(frozen=True)
 class ProfileIssue:
-    """A problem found in a robot profile.
+    """表示一条档案检查发现，不自行执行拒绝或告警动作.
 
     Attributes:
-        key: Dotted profile path.
-        severity: ``error`` rejects the profile; ``warn`` is reported only.
-        message: Description including the key.
+        key: 涉及的点分档案路径。
+        severity: error 表示校验错误，warn 表示未声明等提示。
+        message: 通常含键名的说明文本。
     """
 
     key: str
@@ -119,17 +116,21 @@ class ProfileIssue:
 
 
 def parse_schema(data: Any, path: Union[str, Path]) -> PackageSchema:
-    """Validate the parsed content of a schema file.
+    """按自有版本格式检查已解析的 schema 数据并构造声明.
+
+    版本沿用 Python 相等比较；parameters 的假值先视为空映射，不作严格类型拒绝。
+    包名和键完整匹配格式，单个声明检查字段组合及非 None 默认值。
+    此处不检查跨声明键嵌套或重复包，交由 ParameterCatalog 处理。
 
     Args:
-        data: Content of a schema file as loaded from YAML.
-        path: File the data came from, used in messages.
+        data: YAML 解析结果，顶层要求 dict。
+        path: 来源文件名，用于错误信息和结果记录。
 
     Returns:
-        The package schema.
+        参数按键排序的包声明；部分嵌套默认值仍引用原数据。
 
     Raises:
-        SchemaError: If the data does not follow the schema format.
+        SchemaError: 已处理的格式、声明约束或默认值错误。
     """
     source = str(path)
     if not isinstance(data, dict):
@@ -151,16 +152,17 @@ def parse_schema(data: Any, path: Union[str, Path]) -> PackageSchema:
 
 
 def load_schema(path: Union[str, Path]) -> PackageSchema:
-    """Read and validate a schema file.
+    """读取 UTF-8 YAML 并调用自有 schema 解析器.
 
     Args:
-        path: The ``config/schema.yaml`` file.
+        path: config/schema.yaml 的路径。
 
     Returns:
-        The package schema.
+        解析的包声明。
 
     Raises:
-        SchemaError: If the file cannot be read or does not follow the format.
+        SchemaError: 文件 IO、YAML 解析或已处理的格式错误。
+        UnicodeError: UTF-8 解码失败，不统一包装为 SchemaError。
     """
     try:
         data = yaml.safe_load(Path(path).read_text(encoding='utf-8'))
@@ -170,14 +172,18 @@ def load_schema(path: Union[str, Path]) -> PackageSchema:
 
 
 def check_value(spec: ParameterSpec, value: Any) -> List[str]:
-    """Check a value against a declaration.
+    """按已解析声明检查类型、列表元素、范围及枚举.
+
+    不检查数值有限性，也不递归验证 map 的内部字段。调用方需传入有效声明，
+    手工构造的非法约束组合可能直接触发 Python 异常。
 
     Args:
-        spec: The declaration.
-        value: The value from a profile or a default.
+        spec: 预期已通过解析器校验的声明。
+        value: 档案值或默认值，不在此特殊放行 None。
 
     Returns:
-        Problem descriptions; empty if the value is valid.
+        问题说明列表；类型不符时立即返回一项，否则累计其它约束问题。
+        空列表只表示通过这里实现的检查，不证明全部业务约束成立。
     """
     if not _has_type(value, spec.value_type):
         return [f'{spec.key}: expected {spec.value_type}, got {type(value).__name__} {value!r}']
@@ -200,17 +206,20 @@ def check_value(spec: ParameterSpec, value: Any) -> List[str]:
 
 
 class ParameterCatalog:
-    """All parameter declarations of a set of packages."""
+    """合并多个包的参数声明，并按目录检查档案.
+
+    只检测重复包、重复键及声明键嵌套，不重新解析手工构造的数据类，
+    也不填入默认值、加载 ROS 参数或修改档案。
+    """
 
     def __init__(self, schemas: Iterable[PackageSchema]) -> None:
-        """Merge package schemas.
+        """索引声明并拒绝重复所有者或祖先/后代键冲突.
 
         Args:
-            schemas: Schemas to merge, at most one per package.
+            schemas: 包声明迭代器，每个包最多出现一次，声明对象不深复制。
 
         Raises:
-            SchemaError: If a package has two schemas, a key is declared by two
-                packages, or a key is nested inside another declared key.
+            SchemaError: 包重复、键重复，或某个声明键位于另一个声明键之下。
         """
         self._schemas: Dict[str, PackageSchema] = {}
         self._specs: Dict[str, ParameterSpec] = {}
@@ -236,30 +245,30 @@ class ParameterCatalog:
 
     @property
     def packages(self) -> Tuple[str, ...]:
-        """Tuple[str, ...]: Names of the merged packages, sorted."""
+        """Tuple[str, ...]: 按名称排序的包名元组."""
         return tuple(sorted(self._schemas))
 
     @property
     def specs(self) -> Tuple[ParameterSpec, ...]:
-        """Tuple[ParameterSpec, ...]: All declarations, sorted by key."""
+        """Tuple[ParameterSpec, ...]: 按键排序的声明元组，元素为已保存的对象."""
         return tuple(self._specs[key] for key in sorted(self._specs))
 
     def get(self, key: str) -> Optional[ParameterSpec]:
-        """Look up a declaration.
+        """按完整点分键查找已保存的声明.
 
         Args:
-            key: Dotted profile path.
+            key: 要精确匹配的点分路径。
 
         Returns:
-            The declaration, or ``None`` if no package declares the key.
+            声明对象本身；不存在时为 None，不复制嵌套值。
         """
         return self._specs.get(key)
 
     def defaults(self) -> Dict[str, Any]:
-        """Collect declared defaults.
+        """收集显式默认值，不应用到档案或深复制值.
 
         Returns:
-            Mapping of each key that has a default to that default.
+            点分键到默认值的新字典，包含显式 None；嵌套列表/映射仍共享引用。
         """
         return {spec.key: spec.default for spec in self.specs if spec.has_default}
 
@@ -268,16 +277,19 @@ class ParameterCatalog:
         profile: Mapping[str, Any],
         meta_keys: Sequence[str] = PROFILE_META_KEYS,
     ) -> List[ProfileIssue]:
-        """Check a nested robot profile against the declarations.
+        """对嵌套档案做声明检查，返回问题而不修改或补全输入.
+
+        元数据仅按顶层名称跳过，不在此检查其版本。声明为 map 的键作为整体值，
+        不再逐个警告其子键。显式 None 仅在声明默认值也显式为 None 时放行。
+        必需键只按是否出现判断；出现但值错误时报告值错误而非再报缺失。
 
         Args:
-            profile: Profile as loaded from YAML.
-            meta_keys: Top-level keys that describe the file itself.
+            profile: 预期映射形状的档案。
+            meta_keys: 忽略的顶层元数据键名。
 
         Returns:
-            Errors for invalid values and missing required keys, and warnings
-            for keys no package declares, in profile order followed by the
-            missing keys.
+            按档案遍历顺序的值错误/未声明警告，再附按键排序的缺失必需项。
+            不做全部机器人业务约束、递归深度或循环引用检查。
         """
         issues: List[ProfileIssue] = []
         seen: List[str] = []
@@ -324,27 +336,28 @@ class ParameterCatalog:
 
 
 def ament_prefixes(environ: Mapping[str, str]) -> List[Path]:
-    """List the install prefixes of ``AMENT_PREFIX_PATH``.
+    """拆分环境提供的 AMENT_PREFIX_PATH，保留前缀顺序.
 
     Args:
-        environ: Environment, typically ``os.environ``.
+        environ: 要读取的环境映射，不修改真实环境。
 
     Returns:
-        Prefixes in overlay order, the most specific first.
+        排除空段后的 Path 列表；不展开用户目录、去重或检查存在性。
+        第一个前缀由调用方约定为优先 overlay。
     """
     entries = environ.get('AMENT_PREFIX_PATH', '').split(os.pathsep)
     return [Path(entry) for entry in entries if entry]
 
 
 def find_installed_schemas(prefixes: Sequence[Union[str, Path]]) -> List[Path]:
-    """Find the schema files of installed packages.
+    """在各安装前缀的 share 下发现固定相对位置的 schema.
 
     Args:
-        prefixes: Install prefixes in overlay order.
+        prefixes: 按优先级排序的安装前缀。
 
     Returns:
-        ``<prefix>/share/<package>/config/schema.yaml`` files sorted by
-        package; for a package in several prefixes the first prefix wins.
+        按包目录名排序的候选路径列表，同名包首个前缀优先。
+        不解析 package.xml、校验包归属或确认候选是常规可读文件。
     """
     found: Dict[str, Path] = {}
     for prefix in prefixes:
@@ -357,15 +370,15 @@ def find_installed_schemas(prefixes: Sequence[Union[str, Path]]) -> List[Path]:
 
 
 def find_source_schemas(source_root: Union[str, Path]) -> List[Path]:
-    """Find the schema files of packages in a source tree.
+    """按 package.xml 和固定 schema 路径发现源码包声明.
 
     Args:
-        source_root: Workspace ``src`` directory.
+        source_root: 工作空间 src 扫描根。
 
     Returns:
-        ``config/schema.yaml`` files of directories that contain a
-        ``package.xml``, sorted by path; packages under a ``COLCON_IGNORE``
-        are skipped.
+        按 package.xml 路径顺序收集的 config/schema.yaml 文件。
+        包到扫描根之间存在 COLCON_IGNORE 时排除；不解析清单、其它
+        colcon 忽略规则或包依赖，也不保证遍历期间文件稳定。
     """
     root = Path(source_root)
     schemas = []
@@ -380,16 +393,17 @@ def find_source_schemas(source_root: Union[str, Path]) -> List[Path]:
 
 
 def load_catalog(paths: Iterable[Union[str, Path]]) -> ParameterCatalog:
-    """Load schema files and merge them.
+    """逐个读取 schema，再合并声明目录.
 
     Args:
-        paths: Schema files.
+        paths: schema 路径迭代器。
 
     Returns:
-        The merged catalog.
+        已完成合并冲突检查的目录，不应用到运行节点。
 
     Raises:
-        SchemaError: If a file is malformed or the schemas conflict.
+        SchemaError: 文件解析或合并出现已处理错误。
+        UnicodeError: 输入文件 UTF-8 解码失败。
     """
     return ParameterCatalog(load_schema(path) for path in paths)
 

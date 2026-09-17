@@ -1,19 +1,12 @@
-"""Render node parameter files from a robot profile (refactor plan §12).
+"""从机器人档案、模式叠加和绑定表生成节点参数树.
 
-Rendering joins three inputs:
+基础树用 <bind:frames.nav_base> 等标记引用档案键；绑定表列出各键
+写入的参数路径，模式 profile 深合并后再赋值。nav2_overrides 仅可
+修改未绑定内容，不得覆盖绑定值本身、祖先或后代；列表下标别名按实际
+容器类型归一化，字典数字键仍保持区别。
 
-* a base parameter tree (``nav_bringup/config/nav2_base.yaml``) in which every
-  robot-specific value is a binding marker such as ``<bind:frames.nav_base>``;
-* a binding table that lists every parameter path each profile key is written
-  to, so parameters that must be equal are equal by construction (plan §12.3);
-* the robot profile deep-merged with a mode overlay (``modes/<mode>.yaml``),
-  whose ``nav2_overrides`` may set tuning parameters that are not profile keys.
-
-Markers and table must agree exactly: a marker without a binding, a bound path
-that does not hold its marker, or an override of a bound parameter is an
-error. Parameter paths separate keys with ``/`` because Nav2 parameter names
-contain dots (``controller_server/ros__parameters/FollowPath/BaseObstacle.scale``);
-integer segments index lists.
+参数路径按斜杠分隔，保留 Nav2 参数名中的点；列表位置使用整数下标。
+本模块不启动 ROS，不自动执行完整档案业务校验，也不保证写文件原子性。
 """
 
 from __future__ import annotations
@@ -38,7 +31,7 @@ _MODE_FIELDS = frozenset({'schema_version', 'mode', 'description', 'profile', 'n
 
 
 class RenderError(ValueError):
-    """The inputs of a render are malformed or inconsistent."""
+    """表示参数渲染的已处理格式或一致性错误，不涵盖所有底层异常."""
 
 
 def _index(node: List[Any], segment: str, path: str) -> int:
@@ -150,12 +143,12 @@ VALUE_FORMATS: Dict[str, Callable[[Any], Any]] = {
 
 @dataclass(frozen=True)
 class Binding:
-    """Where one profile key is written.
+    """保存一个档案键到参数树路径的绑定，不自行执行校验.
 
     Attributes:
-        key: Dotted profile key, for example ``frames.nav_base``.
-        paths: Parameter paths that receive the value.
-        value_format: Name in :data:`VALUE_FORMATS` applied to the profile value.
+        key: 点分档案键，例如 frames.nav_base。
+        paths: 接收该值的斜杠分隔参数路径元组。
+        value_format: VALUE_FORMATS 中选择的格式化函数名称。
     """
 
     key: str
@@ -165,12 +158,12 @@ class Binding:
 
 @dataclass(frozen=True)
 class ModeOverlay:
-    """The differences of one mode from the robot profile.
+    """保存模式对档案和未绑定参数的差异，冻结但不深度复制映射.
 
     Attributes:
-        name: Mode name.
-        profile: Nested profile values merged over the robot profile.
-        nav2_overrides: Parameter path to value, applied after the bindings.
+        name: 非空模式名；parse_mode 不强制命名字符规则。
+        profile: 深合并到机器人档案上的嵌套值。
+        nav2_overrides: 绑定填充后应用的参数路径到值映射。
     """
 
     name: str
@@ -179,16 +172,16 @@ class ModeOverlay:
 
 
 def split_path(path: str) -> List[str]:
-    """Split a parameter path into its segments.
+    """按斜杠拆分参数路径并拒绝空路径段.
 
     Args:
-        path: ``/``-separated parameter path.
+        path: 斜杠分隔的字符串，参数名中的点保持原样。
 
     Returns:
-        The segments in order.
+        顺序路径段列表，不剥除空白或在此验证列表下标。
 
     Raises:
-        RenderError: If the path or one of its segments is empty.
+        RenderError: 输入非字符串、为空，或含空路径段。
     """
     segments = path.split(PATH_SEPARATOR) if isinstance(path, str) else []
     if not segments or any(not segment for segment in segments):
@@ -197,17 +190,18 @@ def split_path(path: str) -> List[str]:
 
 
 def get_path(tree: Any, path: str) -> Any:
-    """Read a value from a parameter tree.
+    """沿 dict 键和列表下标读取参数树，返回原值引用.
 
     Args:
-        tree: Nested mappings and lists.
-        path: Parameter path.
+        tree: 由 dict 和 list 组成的嵌套树。
+        path: 斜杠分隔路径。
 
     Returns:
-        The value at the path.
+        路径对应的值，不进行复制。
 
     Raises:
-        RenderError: If the path does not exist.
+        RenderError: 路径缺失、容器不能下钻或下标无效。
+        ValueError: 特殊数字字符不能转为整数下标。
     """
     node = tree
     for segment in split_path(path):
@@ -216,17 +210,17 @@ def get_path(tree: Any, path: str) -> Any:
 
 
 def set_path(tree: Any, path: str, value: Any, create: bool = False) -> None:
-    """Write a value into a parameter tree.
+    """原地设置路径值，仅可选允许新增末尾字典键.
 
     Args:
-        tree: Nested mappings and lists, modified in place.
-        path: Parameter path.
-        value: Value to write.
-        create: Whether the last segment may add a new mapping key; parents
-            must always exist.
+        tree: 要修改的 dict/list 嵌套树。
+        path: 斜杠分隔路径，中间父节点必须存在。
+        value: 直接赋入的值，不复制，调用方负责共享引用。
+        create: 是否允许新增末尾字典键；不创建父级、不追加列表。
 
     Raises:
-        RenderError: If the path does not exist and may not be created.
+        RenderError: 路径或父节点无效，或不允许新增末尾键。
+        ValueError: 特殊数字字符不能转为整数下标。
     """
     segments = split_path(path)
     parent = tree
@@ -244,17 +238,20 @@ def set_path(tree: Any, path: str, value: Any, create: bool = False) -> None:
 
 
 def find_markers(tree: Any, prefix: str = '') -> Dict[str, str]:
-    """Find binding markers in a parameter tree.
+    """递归查找以绑定前缀开头且完整匹配语法的字符串.
+
+    只有以 <bind: 开头的字符串会尝试标记校验；其它字符串保持普通值。
+    不处理循环引用或深度预算，字典键转字符串后可能碰撞。
 
     Args:
-        tree: Nested mappings and lists.
-        prefix: Path of ``tree`` inside a larger tree.
+        tree: dict/list 嵌套树或叶子值。
+        prefix: 当前树在更大树中的路径前缀。
 
     Returns:
-        Mapping of each marker path to its profile key.
+        标记路径到档案键的映射，列表路径按规范十进制下标生成。
 
     Raises:
-        RenderError: If a marker is malformed or a mapping key contains ``/``.
+        RenderError: 标记格式无效或字典键的字符串包含斜杠。
     """
     if isinstance(tree, str):
         if not tree.startswith(_MARKER_PREFIX):
@@ -280,14 +277,15 @@ def find_markers(tree: Any, prefix: str = '') -> Dict[str, str]:
 
 
 def deep_merge(base: Mapping[str, Any], overlay: Mapping[str, Any]) -> Dict[str, Any]:
-    """Merge nested mappings.
+    """深复制并合并嵌套映射，列表与标量整体替换.
 
     Args:
-        base: Values to start from.
-        overlay: Values that win; lists and scalars replace, mappings merge.
+        base: 基础值映射。
+        overlay: 覆盖值映射；仅两侧同为 Mapping 时递归合并。
 
     Returns:
-        A new mapping; the inputs are not modified.
+        新字典；普通 YAML 输入不被修改。深复制或递归异常直接传播，
+        不提供任意自定义对象或循环图的统一处理保证。
     """
     merged = copy.deepcopy(dict(base))
     for key, value in overlay.items():
@@ -299,17 +297,17 @@ def deep_merge(base: Mapping[str, Any], overlay: Mapping[str, Any]) -> Dict[str,
 
 
 def profile_value(profile: Mapping[str, Any], key: str) -> Any:
-    """Read a dotted key from a nested profile.
+    """沿点分键查找档案值，不应用默认值或复制对象.
 
     Args:
-        profile: Robot profile.
-        key: Dotted profile key.
+        profile: 嵌套档案映射。
+        key: 点分路径，不在此执行 schema 键名格式校验。
 
     Returns:
-        The value.
+        匹配值的直接引用。
 
     Raises:
-        RenderError: If the profile has no value for the key.
+        RenderError: 任一路径段缺失或其父节点不是 Mapping。
     """
     node: Any = profile
     for part in key.split('.'):
@@ -320,17 +318,21 @@ def profile_value(profile: Mapping[str, Any], key: str) -> Any:
 
 
 def parse_bindings(data: Any, source: Union[str, Path]) -> Dict[str, Binding]:
-    """Validate the parsed content of a binding table.
+    """解析绑定表，校验键语法、格式器及精确路径重复.
+
+    顶层版本沿用相等比较，未检查其它顶层字段。路径重复按原字符串判断；
+    基础树标记与绑定路径的一致性在 render 中再验证。
 
     Args:
-        data: Content of a binding table as loaded from YAML.
-        source: Where the data came from, used in messages.
+        data: YAML 解析的绑定表。
+        source: 用于错误消息的来源名称。
 
     Returns:
-        Bindings by profile key.
+        按档案键索引的 Binding 字典，路径保存为元组。
 
     Raises:
-        RenderError: If the table is malformed or two keys bind the same path.
+        RenderError: 已处理的表结构、键名、格式名、路径或重复绑定错误。
+        TypeError: 例如不可哈希的 format 值等未包装的异常。
     """
     if not isinstance(data, dict) or data.get('schema_version') != BINDINGS_SCHEMA_VERSION:
         raise RenderError(f'{source}: expected schema_version {BINDINGS_SCHEMA_VERSION}')
@@ -367,17 +369,20 @@ def parse_bindings(data: Any, source: Union[str, Path]) -> Dict[str, Binding]:
 
 
 def parse_mode(data: Any, source: Union[str, Path]) -> ModeOverlay:
-    """Validate the parsed content of a mode overlay.
+    """解析模式差异并校验映射和路径的基本形状.
+
+    模式名只要求非空字符串；版本沿用相等比较，description 内容不验证。
+    未验证 profile 的业务语义，也不深复制 profile/nav2_overrides 映射。
 
     Args:
-        data: Content of a mode overlay as loaded from YAML.
-        source: Where the data came from, used in messages.
+        data: YAML 解析的模式叠加数据。
+        source: 用于错误消息的来源名称。
 
     Returns:
-        The overlay.
+        保存原映射引用的 ModeOverlay。
 
     Raises:
-        RenderError: If the overlay is malformed.
+        RenderError: 版本、未知顶层字段、名称、映射或路径形状不符。
     """
     if not isinstance(data, dict) or data.get('schema_version') != MODE_SCHEMA_VERSION:
         raise RenderError(f'{source}: expected schema_version {MODE_SCHEMA_VERSION}')
@@ -404,21 +409,26 @@ def render(
     profile: Mapping[str, Any],
     mode: Optional[ModeOverlay] = None,
 ) -> Dict[str, Any]:
-    """Render a parameter tree.
+    """填充基础树的绑定标记，再应用不触及绑定值的模式覆盖.
+
+    绑定表必须已按入口规则解析；基础标记和路径须一致。覆盖检查使用
+    实际容器类型规范化列表下标，并拒绝绑定值本身、祖先与后代。
+    允许在已有未绑定字典中新增末尾键。这里不执行 schema/业务值校验，
+    也不递归展开档案值或覆盖值中新注入的标记文本。
 
     Args:
-        base: Base parameter tree with binding markers.
-        bindings: Binding table by profile key.
-        profile: Robot profile.
-        mode: Mode overlay, if any.
+        base: 含绑定标记的基础参数映射。
+        bindings: 按档案键索引的已解析绑定表。
+        profile: 机器人档案。
+        mode: 可选模式叠加。
 
     Returns:
-        A new parameter tree without markers; the inputs are not modified.
+        新参数树，普通 YAML 输入不被修改；基础树原有标记已替换，
+        不保证注入值中没有形似标记的普通字符串。
 
     Raises:
-        RenderError: If markers and bindings disagree, a profile value is
-            missing or has the wrong shape, or an override targets a bound or
-            missing parameter.
+        RenderError: 基础标记不匹配、档案键缺失、格式器形状错误、
+            覆盖与绑定重叠或覆盖父路径缺失等已处理错误。
     """
     markers = find_markers(base)
     bound = {path: key for key, binding in bindings.items() for path in binding.paths}
@@ -458,16 +468,17 @@ def render(
 
 
 def load_yaml(path: Union[str, Path]) -> Any:
-    """Read a YAML file.
+    """读取 UTF-8 文本并使用 safe_load 解析 YAML.
 
     Args:
-        path: The file.
+        path: 输入文件路径。
 
     Returns:
-        The parsed content.
+        任意 YAML 解析值，可能为 None；不在此要求映射形状。
 
     Raises:
-        RenderError: If the file cannot be read or parsed.
+        RenderError: IO 或 YAML 解析失败。
+        UnicodeError: UTF-8 解码失败，不统一包装为 RenderError。
     """
     try:
         return yaml.safe_load(Path(path).read_text(encoding='utf-8'))
@@ -481,19 +492,22 @@ def render_files(
     profile_path: Union[str, Path],
     mode_path: Optional[Union[str, Path]] = None,
 ) -> Dict[str, Any]:
-    """Render a parameter tree from files.
+    """依次读取基础树、档案、绑定表及可选模式后渲染.
+
+    输入按普通路径依次读取，没有文件快照或跨文件事务。
 
     Args:
-        base_path: Base parameter tree with markers.
-        bindings_path: Binding table.
-        profile_path: Robot profile.
-        mode_path: Mode overlay, if any.
+        base_path: 含绑定标记的基础参数 YAML。
+        bindings_path: 绑定表 YAML。
+        profile_path: 机器人档案 YAML。
+        mode_path: 可选模式叠加 YAML。
 
     Returns:
-        The rendered parameter tree.
+        渲染参数树，不写文件或启动节点。
 
     Raises:
-        RenderError: If an input is unreadable, malformed or inconsistent.
+        RenderError: 已处理的读取、结构或一致性错误。
+        UnicodeError: 输入不能按 UTF-8 解码。
     """
     base = load_yaml(base_path)
     if not isinstance(base, dict):
@@ -507,11 +521,15 @@ def render_files(
 
 
 def write_parameters(path: Union[str, Path], tree: Mapping[str, Any]) -> None:
-    """Write a rendered parameter tree as YAML.
+    """将参数树覆盖写入 YAML，不创建父目录或原子替换.
 
     Args:
-        path: Destination file.
-        tree: Rendered parameter tree.
+        path: 目标文件，打开时截断已有内容。
+        tree: 渲染参数映射；只复制最外层为 dict，不再校验参数。
+
+    Raises:
+        OSError: 目标打开或写入失败。
+        yaml.YAMLError: 数据不能按 YAML 表示；失败可能已截断或部分写入目标。
     """
     with Path(path).open('w', encoding='utf-8') as handle:
         yaml.safe_dump(dict(tree), handle, allow_unicode=True, sort_keys=False)
