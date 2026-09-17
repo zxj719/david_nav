@@ -1,4 +1,4 @@
-"""Sequential POI navigation skill sharing the manager's one navigation backend."""
+"""实现共享单一运动后端的顺序 POI 导航、吸附分段与失败重试."""
 
 from dataclasses import dataclass
 import math
@@ -14,17 +14,17 @@ from nav_tasks.domain.types import StoredPoi
 
 @dataclass(frozen=True)
 class NavigateToPoiRequest:
-    """Detached anchor captured by the decoder before motion admission.
+    """保存准入前按 ID 取得的锚点值，不自行校验坐标或深复制仓库对象.
 
     Attributes:
-        poi: 已经解析并校验的导航 POI。
+        poi: 按 ID 从仓库取得的导航 POI，此值对象不验证几何。
     """
 
     poi: StoredPoi
 
 
 class NavigateToPoi:
-    """Resolve anchor/snap goals and retry each segment without nested callbacks."""
+    """解析锚点/吸附目标并顺序执行各段重试，不通过嵌套回调创建第二任务."""
 
     def __init__(
         self, backend: NavigationBackend, pois: PoiRepository, resolver: GoalResolver,
@@ -32,19 +32,20 @@ class NavigateToPoi:
         progress_min_interval_sec: float = 1.0,
         on_failure: Callable[[TaskContext, RetryFailure], None] | None = None,
     ) -> None:
-        """Inject ports and explicit interval/retry policy.
+        """注入共享端口、反馈间隔和单段重试策略，不创建动作客户端.
 
         Args:
-            backend: Shared one-attempt motion backend, never a per-skill client.
-            pois: Repository used to resolve IDs before admission.
-            resolver: Anchor/snap policy; dock routing must use its separate skill.
-            retry: Per-segment failure retry policy.
-            clock: Monotonic interval clock; defaults to the production clock.
-            progress_min_interval_sec: Minimum feedback-report interval per attempt.
-            on_failure: Optional synchronous retry audit observer, outside motion policy.
+            backend: 共享单次尝试后端，不是每技能独有客户端。
+            pois: 在准入前按 ID 查询点位的仓库。
+            resolver: 锚点/吸附策略；Dock 应在进入此技能前单独路由。
+            retry: 每段导航分别使用的失败重试策略。
+            clock: 可选单调间隔时钟，默认 MonotonicClock。
+            progress_min_interval_sec: 每次尝试的最小反馈报告间隔，单位秒。
+            on_failure: 可选同步失败观察者，不在此改变重试政策。
 
         Raises:
-            ConfigError: Feedback interval is negative or nonfinite.
+            ConfigError: 反馈间隔为负或非有限。
+            TypeError: 间隔不支持有限性检查。
         """
         if not math.isfinite(progress_min_interval_sec) or progress_min_interval_sec < 0:
             raise ConfigError('progress_min_interval_sec must be finite and nonnegative')
@@ -57,17 +58,18 @@ class NavigateToPoi:
         self._on_failure = on_failure
 
     def decode(self, payload: Mapping[str, object]) -> NavigateToPoiRequest:
-        """Resolve a POI ID before an existing motion task can be preempted.
+        """在抢占已有任务前验证目标 ID 并查询仓库，不在此校验位姿几何.
 
         Args:
-            payload: Domain values containing target_id; no wire message types.
+            payload: 含 target_id 的领域字段映射，不接收线协议消息类型。
 
         Returns:
-            Immutable target snapshot for the handler.
+            包装仓库所返回 POI 的冻结请求，不自动复制或规范化其坐标。
 
         Raises:
-            ConfigError: Target ID is missing, empty or not a string.
-            PoiNotFoundError: The requested POI does not exist.
+            ConfigError: ID 缺失、为空白或不是字符串。
+            PoiNotFoundError: 仓库中不存在该 ID。
+            Exception: 仓库查询失败。
         """
         target = payload.get('target_id')
         if not isinstance(target, str) or not target.strip():
@@ -78,18 +80,22 @@ class NavigateToPoi:
         return NavigateToPoiRequest(poi)
 
     async def run(self, context: TaskContext, payload: object) -> NavOutcome:
-        """Navigate to snap and, only when newly admissible, to the anchor.
+        """先导航到选定目标；吸附成功且锚点重新准入时才追加锚点段.
+
+        吸附后锚点仍不准入时保留吸附段的成功结果，不把它误写为必然到达原锚点。
+        各段失败独立套用重试预算；此技能不处理 Dock 两段式入位。
 
         Args:
-            context: Task identity and fenced loop-thread feedback callback.
-            payload: NavigateToPoiRequest prepared by decode.
+            context: 任务身份及受代次保护的循环内回调。
+            payload: decode 生成的 NavigateToPoiRequest。
 
         Returns:
-            Final segment outcome; an inaccessible anchor after snap is success.
+            最后一段的结果；无候选为失败，吸附成功但锚点不准入仍为成功。
 
         Raises:
-            TypeError: Registration supplied the wrong domain payload.
-            asyncio.CancelledError: Propagates, sealing retries and the next segment.
+            TypeError: 注册表提供的领域载荷类型错误。
+            asyncio.CancelledError: 取消传播并封闭重试和下一分段。
+            Exception: 解析器、后端、回调或重试时钟失败。
         """
         if not isinstance(payload, NavigateToPoiRequest):
             raise TypeError('NavigateToPoi requires NavigateToPoiRequest')

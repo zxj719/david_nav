@@ -1,4 +1,4 @@
-"""Dock task decoding and POI routing with no snapping or displacement retries."""
+"""解码 Dock 请求并按显式 POI ID 路由，绕过普通吸附和位移重试."""
 
 from dataclasses import dataclass
 import math
@@ -15,11 +15,14 @@ from nav_tasks.domain.types import PoseRecord, StoredPoi
 
 @dataclass(frozen=True)
 class DockRequest:
-    """Detached target; an optional POI retains legacy WS diagnostics and status labels.
+    """保存 Dock 目标及可选 POI，供旧诊断文本和状态关联使用.
+
+    数据类自身不校验字段；直接位姿入口的 decode 只验证平面数值，
+    POI 路由则直接包装仓库位姿，不经过该直接位姿解码器。
 
     Attributes:
         poi: 按标识解析的 Dock POI，直接位姿入站时可为 None。
-        pose: 已校验的 Dock 目标位姿，直接目标与 POI 路由均提供。
+        pose: 直接目标或 POI 路由提供的 Dock 位姿，不在数据类中校验。
     """
 
     pose: PoseRecord
@@ -27,24 +30,25 @@ class DockRequest:
 
 
 class Dock:
-    """Run the managed docking port once and throttle only scalar task progress."""
+    """只执行一次托管 Dock 流程，对标量进度限频但不改变完整 ROS 反馈."""
 
     def __init__(
         self, backend: DockBackend, *, clock: Clock | None = None,
         progress_min_interval_sec: float = 1.0, retry_delay_sec: float = 1.0,
         on_failure: Callable[[TaskContext, RetryFailure], None] | None = None,
     ) -> None:
-        """Inject execution and reporting without changing the worker's Dock policy.
+        """注入 Dock 后端和报告策略，不改变工作线程的两段式入位政策.
 
         Args:
-            backend: Managed Dock port using the one shared motion backend.
-            clock: Monotonic reporting/diagnostic clock.
-            progress_min_interval_sec: Legacy progress interval, not a raw-feedback filter.
-            retry_delay_sec: Kept for legacy audit provenance; the retry count is always zero.
-            on_failure: Optional frozen single-attempt POI failure audit.
+            backend: 使用唯一共享运动后端的托管 Dock 端口。
+            clock: 单调报告/耗时诊断时钟。
+            progress_min_interval_sec: 旧标量进度间隔，不是原始反馈过滤器。
+            retry_delay_sec: 保留在旧失败观察中的间隔来源；重试次数固定为零，不实际等待重试。
+            on_failure: 可选同步单次 POI 失败观察者。
 
         Raises:
-            ConfigError: A reporting interval is invalid.
+            ConfigError: 报告间隔或重试观察延迟为负或非有限。
+            TypeError: 间隔不能参与有限性检查。
         """
         if not math.isfinite(progress_min_interval_sec) or progress_min_interval_sec < 0:
             raise ConfigError('progress_min_interval_sec must be finite and nonnegative')
@@ -55,16 +59,18 @@ class Dock:
         self._on_failure = on_failure
 
     def decode(self, payload: Mapping[str, object]) -> DockRequest:
-        """Validate direct Dock pose requests before preempting any existing task.
+        """在准入前检查直接 Dock 位姿的类型及 x/y/yaw 有限性.
+
+        不验证 frame_id、z 或 stamp_sec；坐标系解释由入站/工作线程边界负责。
 
         Args:
-            payload: Domain payload containing an already-decoded PoseRecord under pose.
+            payload: pose 字段为已解码 PoseRecord 的领域载荷。
 
         Returns:
-            Immutable planar target; frame interpretation stays at the ingress boundary.
+            保留原位姿对象的冻结 DockRequest，不产生坐标变换。
 
         Raises:
-            ConfigError: The pose type or coordinates are invalid.
+            ConfigError: 位姿类型错误，或平面坐标不是有限的非布尔 int/float。
         """
         pose = payload.get('pose')
         if not isinstance(pose, PoseRecord) or any(
@@ -74,19 +80,22 @@ class Dock:
         return DockRequest(pose)
 
     async def run(self, context: TaskContext, payload: object) -> NavOutcome:
-        """Run direct or POI docking exactly once, fencing canceled outcomes and feedback.
+        """执行一次直接或 POI Dock，屏蔽结束后的反馈并检查取消后成功.
+
+        POI 失败保留旧单次诊断包装，字符串中的 ABORTED 描述不是重新读取的
+        Nav2 状态；直接位姿失败保留后端结果。后端异常不改写成普通失败。
 
         Args:
-            context: Sole task owner's loop-thread callbacks and identity.
-            payload: Decoded immutable DockRequest.
+            context: 唯一任务所有者的循环内回调和身份。
+            payload: DockRequest，可带 POI 来源用于诊断。
 
         Returns:
-            Final docking outcome; POI failures retain old one-attempt diagnostic wrapping.
+            完整 Dock 结果，不是预备点结果；POI 失败按旧格式包装总尝试次数为一。
 
         Raises:
-            TypeError: A different payload was registered for this handler.
-            asyncio.CancelledError: Cancellation fences arrival and later motion.
-            Exception: Worker cleanup failed; do not treat it as ordinary Dock failure.
+            TypeError: 载荷不是 DockRequest。
+            asyncio.CancelledError: 取消封闭到达结果和后续动作。
+            Exception: 后端、清理、时钟或观察回调失败，不能当作普通 Dock 失败继续。
         """
         if not isinstance(payload, DockRequest):
             raise TypeError('Dock requires DockRequest')
@@ -136,40 +145,50 @@ class Dock:
 
 
 class DockAwareNavigation:
-    """Route configured POIs before ordinary snap or retry policy can touch them."""
+    """在普通吸附和重试之前，把显式配置的 POI ID 路由到 Dock."""
 
     def __init__(self, navigation: NavigateToPoi, dock: Dock, dock_ids: tuple[str, ...]) -> None:
-        """Share the normal decoder and dispatch only explicitly selected IDs to Dock.
+        """共用普通点位解码器，仅按显式标识集合选择 Dock.
 
         Args:
-            navigation: Unchanged ordinary POI skill and repository decoder.
-            dock: Managed one-attempt Dock handler.
-            dock_ids: Explicit configured IDs; never inferred from a POI's name.
+            navigation: 普通 POI 技能及其仓库解码器。
+            dock: 托管单次 Dock 技能。
+            dock_ids: 显式 Dock ID；不从名称推断，构造时保存为 frozenset。
         """
         self._navigation = navigation
         self._dock = dock
         self._dock_ids = frozenset(dock_ids)
 
     def decode(self, payload: Mapping[str, object]) -> NavigateToPoiRequest:
-        """Resolve a detached POI before motion admission using the ordinary decoder.
+        """委托普通解码器在准入前取得 POI，不执行 Dock 位姿解码.
 
         Args:
-            payload: Domain navigate_to payload.
+            payload: navigate_to 的领域载荷。
 
         Returns:
-            Immutable repository snapshot, preserving unknown-ID admission failure.
+            包装仓库 POI 的请求，保留未知 ID 的准入失败语义。
+
+        Raises:
+            ConfigError: 目标 ID 不合法。
+            PoiNotFoundError: 目标 ID 不存在。
+            Exception: 仓库查询失败。
         """
         return self._navigation.decode(payload)
 
     async def run(self, context: TaskContext, payload: object) -> NavOutcome:
-        """Select Dock or unchanged ordinary navigation under the same task owner.
+        """在同一任务所有者下选择 Dock 或普通导航，只执行其中一个技能.
 
         Args:
-            context: Shared task-owner context.
-            payload: Prepared POI target.
+            context: 共享的任务上下文。
+            payload: 已准备的 POI 请求；其它类型交给普通技能按其类型检查拒绝。
 
         Returns:
-            Final outcome from exactly one selected skill.
+            被选中技能的最终结果，不在路由层重试或吸附。
+
+        Raises:
+            TypeError: 普通技能收到不支持的载荷类型。
+            asyncio.CancelledError: 被选技能取消。
+            Exception: 被选技能失败。
         """
         if isinstance(payload, NavigateToPoiRequest) and payload.poi.poi_id in self._dock_ids:
             return await self._dock.run(context, DockRequest(payload.poi.map_pose, payload.poi))

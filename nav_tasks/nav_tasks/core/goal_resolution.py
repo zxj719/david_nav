@@ -1,4 +1,4 @@
-"""Pure legacy-equivalent free-space ring search, independent of ROS subscriptions."""
+"""保留旧轴对齐地图的同心圆环搜索，不依赖 ROS 订阅或完整路径规划."""
 
 from dataclasses import dataclass, replace
 import math
@@ -19,11 +19,10 @@ def _distance_xy(first: Point, second: Point) -> float:
 
 @dataclass(frozen=True)
 class SnapSearch:
-    """Search concentric costmap-cell rings using the existing traversal order.
+    """按旧代价地图格中心遍历顺序搜索同心圆环候选点.
 
-    Inputs retain the legacy axis-aligned GridMapView convention. Missing either
-    grid allows the anchor, and cost values other than zero are not free. This
-    extraction deliberately does not change those characterized policies.
+    缺少任一地图时允许原锚点，非零格值不算空闲。周边净空是代价地图圆形
+    采样规则，不是 Dock 完整轮廓检查。配置调整不等于完整数值合法性验证。
 
     Attributes:
         fallback_snap_radius: 后备搜索半径（米）。
@@ -40,7 +39,10 @@ class SnapSearch:
     snap_step: float = 0.25
 
     def __post_init__(self) -> None:
-        """Retain the legacy fallback upper bound and minimum radial step."""
+        """把最大半径至少扩到后备半径，并把扩圈步长至少设为 0.05 米.
+
+        不另外执行类型或有限性检查；调用方须提供适合有界搜索的配置。
+        """
         object.__setattr__(self, 'max_snap_radius', max(
             self.max_snap_radius, self.fallback_snap_radius))
         object.__setattr__(self, 'snap_step', max(self.snap_step, 0.05))
@@ -49,16 +51,20 @@ class SnapSearch:
         self, anchor_xy: Point, robot_xy: Point | None,
         grid: GridMapView | None, costmap: GridMapView | None,
     ) -> Point | None:
-        """Return the anchor or the first admissible point on an expanding ring.
+        """返回原锚点或首个通过准入规则的扩圈格中心.
+
+        先按半径从小到大搜索，每个圆环内才按机器人距离稳定排序；不是全局最近点
+        或路径代价最优搜索。无机器人位姿时保留候选的行优先顺序。
 
         Args:
-            anchor_xy: Requested world-coordinate anchor.
-            robot_xy: Current robot position; None preserves row-major candidate order.
-            grid: Static occupancy grid snapshot, if available.
-            costmap: Global costmap snapshot, if available.
+            anchor_xy: 请求的世界系锚点，单位米。
+            robot_xy: 机器人世界系位置；None 表示不按机器人距离排序。
+            grid: 可选静态占用栅格快照，采用旧轴对齐模型。
+            costmap: 可选全局代价地图快照，采用同一坐标约定。
 
         Returns:
-            Admissible world coordinates, or None when the search is exhausted.
+            准入的世界系坐标，搜索耗尽时为 None；缺任一地图时返回锚点。
+            输入地图和配置应有效，数值运算错误不会转换成搜索耗尽。
         """
         if self.is_admissible(anchor_xy, grid, costmap):
             return anchor_xy
@@ -76,15 +82,19 @@ class SnapSearch:
     def is_admissible(
         self, world_xy: Point, grid: GridMapView | None, costmap: GridMapView | None,
     ) -> bool:
-        """Apply the legacy zero-cost and circular-clearance checks.
+        """执行旧零代价和圆形净空规则，不检查完整车身或路径.
+
+        缺任一地图直接放行；否则要求两图中的目标格都恰为零。
+        净空扫描只查代价地图；外接方形扫描中的任一格越图即拒绝，即使该格中心
+        可能在圆外。此处保留既有边界规则，不把它表述成精确圆形几何包含。
 
         Args:
-            world_xy: Candidate in world coordinates.
-            grid: Static occupancy grid snapshot.
-            costmap: Global costmap snapshot.
+            world_xy: 世界系候选坐标，单位米。
+            grid: 静态占用地图，或 None。
+            costmap: 全局代价地图，或 None。
 
         Returns:
-            Whether the candidate is admissible under the existing policy.
+            在上述规则下是否准入；输入数值/地图错误仍可能抛异常。
         """
         if grid is None or costmap is None:
             return True
@@ -143,56 +153,62 @@ class SnapSearch:
 
 
 class DirectGoalResolver:
-    """Resolve a POI directly when the assembly root disables snapping."""
+    """在关闭吸附策略时原样返回点位，不作地图或路径可行性检查."""
 
     def resolve(self, poi: StoredPoi) -> ResolvedGoal:
-        """Return the unchanged anchor.
+        """原样返回请求锚点，不复制或修改其位姿.
 
         Args:
-            poi: Requested POI.
+            poi: 请求点位。
 
         Returns:
-            Direct non-snapped resolution.
+            used_snap 为 False 且保留原 POI 的结果。
         """
         return ResolvedGoal(poi, False)
 
     def is_admissible(self, poi: StoredPoi) -> bool:
-        """Accept the anchor without occupancy inspection.
+        """直接允许锚点，不读取任何占用信息.
 
         Args:
-            poi: Requested POI, unused by this policy.
+            poi: 请求点位，该策略不使用其字段。
 
         Returns:
-            True, matching the legacy direct resolver.
+            始终为 True，与旧直接解析策略一致。
         """
         return True
 
 
 class GridGoalResolver:
-    """Adapt pure grid search to POI values without subscribing to anything."""
+    """把栅格搜索结果适配为 POI 值，不自行创建订阅或运动任务."""
 
     def __init__(
         self, grids: GridSource, poses: PoseSource, search: SnapSearch = SnapSearch(),
     ) -> None:
-        """Inject data snapshots and search configuration.
+        """注入地图快照、位姿来源和搜索策略.
 
         Args:
-            grids: Provider of static-grid and costmap snapshots.
-            poses: Current-pose provider used to order snap candidates.
-            search: Pure search policy.
+            grids: 返回静态栅格和代价地图快照的提供者。
+            poses: 用于给圆环候选排序的当前位姿来源。
+            search: 纯搜索配置与准入策略。
         """
         self._grids = grids
         self._poses = poses
         self._search = search
 
     def resolve(self, poi: StoredPoi) -> ResolvedGoal | None:
-        """Find a target while preserving all nonposition POI fields.
+        """寻找原锚点或吸附目标，只替换选中 POI 地图位姿的 x/y.
+
+        地图快照获取错误会传播；仅机器人位姿读取的普通异常被忽略，退回行优先
+        候选顺序。未作 TF 帧转换，调用方负责地图和 POI 坐标约定一致。
 
         Args:
-            poi: Requested anchor.
+            poi: 请求锚点，非位置字段保持不变。
 
         Returns:
-            Direct/snapped POI, or None when no candidate is admissible.
+            原始或吸附 POI，找不到合格候选时为 None；不证明存在可执行路径。
+
+        Raises:
+            Exception: 地图提供者、搜索或坐标计算失败。
         """
         anchor_xy = (poi.map_pose.x, poi.map_pose.y)
         grid, costmap = self._grids()
@@ -211,13 +227,16 @@ class GridGoalResolver:
         return ResolvedGoal(snapped, True)
 
     def is_admissible(self, poi: StoredPoi) -> bool:
-        """Recheck an anchor using the latest grid snapshots.
+        """用最新地图快照重新检查锚点，仍采用旧缺图放行策略.
 
         Args:
-            poi: Original POI anchor.
+            poi: 要重新检查的原锚点。
 
         Returns:
-            Whether the anchor is now admissible.
+            当前策略是否允许该锚点，不等于完整车身静态地图校验。
+
+        Raises:
+            Exception: 地图提供者或准入计算失败。
         """
         grid, costmap = self._grids()
         return self._search.is_admissible((poi.map_pose.x, poi.map_pose.y), grid, costmap)
