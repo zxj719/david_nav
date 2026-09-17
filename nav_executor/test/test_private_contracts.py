@@ -7,6 +7,7 @@ import pytest
 
 
 @pytest.mark.parametrize('path, qualified_name', [
+    ('adapters/ros/host.py', 'RosHost._quiesce_finished'),
     ('app/config.py', '_read_mapping'),
     ('app/config.py', '_executor_section'),
     ('app/idle_profile.py', '_positive'),

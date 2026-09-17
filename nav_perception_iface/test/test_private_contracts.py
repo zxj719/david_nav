@@ -7,6 +7,7 @@ import pytest
 
 
 @pytest.mark.parametrize('path, qualified_name', [
+    ('health_node.py', '_yaw'),
     ('contract_probe.py', 'ContractProbe._has_transform'),
     ('contract_probe.py', 'ContractProbe._receive'),
     ('health_core.py', 'HealthMonitor._reset'),

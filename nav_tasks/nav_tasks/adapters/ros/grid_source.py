@@ -49,6 +49,14 @@ class RosGridSource:
         self.close()
 
     def _receive(self, index: int, message: object) -> None:
+        """持锁保存对应网格槽位的最新消息引用，关闭后的迟到回调被忽略.
+
+        这里只保存引用，不复制或解析栅格；快照转换由 snapshot 负责。
+
+        Args:
+            index: 构造订阅时绑定的槽位，零为静态图、一为全局代价图。
+            message: 当前收到的占用栅格消息。
+        """
         with self._lock:
             if not self._closed:
                 self._messages[index] = message

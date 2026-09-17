@@ -288,14 +288,46 @@ class TaskManager:
                 self._on_crash('task-completion-observer', error)
 
     def _is_current(self, active: _Active) -> bool:
+        """按对象身份及取消标志判断当前任务，而不是只比较任务 ID.
+
+        同名任务的不同代次不互相授权；是否继续接收反馈还由调用方检查。
+
+        Args:
+            active: 发出回调或返回结果时关联的任务记录。
+
+        Returns:
+            是否仍为活动对象且尚未请求取消。
+        """
         return self._active is active and not active.cancel_requested
 
     def _starting(self, active: _Active) -> None:
+        """只允许当前且仍接收反馈的任务把内核状态改为 STARTING.
+
+        迟到或已封闭反馈的回调不改变后继任务状态。
+
+        Args:
+            active: 回调关联的任务所有者。
+
+        Raises:
+            RuntimeError: 在非所有者事件循环调用。
+        """
         self._check_loop()
         if self._is_current(active) and active.accept_feedback:
             self._state = TaskState.STARTING
 
     def _describe(self, active: _Active, target_id: str, phase: str) -> None:
+        """仅为仍活动且开放反馈的任务更新目标描述并发送阶段观察.
+
+        先核事件循环与任务身份；不创建新任务或提交运动目标。
+
+        Args:
+            active: 回调关联的任务记录。
+            target_id: 当前阶段的目标标识。
+            phase: 当前阶段的描述字符串。
+
+        Raises:
+            RuntimeError: 在非所有者事件循环调用。
+        """
         self._check_loop()
         if self._is_current(active) and active.accept_feedback:
             active.target_id = target_id
@@ -303,6 +335,20 @@ class TaskManager:
             self._observe(active, 'task_phase')
 
     def _feedback(self, active: _Active, remaining: float) -> None:
+        """接收当前任务的距离反馈并发送进度，过期或取消后的反馈不生效.
+
+        把剩余距离转 float 并保持既有 NAVIGATING 状态转换；
+        不自行验证有限性、不把剩余距离为零当作成功。
+
+        Args:
+            active: 反馈关联的任务所有者。
+            remaining: 技能报告的剩余距离，单位米。
+
+        Raises:
+            RuntimeError: 在非所有者事件循环调用。
+            ValueError: 剩余距离不能转换为浮点数。
+            TypeError: 距离对象不支持浮点转换。
+        """
         self._check_loop()
         if self._is_current(active) and active.accept_feedback:
             active.remaining = float(remaining)
@@ -312,6 +358,20 @@ class TaskManager:
     def _emit(
         self, active: _Active, kind: EventKind, *, status: str = 'running', detail: str = '',
     ) -> None:
+        """把带任务身份与代次的事件送给当前订阅者，再补可选进度观察.
+
+        调用方负责终态与取消策略；本函数允许分发已释放任务的兼容通知。
+        只有当前 active 的进度事件会再进入观察通道，队列写入不是持久化确认。
+
+        Args:
+            active: 事件所属的任务记录，不要求仍占有活动槽位。
+            kind: 事件种类。
+            status: 进度状态文本，默认 running。
+            detail: 可选结果或错误说明。
+
+        Raises:
+            Exception: 订阅队列拒绝非阻塞写入等分发错误。
+        """
         event = TaskEvent(
             kind, active.request.task_id, active.request.sub_id, active.generation,
             active.remaining, status, detail, active.request.source)

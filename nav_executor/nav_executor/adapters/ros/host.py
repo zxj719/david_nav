@@ -190,6 +190,14 @@ class RosHost:
 
     @staticmethod
     def _quiesce_finished(task: asyncio.Task) -> None:
+        """取出已结束静默任务的异常并报告，不在回调中释放 ROS 资源.
+
+        已取消任务不调用 exception；调用方须仅把已结束的任务交给此回调。
+        记录错误不等于已确认回调静默，所有权仍由外层宿主管理。
+
+        Args:
+            task: 已完成的宿主静默任务。
+        """
         if not task.cancelled() and task.exception() is not None:
             _LOGGER.error('ROS host quiescence failed; retaining resources: %s', task.exception())
 

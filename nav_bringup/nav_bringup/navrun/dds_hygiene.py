@@ -141,10 +141,32 @@ def snapshot_mappings(proc_dir: Path = Path('/proc')) -> MappingView:
 
 
 def _group(name: str) -> str:
+    """去掉可选 _el 后缀以归并同一命名组，不作清理资格判断.
+
+    Args:
+        name: 共享内存候选文件名称。
+
+    Returns:
+        按既有后缀约定归并的组名；不是已验证的进程或映射身份。
+    """
     return name[:-3] if name.endswith('_el') else name
 
 
 def _state(path: Path) -> _FileState:
+    """用 lstat 记录清理候选的文件身份和元数据，不跟随末级链接.
+
+    只生成本次观察值，不证明文件可删除；类型、归属、映射与前后稳定性
+    仍由规划和执行流程分别检查。
+
+    Args:
+        path: 待观察的单个文件路径。
+
+    Returns:
+        名称、设备/inode、用户/模式/链接数、大小与纳秒时间组成的快照。
+
+    Raises:
+        OSError: 文件已消失或元数据读取失败。
+    """
     info = path.lstat()
     return _FileState(path.name, info.st_dev, info.st_ino, info.st_uid, info.st_mode,
                       info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)

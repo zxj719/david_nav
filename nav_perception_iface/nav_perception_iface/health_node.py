@@ -28,6 +28,21 @@ def _stamp(value):
 
 
 def _yaw(value):
+    """从有限且非退化的四元数计算导航健康观察所需的 yaw.
+
+    使用平方范数修正公式，不要求输入单位化；拒绝平方范数小于 1e-12
+    或溢出的输入。只做数值转换，不操作定位提供方。
+
+    Args:
+        value: 含 x、y、z、w 数值字段的四元数。
+
+    Returns:
+        atan2 给出的偏航角，单位弧度。
+
+    Raises:
+        ValueError: 分量非有限、类型不符，或平方范数过小/非有限。
+        OverflowError: 超大整数在有限性检查时无法转换。
+    """
     values = (value.x, value.y, value.z, value.w)
     if not all(type(item) in (int, float) and math.isfinite(item) for item in values):
         raise ValueError('orientation must be finite')

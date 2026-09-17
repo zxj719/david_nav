@@ -31,6 +31,14 @@ class SettleSpec:
 
 
 def _wrap(a: float) -> float:
+    """把停稳窗口中的角度差归一到 [-pi, pi)，避免跨整周造成虚假跳变.
+
+    Args:
+        a: 已求得的角度差，单位弧度。
+
+    Returns:
+        既有取模公式得到的有符号角度差；正 pi 映射到负 pi。
+    """
     return (a + math.pi) % (2.0 * math.pi) - math.pi
 
 

@@ -7,6 +7,17 @@ import pytest
 
 
 @pytest.mark.parametrize('path, qualified_name', [
+    ('adapters/ros/dock_ingress.py', 'DockIngress._log_exception'),
+    ('adapters/ros/grid_source.py', 'RosGridSource._receive'),
+    ('core/state.py', 'TaskManager._is_current'),
+    ('core/state.py', 'TaskManager._starting'),
+    ('core/state.py', 'TaskManager._describe'),
+    ('core/state.py', 'TaskManager._feedback'),
+    ('core/state.py', 'TaskManager._emit'),
+    ('domain/footprint.py', '_cell_polygon'),
+    ('skills/docking/finish.py', '_wrap'),
+    ('skills/docking/finish.py', '_errors'),
+    ('skills/docking/settle.py', '_wrap'),
     ('adapters/ros/dock_ingress.py', 'DockIngress._pose'),
     ('adapters/ros/dock_ingress.py', 'DockIngress._topic_callback'),
     ('adapters/ros/dock_ingress.py', 'DockIngress._goal_callback'),

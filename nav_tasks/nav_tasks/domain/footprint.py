@@ -231,6 +231,19 @@ def _world_to_grid_local(
 
 
 def _cell_polygon(x: int, y: int, resolution: float) -> Tuple[Tuple[float, float], ...]:
+    """把栅格下标转换为地图局部米制坐标中的四角矩形.
+
+    不应用地图世界原点或原点旋转；调用方应先把待比较轮廓转换到同一局部系。
+    分辨率应已检查为正，首点不在末尾重复。
+
+    Args:
+        x: 栅格列下标。
+        y: 栅格行下标。
+        resolution: 每个栅格的边长，单位米。
+
+    Returns:
+        从左下角开始逆时针排列的四个局部二维顶点。
+    """
     low_x = x * resolution
     low_y = y * resolution
     high_x = low_x + resolution

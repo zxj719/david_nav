@@ -45,14 +45,55 @@ class Scene:
 
 
 def _yaml(value):
+    """生成自测场景的 UTF-8 YAML 字节，排序键且保留 Unicode.
+
+    只序列化，不创建目录或写文件，沿用当前 YAML 库的输出格式。
+
+    Args:
+        value: safe_dump 支持的场景数据。
+
+    Returns:
+        序列化后的 UTF-8 字节。
+
+    Raises:
+        yaml.YAMLError: 数据不能安全表示为 YAML。
+    """
     return yaml.safe_dump(value, allow_unicode=True, sort_keys=True).encode()
 
 
 def _json(value):
+    """序列化自测场景 JSON，拒绝非有限数并保留输入键顺序.
+
+    输出缩进为两格，保留 Unicode，末尾加一个换行；不在此落盘。
+
+    Args:
+        value: 可序列化的场景数据。
+
+    Returns:
+        UTF-8 JSON 字节。
+
+    Raises:
+        ValueError: 含非有限浮点值或循环引用。
+        TypeError: 数据包含不支持的对象或键。
+    """
     return (json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2) + '\n').encode()
 
 
 def _write(root, name, value):
+    """创建父目录并排他写入一个场景制品，已有文件不覆盖.
+
+    根与相对名称必须由场景构建器选定；本函数不校验路径逃逸或祖先链接。
+    写入失败可能留下部分文件，不在此回滚场景目录。
+
+    Args:
+        root: 调用方拥有的私有场景根目录。
+        name: 构建器给定的制品相对路径。
+        value: 要写入的完整字节内容。
+
+    Raises:
+        FileExistsError: 目标已存在。
+        OSError: 目录创建、文件打开或写入失败。
+    """
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('xb') as stream:

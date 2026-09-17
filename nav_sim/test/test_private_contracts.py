@@ -7,6 +7,10 @@ import pytest
 
 
 @pytest.mark.parametrize('path, qualified_name', [
+    ('fake_chassis.py', 'FakeChassis._command'),
+    ('selftest_scene.py', '_yaml'),
+    ('selftest_scene.py', '_json'),
+    ('selftest_scene.py', '_write'),
     ('fake_agent_server.py', 'AgentSession._await_event'),
     ('fake_agent_server.py', 'AgentSession._receive'),
     ('selftest_evidence.py', '_number'),

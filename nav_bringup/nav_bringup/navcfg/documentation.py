@@ -86,12 +86,30 @@ def _row(spec: ParameterSpec) -> str:
 
 
 def _type_name(spec: ParameterSpec) -> str:
+    """渲染参数类型标签，仅在列表声明含元素类型时附加方括号.
+
+    Args:
+        spec: 已加载的参数 schema 声明。
+
+    Returns:
+        list[元素类型] 或原 value_type 文本，不验证参数值。
+    """
     if spec.value_type == 'list' and spec.items:
         return f'list[{spec.items}]'
     return spec.value_type
 
 
 def _requirement(spec: ParameterSpec) -> str:
+    """按必填、默认值、未设置的优先级生成参数要求文本.
+
+    required 即使同时有默认值也优先显示；此处只生成 Markdown 片段。
+
+    Args:
+        spec: 参数声明，提供必填标志及默认值存在信息。
+
+    Returns:
+        必填强调、默认 JSON 行内代码或可选未设置的说明。
+    """
     if spec.required:
         return '**required**'
     if spec.has_default:
@@ -100,6 +118,16 @@ def _requirement(spec: ParameterSpec) -> str:
 
 
 def _constraints(spec: ParameterSpec) -> str:
+    """把范围与候选值组合为参数表中的约束说明，不运行校验.
+
+    开放边界显示对应无穷方向；多个约束以 HTML 换行连接。
+
+    Args:
+        spec: 已加载的参数声明，含可选范围和 choices。
+
+    Returns:
+        Markdown/HTML 约束片段；没有约束时为占位破折号。
+    """
     constraints: List[str] = []
     if spec.value_range is not None:
         low, high = spec.value_range
@@ -112,13 +140,46 @@ def _constraints(spec: ParameterSpec) -> str:
 
 
 def _bound(value: Any, unbounded: str) -> str:
+    """格式化范围端点，None 使用调用方指定的开放边界标记.
+
+    Args:
+        value: 范围端点数值或 None。
+        unbounded: 下界或上界对应的显示标记。
+
+    Returns:
+        开放边界标记，或由 _value 序列化的端点文本。
+    """
     return unbounded if value is None else _value(value)
 
 
 def _value(value: Any) -> str:
+    """用排序键、紧凑分隔符和原始 Unicode 生成参数展示用 JSON.
+
+    沿用 json.dumps 默认数值策略，不作为禁止 NaN 的严格证据编码器。
+
+    Args:
+        value: 可由 JSON 序列化的 schema 默认值或选项。
+
+    Returns:
+        不额外添加换行的 JSON 文本。
+
+    Raises:
+        TypeError: 值或键不能按当前 JSON 规则序列化。
+        ValueError: 数据包含循环引用等不可序列化结构。
+    """
     return json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
 
 def _cell(value: str) -> str:
+    """按既定顺序转义 Markdown 表格单元格中的反斜杠、管道与换行.
+
+    保留既有 HTML 和行内 Markdown，不是通用 HTML 安全过滤器。
+
+    Args:
+        value: 先转成字符串的单元格内容。
+
+    Returns:
+        反斜杠加倍、管道转义、换行转为 br 标签后的文本。
+    """
     return str(value).replace('\\', '\\\\').replace('|', '\\|').replace('\n', '<br>')

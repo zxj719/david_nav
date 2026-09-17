@@ -36,6 +36,17 @@ class FakeChassis(Node):
         self._timer = self.create_timer(self._dt, self._tick)
 
     def _command(self, message: Twist) -> None:
+        """接收仿真底盘命令数值，任一所用轴无效时清零两个积分输入.
+
+        只保存线速度 x 与角速度 z，不处理其它轴；不发布真实底盘命令。
+        这里不设置额外限幅，有限性由 finite_number 检查。
+
+        Args:
+            message: 仿真订阅收到的 Twist 消息。
+
+        Raises:
+            Exception: 消息字段缺失或失败日志接收器异常等未转换错误。
+        """
         try:
             linear = finite_number(message.linear.x, 'linear.x')
             angular = finite_number(message.angular.z, 'angular.z')

@@ -132,6 +132,17 @@ def _section(module):
 
 
 def _adapter(module):
+    """识别模块所属适配器类别，兼容尚保留的顶层 ROS 和存储门面.
+
+    nav2_client 归 ros，nav_site_data 归 storage；常规 adapters 子包
+    使用第三段名称，不导入模块或推断动态依赖。
+
+    Args:
+        module: 包前缀开始的点分模块名称。
+
+    Returns:
+        适配器类别名；未识别为适配器时返回 None。
+    """
     parts = module.split('.')
     if _section(module) == 'nav2_client':
         return 'ros'

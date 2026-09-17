@@ -376,6 +376,17 @@ def _documentable_args(node: FunctionNode) -> List[str]:
 
 
 def _is_property(node: FunctionNode) -> bool:
+    """按装饰器 AST 的名称识别属性访问器，不执行或解析装饰器.
+
+    识别裸 property/cached_property 与属性式 getter/setter/deleter；
+    不核对别名或 descriptor 的真实身份，结果只是现有文档规则的语法判定。
+
+    Args:
+        node: 同步或异步方法 AST。
+
+    Returns:
+        是否符合已识别的属性访问器语法。
+    """
     for decorator in node.decorator_list:
         if isinstance(decorator, ast.Name) and decorator.id in _PROPERTY_DECORATORS:
             return True
@@ -397,10 +408,31 @@ def _walk_own_body(node: Union[FunctionNode, ast.ClassDef]) -> Iterator[ast.AST]
 
 
 def _contains(node: FunctionNode, node_types: tuple) -> bool:
+    """只在函数自身作用域查找指定 AST 节点类型，不展开嵌套定义.
+
+    范围由 _walk_own_body 统一限定，不推断分支可达性。
+
+    Args:
+        node: 待检查的函数 AST。
+        node_types: 要匹配的 AST 节点类型元组。
+
+    Returns:
+        本作用域内是否至少存在一个匹配节点。
+    """
     return any(isinstance(child, node_types) for child in _walk_own_body(node))
 
 
 def _annotation_is_none(annotation: ast.expr) -> bool:
+    """识别文档规则中的无返回值注解，仅接受既有裸名称或 None 常量.
+
+    不解析字符串前向注解、限定名或导入别名；NoReturn 也按无需 Returns 处理。
+
+    Args:
+        annotation: 返回注解的 AST 表达式。
+
+    Returns:
+        是否为 None 常量或名为 None/NoReturn 的名称节点。
+    """
     if isinstance(annotation, ast.Constant) and annotation.value is None:
         return True
     return isinstance(annotation, ast.Name) and annotation.id in ('None', 'NoReturn')

@@ -376,6 +376,20 @@ def _spin(context: LiveContext) -> str:
 
 
 def _endpoints(context: LiveContext, topic: str) -> Optional[List[Endpoint]]:
+    """用不依赖 ROS daemon 的只读话题查询取得当前端点列表.
+
+    命令执行由上下文提供的 runner 承担，环境与超时也由外层负责。
+
+    Args:
+        context: 诊断配置及命令执行端口，含发现等待秒数。
+        topic: 要查询的完整话题名称。
+
+    Returns:
+        解析出的端点列表；命令非零退出返回 None，与成功但无端点区分。
+
+    Raises:
+        Exception: runner 或话题信息解析器发生未转换的错误。
+    """
     code, output = context.runner(
         ['ros2', 'topic', 'info', '--verbose', '--no-daemon', '--spin-time', _spin(context),
          topic])

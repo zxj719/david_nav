@@ -406,6 +406,17 @@ def _write_manifest(path, record):
 
 
 def _event(events, name, severity, data):
+    """尽力追加启动事件，文件 IO 错误改报 stderr 但不改变启动控制流.
+
+    只捕获 OSError，不把所有编程或数据错误悄悄吞掉；
+    stderr 报告本身失败仍可能向外传播。
+
+    Args:
+        events: 当前运行的事件记录器。
+        name: 事件名称。
+        severity: 事件严重程度。
+        data: 原样交给记录器的结构化载荷。
+    """
     try:
         events.append('navrun', name, severity, data)
     except OSError as error:

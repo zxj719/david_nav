@@ -114,6 +114,21 @@ def _version(data: Mapping[str, Any], label: str) -> None:
 
 
 def _path(value: Any, parent: Path) -> Path:
+    """展开资产路径中的用户目录，并把相对路径接到指定父目录.
+
+    不 resolve、不检查存在性或安全归属，不去掉有效路径中的空白。
+    与执行器绑定中的绝对路径解析助手不是同一种保证。
+
+    Args:
+        value: 非空资产路径字符串。
+        parent: 解释相对路径时使用的父目录。
+
+    Returns:
+        展开后的绝对路径或拼接父目录后的路径。
+
+    Raises:
+        ValueError: 输入不是非空字符串。
+    """
     if not isinstance(value, str) or not value.strip():
         raise ValueError('asset path must be a nonempty string')
     path = Path(value).expanduser()
@@ -121,10 +136,37 @@ def _path(value: Any, parent: Path) -> Path:
 
 
 def _yaml(data: Any) -> bytes:
+    """以排序键与可读 Unicode 生成冻结配置的 UTF-8 YAML 字节.
+
+    只序列化，不写文件；保持当前 YAML 库的既有输出格式。
+
+    Args:
+        data: safe_dump 支持的配置数据。
+
+    Returns:
+        排序键序列化后的 UTF-8 字节。
+
+    Raises:
+        yaml.YAMLError: 数据不能安全表示为 YAML。
+    """
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=True).encode('utf-8')
 
 
 def _json(data: Any) -> bytes:
+    """生成缩进两格、保留 Unicode 且禁止非有限数的配置 JSON 字节.
+
+    保留输入对象的键顺序，末尾添加一个换行，不自行落盘。
+
+    Args:
+        data: 可由 JSON 序列化的配置数据。
+
+    Returns:
+        UTF-8 编码的带尾换行 JSON。
+
+    Raises:
+        ValueError: 含 NaN、无穷大或循环引用。
+        TypeError: 含不支持的对象或键。
+    """
     return (json.dumps(data, ensure_ascii=False, allow_nan=False, indent=2) + '\n').encode('utf-8')
 
 

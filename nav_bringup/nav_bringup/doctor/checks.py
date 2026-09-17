@@ -508,10 +508,31 @@ def find_processes(proc_dir: Path, needle: str) -> List[Tuple[int, str]]:
 
 
 def _segment_base(name: str) -> str:
+    """按文件名去掉可选的 _el 后缀，归并诊断中的关联共享内存项.
+
+    仅采用既有命名约定，不验证文件类型、映射或所有权，也不删除文件。
+
+    Args:
+        name: 待归并的共享内存条目名称。
+
+    Returns:
+        去掉末尾 _el 后的名字；其它名称保持不变。
+    """
     return name[:-len('_el')] if name.endswith('_el') else name
 
 
 def _tree_size(path: str) -> int:
+    """尽力累计目录树中文件项的 lstat 长度，读不到的项不计入.
+
+    这是诊断估算，不保证完整性，不按 inode 去重；符号链接计链接自身长度，
+    而不是目标文件大小。os.walk 默认不递归目录符号链接。
+
+    Args:
+        path: 要观察的日志等目录路径，不在此修改文件。
+
+    Returns:
+        已成功读取条目的累计字节数；不可遍历的目录可能贡献零。
+    """
     total = 0
     for root, _, files in os.walk(path):
         for file_name in files:

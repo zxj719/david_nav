@@ -141,6 +141,19 @@ def _bindings(module, tree, is_package):
 
 
 def _qualified(node, module, bindings):
+    """把有限的名称表达式转换为限定名，供静态父类识别使用.
+
+    裸名称先查导入绑定，否则加当前模块前缀；属性递归拼接，
+    泛型下标只保留外层类型。不执行表达式或证明其运行时身份。
+
+    Args:
+        node: 名称、属性或下标形式的 AST 表达式。
+        module: 当前模块的点分名称。
+        bindings: 已收集的裸名称到导入限定名的映射。
+
+    Returns:
+        推测的限定名；不支持的表达式返回空串。
+    """
     if isinstance(node, ast.Name):
         return bindings.get(node.id, f'{module}.{node.id}')
     if isinstance(node, ast.Attribute):

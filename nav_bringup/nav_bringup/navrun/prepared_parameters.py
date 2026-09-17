@@ -30,6 +30,17 @@ _SCAN_KEYS = (
 
 
 def _node(name: str, parameters: Mapping[str, Any]) -> Dict[str, Any]:
+    """把参数封装为单节点 ROS 参数文件片段，仅浅复制顶层参数表.
+
+    嵌套值仍引用输入对象；是否需要更深复制由构建流程负责。
+
+    Args:
+        name: ROS 参数文件中的节点键。
+        parameters: 节点的有效参数映射。
+
+    Returns:
+        以节点名和 ros__parameters 两层键包装的新字典。
+    """
     return {name: {'ros__parameters': dict(parameters)}}
 
 

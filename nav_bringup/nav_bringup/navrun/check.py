@@ -25,6 +25,22 @@ from nav_bringup.recorder.run_dir import default_runs_root
 
 
 def _root(args: argparse.Namespace) -> Path:
+    """按显式运行目录、受条件允许的环境变量、最新记录选择检查目标.
+
+    只有未显式给 runs_root 时才采用 NAVRUN_RUN_DIR；直接路径严格解析，
+    latest 通过受限记录读取器解析，不在此创建运行或证明运行仍存活。
+
+    Args:
+        args: 含 run_dir 和 runs_root 的命令行设置。
+
+    Returns:
+        选中的已有运行目录路径。
+
+    Raises:
+        OSError: 路径或记录根不可访问。
+        ValueError: 最新记录选择不合法或其身份不能确认。
+        RuntimeError: 直接路径解析遇到符号链接循环。
+    """
     if args.run_dir is not None:
         return args.run_dir.expanduser().resolve(strict=True)
     if args.runs_root is None and os.environ.get('NAVRUN_RUN_DIR'):
@@ -42,6 +58,21 @@ def _mapping(path: Path) -> Dict[str, Any]:
 
 
 def _catalog(args: argparse.Namespace) -> schema.ParameterCatalog:
+    """选择显式、源码或安装空间的 schema，并加载当前参数目录.
+
+    显式 schema 优先；未给显式列表时，source_root 优先于安装前缀。
+    不是从运行清单声称的检查结果推断配置已经通过。
+
+    Args:
+        args: schema 列表和可选源码根等命令行设置。
+
+    Returns:
+        已发现并加载的 ParameterCatalog。
+
+    Raises:
+        ValueError: 没有发现任何 schema。
+        Exception: schema 读取、解析或冲突检查失败。
+    """
     paths = args.schema
     if not paths:
         paths = (schema.find_source_schemas(args.source_root.expanduser())

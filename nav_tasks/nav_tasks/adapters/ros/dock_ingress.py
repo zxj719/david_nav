@@ -501,6 +501,16 @@ class DockIngress:
         self._closed = True
 
     def _log_exception(self, handle):
+        """按入口种类输出冻结的 Dock 异常文本，附上当前异常的堆栈.
+
+        应在处理异常期间调用；本函数不改变任务状态或执行取消。
+
+        Args:
+            handle: 动作入口句柄；None 表示话题编排入口。
+
+        Raises:
+            Exception: 日志接收器本身失败。
+        """
         prefix = '[dock] 动作目标执行异常，本次目标放弃：\n%s' if handle is not None else (
             '[dock] 编排线程异常，本次目标放弃：\n%s')
         self._logger.error(prefix % traceback.format_exc())

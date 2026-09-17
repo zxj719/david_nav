@@ -53,10 +53,29 @@ class DockOutcome:
 
 
 def _wrap(a: float) -> float:
+    """把弧度差归一到半开区间 [-pi, pi)，正 pi 映射到负 pi.
+
+    Args:
+        a: 同一坐标系中计算的角度或角度差，单位弧度。
+
+    Returns:
+        按既有取模公式归一后的有符号角度。
+    """
     return (a + math.pi) % (2.0 * math.pi) - math.pi
 
 
 def _errors(pose, goal):
+    """计算实测位姿相对目标的二维距离及有符号航向误差.
+
+    不应用成功阈值或修正运动；两位姿必须已在同一坐标系中。
+
+    Args:
+        pose: 实测 x/y/yaw，距离为米、角度为弧度。
+        goal: 目标 x/y/yaw，使用相同单位和基准。
+
+    Returns:
+        非负平面距离与 pose.yaw 减 goal.yaw 归一到 [-pi, pi) 的弧度差。
+    """
     exy = math.hypot(pose[0] - goal[0], pose[1] - goal[1])
     return exy, _wrap(pose[2] - goal[2])
 
