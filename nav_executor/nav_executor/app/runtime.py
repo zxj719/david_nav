@@ -1,4 +1,4 @@
-"""Outer ROS/WS lifetime: stop ingress, settle tasks, then release host resources."""
+"""持有外层 ROS/WS 生命周期，按入口、任务、回调及宿主资源顺序收尾."""
 
 import asyncio
 from contextlib import suppress
@@ -171,28 +171,28 @@ async def run(
     emit: Callable[[str], None] = log_line, now: Callable[[], float] = time.time,
     cleanup_retry_sec: float = 1.0,
 ) -> None:
-    """Own one POI/Dock runtime and retain shutdown even if its caller is canceled.
+    """持有一个 POI/Dock 运行时，以独立受屏蔽任务执行关闭流程.
 
-    The CLI owns signal-to-stop translation; embedding callers supply their own
-    stop event. Repeated cancellation cannot interrupt owned cleanup. Failed
-    cleanup retries without a deadline that would abandon motion or ROS resources.
-    A lost ROS context or unprovable executor shutdown may require human recovery;
-    this coroutine deliberately does not claim success or release the host then.
+    CLI 负责把信号转换为 stop，嵌入调用方提供自己的事件。进入运行 try 后，
+    重复取消等待者不会取消已创建的清理任务；被 _retry 包装的步骤无总放弃期限。
+    这不是所有故障必定完成清理的保证：入口 stop、适配器 close 等未包装步骤
+    失败仍可让 _finish 抛异常；清理异常也可覆盖最初运行异常。
+    前置配置检查、日志、代理环境调整及 host_factory 位于该 try 之前。
 
     Args:
-        resolved: Validated immutable task/transport settings and ROS arguments.
-        stop: Graceful process stop request, never direct context shutdown.
-        host_factory: Empty host owner, injectable for pure tests.
-        runtime_factory: Public task factory, injectable for lifecycle fault tests.
-        connect: Socket context factory, or None for the installed WebSocket library.
-        emit: Unprefixed startup/status/audit log sink.
-        now: Existing wall-clock pose freshness reader, injectable for fake timestamps.
-        cleanup_retry_sec: Delay between failed cleanup attempts; production default one second.
+        resolved: 已校验的任务/传输配置及保留的 ROS 参数。
+        stop: 请求有序退出的事件，不直接关闭 ROS 上下文。
+        host_factory: 创建空宿主所有者的工厂，可注入纯测试替身。
+        runtime_factory: 公共任务工厂，可注入生命周期故障替身。
+        connect: 连接上下文工厂，None 时使用当前安装的 WebSocket 库。
+        emit: 接收无前缀启动、状态和审计日志的函数。
+        now: 既有位姿新鲜度使用的墙钟秒数函数，可注入测试时间戳。
+        cleanup_retry_sec: 已包装清理失败后的等待秒数，默认一秒，不是总超时。
 
     Raises:
-        ConfigError: Dock IDs lack full policy, or effective ROS wiring is invalid.
-        asyncio.CancelledError: Caller canceled; raised only after cleanup succeeds.
-        Exception: Construction or an essential background worker failed, after cleanup.
+        ConfigError: Dock ID 缺完整策略，或有效 ROS 接线不合法。
+        asyncio.CancelledError: 外部取消；已进入 try 时先等待清理，清理失败可覆盖取消。
+        Exception: 构造、必要后台任务或清理失败。无法证明 ROS 安全收尾时可能需人工处理。
     """
     config = resolved.config
     dock = resolved.dock is not None

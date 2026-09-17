@@ -1,4 +1,4 @@
-"""Immutable executor values and explicit CLI/environment/YAML/profile provenance."""
+"""定义执行器配置值及 CLI、环境、YAML、档案来源的显式合并流程."""
 
 from dataclasses import asdict, dataclass, fields, replace
 import json
@@ -15,10 +15,10 @@ from nav_executor.adapters.transport.ws_client import WsOptions
 
 @dataclass(frozen=True)
 class ExecutorConfig:
-    """Explicit robot values plus legacy numerical and protocol defaults.
+    """保存显式机器人参数及既有数值/协议默认值，字段冻结但构造时不验证.
 
-    Robot-specific defaults come from data, never literals in reusable code.
-    Paths are normalized to expanded strings for compatibility with the old CLI.
+    机器人特有默认值来自数据；路径展开和数值归一化由加载流程负责，
+    直接构造本数据类不会自动执行这些步骤。
 
     Attributes:
         action_name: 普通导航后端的动作名称。
@@ -91,10 +91,10 @@ class ExecutorConfig:
     websocket_enabled: bool = True
 
     def legacy_values(self) -> dict:
-        """Project the original config mapping for compatibility checks.
+        """生成用于兼容性比对的旧配置字典，不修改本对象.
 
         Returns:
-            Original keys and types, without newly exposed options.
+            去除列出的新增选项后的原有键和值，dock_poi_ids 转回列表。
         """
         result = asdict(self)
         for name in (
@@ -108,10 +108,11 @@ class ExecutorConfig:
         return result
 
     def task_config(self) -> RuntimeConfig:
-        """Translate configuration into the public task factory contract.
+        """把执行器配置转换为公共任务工厂配置，不在此创建任务运行时.
 
         Returns:
-            Immutable task values; Dock IDs remain explicit for its admission gate.
+            RuntimeConfig，服务超时键重命名、路径转为 Path，仅传其声明的字段；
+            Dock ID 仍显式传入供准入检查，具体 Dock 策略由 ResolvedConfig 另行绑定。
         """
         values = asdict(self)
         values['server_timeout_sec'] = values.pop('server_timeout')
@@ -121,17 +122,19 @@ class ExecutorConfig:
                                 if field.name in values})
 
     def ws_options(self) -> WsOptions:
-        """Extract transport timings without importing a WebSocket library.
+        """提取 WS 地址与时序配置，不导入 WebSocket 库或建立连接.
 
         Returns:
-            Explicit URI and connection timing values.
+            显式 URI、心跳周期和重连等待组成的 WsOptions。
         """
         return WsOptions(self.server_uri, self.heartbeat_interval, self.reconnect_delay)
 
 
 @dataclass(frozen=True)
 class ResolvedConfig:
-    """Effective configuration, per-field provenance and untouched ROS arguments.
+    """保存有效配置、逐字段来源和保留的 ROS 参数.
+
+    加载器提供的映射为顶层只读视图；数据类构造本身不会校验或深冻结传入对象。
 
     Attributes:
         config: 规范化后的执行器配置。
@@ -148,19 +151,21 @@ class ResolvedConfig:
     dock_parameters: Mapping[str, object] | None = None
 
     def task_config(self) -> RuntimeConfig:
-        """Bind the separately loaded Dock policy through the public task API.
+        """通过公共配置类型绑定另行读取的 Dock 运行策略.
 
         Returns:
-            Complete immutable task configuration, or unchanged ordinary-only settings.
+            以 Dock runtime 或 None 替换后的新任务配置，不修改原执行器配置。
         """
         return replace(self.config.task_config(),
                        dock=None if self.dock is None else self.dock.runtime)
 
     def log_line(self) -> str:
-        """Serialize effective values and their sources for startup auditing.
+        """序列化有效配置及字段来源，生成启动审计文本.
+
+        不在此做敏感值脱敏，调用方须避免把不应记录的凭据配置进这些字段。
 
         Returns:
-            One JSON-bearing log line without the legacy logger prefix.
+            含 JSON 的单行文本，不包含既有日志器前缀。
         """
         return 'effective config: ' + json.dumps(
             {'values': asdict(self.config), 'sources': dict(self.sources),
@@ -215,16 +220,17 @@ def _executor_section(data, path):
 
 
 def load_headless_executor_section(path: Path) -> dict:
-    """Read the existing headless executor section without changing its file format.
+    """只读加载既有 headless YAML 的 executor 节，不改变文件格式.
 
     Args:
-        path: Existing headless YAML file, opened read-only.
+        path: 既有 headless 配置路径。
 
     Returns:
-        Executor options, excluding the three launcher-only settings.
+        去除三个启动/记录专用键的执行器选项字典。
 
     Raises:
-        ConfigError: The file cannot be read or lacks a mapping executor section.
+        ConfigError: 文件读取、YAML 解析或 executor 映射结构不合法。
+        UnicodeError: 文件不是有效 UTF-8，不包装为 ConfigError。
     """
     return _executor_section(_read_mapping(path), path)
 
@@ -344,22 +350,25 @@ def load_configuration(
     raw_args: Sequence[str], *, profile_path: Path,
     environ: Mapping[str, str] | None = None,
 ) -> ResolvedConfig:
-    """Resolve CLI > NAV_WS_URL > requested YAML > robot data/dataclass defaults.
+    """按 CLI > NAV_WS_URL > 指定 YAML > 机器人档案/数据类默认值合并.
 
-    Other environment variables do not override settings. Unknown CLI arguments
-    are preserved for ROS. A --robot-profile override selects another robot's
-    data without changing code; --config is a flat map or a headless executor section.
+    其它环境变量不覆盖配置；未知 CLI 参数保留给 ROS。
+    --robot-profile 可改选数据档案，--config 接受平铺字典或 headless executor 节。
+    Dock 文件在执行器归一化后另行验证并绑定，不通过改文件来施加覆盖。
 
     Args:
-        raw_args: Command-line arguments without executable name.
-        profile_path: Default robot data file, normally selected by the outer root.
-        environ: Environment view, or None to use the actual process environment.
+        raw_args: 不含可执行文件名的命令行参数。
+        profile_path: 默认机器人档案，由外层选择；CLI 可覆盖。
+        environ: 环境变量视图，None 时读取进程实际环境。
 
     Returns:
-        Frozen effective configuration, immutable source mapping and ROS arguments.
+        有效配置、顶层只读来源映射和 ROS 参数。构造数据类本身不执行这些加载校验；
+        冻结字段与 MappingProxyType 也不等于对嵌套可变值做深冻结。
 
     Raises:
-        ConfigError: A file, option, known flag or configuration value is invalid.
+        ConfigError: 被显式检查的文件、选项、参数或配置值不合法。
+        UnicodeError: 配置文件不是有效 UTF-8。
+        OverflowError: 超大整数在有限性检查或数值转换中溢出。
     """
     from nav_executor.app.cli import parse_arguments
 

@@ -1,4 +1,4 @@
-"""Passive Linux process CPU profiling; never start, signal or configure a target."""
+"""被动读取 Linux 进程 CPU 计数，不启动、配置或向目标进程发信号."""
 
 import argparse
 import csv
@@ -11,6 +11,10 @@ from pathlib import Path
 import sys
 import time
 from typing import Sequence
+
+
+_CLI_DESCRIPTION = (
+    'Passive Linux process CPU profiling; never start, signal or configure a target.')
 
 
 @dataclass(frozen=True)
@@ -141,20 +145,24 @@ def _collect(source, seconds, interval, tick_hz, emit, *, idle_confirmed=False,
 
 
 def main(args: Sequence[str] | None = None) -> int:
-    """Write a new evidence directory for one explicitly selected Linux process.
+    """为显式指定的 Linux 进程排他创建采样证据目录，帮助路径不采样.
+
+    CPU 百分比以单核为 100%，包含目标进程线程而不包含子进程。
+    窗口完整不等于符合 R6：还须请求至少 60 秒、间隔不超过 1 秒、
+    实际节奏满足检查且操作者确认全窗口空闲。失败可留下部分输出，不覆盖旧目录。
 
     Args:
-        args: CLI arguments, or None for the current command line.
+        args: CLI 参数，None 时读取当前进程命令行。
 
     Returns:
-        Zero for a complete window, one for incomplete evidence, two for invalid
-        arguments/output, or 130 for an interrupted measurement. Eligibility for
-        R6 additionally requires at least 60 seconds, cadence and confirmed idle.
+        完整窗口为 0，不完整证据为 1，捕获的读取/输出错误为 2；
+        采样循环内键盘中断被记录后返回 130，不代表完成 R6 验收。
 
     Raises:
-        SystemExit: Argument parsing handles help or rejects invalid arguments.
+        SystemExit: 显示帮助，或参数解析/选项关系检查失败。
+        KeyboardInterrupt: 采样循环捕获范围以外收到键盘中断。
     """
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=_CLI_DESCRIPTION)
     parser.add_argument('--pid', type=int, required=True)
     parser.add_argument('--output', type=Path, required=True,
                         help='new directory; never overwrite')

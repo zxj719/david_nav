@@ -1,1 +1,1 @@
-"""Explicit ROS host ownership for the outer executor process."""
+"""为执行器外层进程提供显式的 ROS 宿主资源所有权."""

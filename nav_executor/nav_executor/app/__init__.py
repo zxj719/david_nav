@@ -1,1 +1,1 @@
-"""WS runtime assembly helpers; importing this package starts no runtime."""
+"""提供执行器运行时装配辅助模块，导入包本身不启动运行时."""

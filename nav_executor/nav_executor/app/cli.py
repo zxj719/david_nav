@@ -1,4 +1,4 @@
-"""Frozen help and argparse surface; ROS startup is owned by the outer runtime."""
+"""保持冻结帮助及参数接口，由外层运行器负责启动 ROS."""
 
 import argparse
 import asyncio
@@ -10,10 +10,10 @@ from nav_tasks.api import ConfigError
 
 
 def build_help_text() -> str:
-    """Return the exact legacy help text without importing ROS or reading configuration.
+    """返回逐字冻结的旧帮助文本，不导入 ROS 或读取配置.
 
     Returns:
-        Frozen G16 help, including the historical executable name.
+        包含历史可执行文件名的 G16 帮助文本，不含 print 追加的尾换行。
     """
     return '\n'.join([
         'usage: navigation_executor.py [--server-uri URI] [--poi-store-file PATH] '
@@ -46,16 +46,18 @@ class _Parser(argparse.ArgumentParser):
 
 
 def parse_arguments(raw_args: Sequence[str]) -> tuple[dict, list[str]]:
-    """Parse known application flags without abbreviating or consuming ROS arguments.
+    """解析已知应用参数，禁用缩写并把未知参数保留给 ROS.
+
+    只处理 CLI 语法和已声明类型转换，不执行完整配置有效性或优先级校验。
 
     Args:
-        raw_args: Arguments excluding the executable name.
+        raw_args: 不含可执行文件名的参数序列。
 
     Returns:
-        Explicit overrides and untouched unknown arguments in input order.
+        显式覆盖字典和保持输入顺序的未知参数列表；未提供的选项不填默认值。
 
     Raises:
-        ConfigError: A known flag lacks a value or has an invalid numeric value.
+        ConfigError: 已知选项缺少值或声明的数值类型转换失败。
     """
     from nav_executor.app.config import ExecutorConfig
     from dataclasses import fields
@@ -81,13 +83,17 @@ def parse_arguments(raw_args: Sequence[str]) -> tuple[dict, list[str]]:
 
 
 def main(args: Sequence[str] | None = None) -> int:
-    """Run the configured executor, with help handled before any ROS or file access.
+    """运行配置后的执行器，帮助在 ROS 启动或配置文件访问前返回.
+
+    任一 -h/--help 参数都选择冻结帮助路径，不要求其它参数有效。
+    非帮助路径按配置装配运行器；捕获的失败按既有日志格式报告。
 
     Args:
-        args: Explicit arguments, or None to use sys.argv without the executable name.
+        args: 显式参数序列，None 时使用 sys.argv 去掉程序名后的部分。
 
     Returns:
-        Zero for help/normal exit, signal-derived shutdown status, or one on failure.
+        帮助或正常退出为 0；正常信号收尾返回 128 加信号编号，
+        捕获键盘中断为 130，捕获普通异常并成功记录后为 1。
     """
     raw = list(sys.argv[1:] if args is None else args)
     if any(arg in ('-h', '--help') for arg in raw):

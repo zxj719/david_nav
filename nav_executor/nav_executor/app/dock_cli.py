@@ -1,4 +1,4 @@
-"""ROS-only compatibility entry for the historical standalone Dock command."""
+"""为历史独立 Dock 命令提供仅 ROS 的兼容入口，复用共享执行器根."""
 
 from pathlib import Path
 import sys
@@ -15,14 +15,16 @@ def _default_policy():
 
 
 def main(args: Sequence[str] | None = None) -> int:
-    """Forward the old Dock command to the shared root with WS explicitly disabled.
+    """转交旧 Dock 命令给共享运行器，并追加禁用 WebSocket 的 CLI 选项.
+
+    未指定 Dock 文件时从资源包选择既有独立策略；不重写策略文件。
+    帮助不需要资源查找；后续 ROS Dock 参数仍按既有最终优先级生效。
 
     Args:
-        args: CLI values excluding the executable, or None to read sys.argv.
+        args: 不含程序名的 CLI 参数，None 时读取 sys.argv。
 
     Returns:
-        Shared-root status, or one if the explicit/default policy cannot be selected.
-        Help requires no resource lookup. ROS parameters retain final precedence.
+        共享入口状态码；捕获策略选择或转发异常并成功记录后为 1。
     """
     raw = list(sys.argv[1:] if args is None else args)
     if any(arg in ('-h', '--help') for arg in raw):

@@ -1,0 +1,14 @@
+usage: nav_executor_profile [-h] --pid PID --output OUTPUT [--seconds SECONDS]
+                            [--interval INTERVAL] [--confirm-idle]
+
+Passive Linux process CPU profiling; never start, signal or configure a
+target.
+
+options:
+  -h, --help           show this help message and exit
+  --pid PID
+  --output OUTPUT      new directory; never overwrite
+  --seconds SECONDS
+  --interval INTERVAL
+  --confirm-idle       operator confirms the target is idle throughout this
+                       window
