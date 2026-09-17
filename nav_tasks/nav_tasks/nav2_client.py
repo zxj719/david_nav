@@ -277,6 +277,13 @@ class Nav2Client:
         self._destroy_owned_clients()
 
     def _destroy_owned_clients(self) -> None:
+        """逆创建顺序销毁自建客户端，成功项移除，失败项保留供重试.
+
+        外层必须先确认动作会话已收尾；外部注入的客户端不在此列表中。
+
+        Raises:
+            Exception: 全部自建客户端均尝试销毁后，重抛最后一个销毁异常。
+        """
         failure = None
         for client in tuple(reversed(self._owned_clients)):
             try:
@@ -304,6 +311,17 @@ class Nav2Client:
         return self._build_pose(goal.poi.map_pose)
 
     def _build_pose(self, pose: PoseRecord) -> object:
+        """用节点当前时钟构造导航目标消息，不转换坐标系或发送目标.
+
+        Args:
+            pose: 目标帧下的位置（米）与 yaw（弧度）；原采集时间不写入目标。
+
+        Returns:
+            填好帧、当前时间、位置及 yaw 四元数的导航目标消息。
+
+        Raises:
+            Exception: 消息工厂、节点时钟或位姿转换失败。
+        """
         message = self._goal_factory()
         message.pose.header.frame_id = pose.frame_id
         message.pose.header.stamp = self._node.get_clock().now().to_msg()
@@ -318,6 +336,18 @@ class Nav2Client:
         return message
 
     def _spin_factory(self, goal: SpinGoal) -> Callable[[], object]:
+        """验证旋转参数并返回延迟构造消息的工厂，不在这里发送动作.
+
+        Args:
+            goal: 有符号旋转角（弧度）与非负服务端时间预算（秒）。
+
+        Returns:
+            零参数消息工厂；预算截断为整数纳秒，再拆为 ROS 秒与纳秒字段。
+
+        Raises:
+            ConfigError: 未配置旋转客户端，角度非有限或超出 float32，
+                时间预算非有限、为负或不能放入 ROS Duration。
+        """
         if self._spin_client is None:
             raise ConfigError('Spin is not configured on this shared backend')
         if (type(goal.target_yaw) not in (int, float) or

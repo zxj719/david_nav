@@ -41,6 +41,16 @@ async def _retry(operation, label, emit, delay):
 
 
 async def _spin(host, fault, emit):
+    """驱动唯一 ROS 宿主，首个回调错误通知外层并继续为清理处理回调.
+
+    Args:
+        host: 持有上下文、节点和执行器的宿主。
+        fault: 仅首次异常时写入的 asyncio Future，不在此销毁资源。
+        emit: 诊断日志函数，其异常不会打断错误后的清理。
+
+    Raises:
+        asyncio.CancelledError: 外层在任务清理完成后取消 spin。
+    """
     while True:
         try:
             host.spin_once()
@@ -57,6 +67,26 @@ async def _spin(host, fault, emit):
 
 
 async def _finish(host, runtime, rollback, adapter, ingress, dock, workers, spin, emit, delay):
+    """按入口、运动、spin、回调和资源顺序清理，失败重试时保留所有权.
+
+    Dock 先 settle 再停止 spin、等待回调，最后销毁运行时和入口；普通导航
+    在停止 spin 前关闭运行时。重试没有放弃资源的超时期限。
+
+    Args:
+        host: 最后关闭的 ROS 宿主。
+        runtime: 已完成构建的任务运行时，或 None。
+        rollback: 部分构建失败后仍持有资源的异步清理函数，或 None。
+        adapter: 需解除事件订阅的协议适配器，或 None。
+        ingress: Dock 入口所有者，或 None。
+        dock: 是否采用 Dock 多线程回调收尾顺序。
+        workers: 先取消并等待的外层后台任务列表。
+        spin: 运动清理期间必须保持运行的 ROS 驱动任务，或 None。
+        emit: 清理失败日志函数。
+        delay: 清理重试间隔（秒）。
+
+    Raises:
+        Exception: 未由重试包装的入口停止或适配器关闭失败。
+    """
     if ingress is not None:
         ingress.stop()
     await _join(workers)
@@ -86,6 +116,19 @@ async def _finish(host, runtime, rollback, adapter, ingress, dock, workers, spin
 
 
 def _bind_dock(resolved, node):
+    """应用 ROS Dock 参数并拒绝入口动作与后端动作解析到同一名称.
+
+    Args:
+        resolved: 含完整 Dock 参数的不可变配置。
+        node: 用于声明参数与解析 ROS 名称的已创建节点。
+
+    Returns:
+        回填有效入口动作名及来源的新配置，不修改原配置。
+
+    Raises:
+        ConfigError: Dock 参数无效或入口与后端动作名冲突。
+        Exception: ROS 参数声明或名称解析失败。
+    """
     dock = declare_dock_parameters(
         node, resolved.dock_parameters, spin_action_name=resolved.dock.runtime.spin_action_name,
         pose_timeout_sec=resolved.dock.runtime.pose_timeout_sec)
@@ -202,6 +245,19 @@ async def run(
 
 
 def _start_websocket(runtime, config, connect, emit, adapter, workers):
+    """创建事件、状态和重连任务，并立即登记到外层持有的列表.
+
+    Args:
+        runtime: 提供任务状态、位姿及回环观察器的运行时。
+        config: 已解析的执行器配置，时间字段使用秒。
+        connect: WebSocket 异步连接上下文工厂。
+        emit: 保持现有文本的日志函数。
+        adapter: 进程生命周期的命令与事件适配器。
+        workers: 原地追加后台任务的所有者列表，部分失败时仍用于清理。
+
+    Raises:
+        Exception: 日志输出或任务创建失败；已登记的任务由外层等待回收。
+    """
     # Mutate the outer owner's list as each worker starts, including partial failure.
     audit = OutboundAudit(emit)
     outbox = ReliableOutbox(on_sending=audit.on_sending, on_sent=audit.on_sent)

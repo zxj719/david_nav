@@ -70,6 +70,15 @@ class TfPoseSource:
                 raise ClosedError('pose source is closed')
 
     def _on_odom(self, message: object) -> None:
+        """在 ROS 回调中保存里程计快照，关闭期间不再写入缓存.
+
+        Args:
+            message: 里程计消息；保留 header 帧与时间（秒），位置使用米，
+                四元数转换为弧度 yaw。空帧使用配置值，不自动改接话题。
+
+        Raises:
+            Exception: 消息读取或数值转换失败，由 ROS 宿主处理回调故障。
+        """
         with self._lock:
             if self._closed:
                 return

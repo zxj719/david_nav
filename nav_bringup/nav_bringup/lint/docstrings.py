@@ -22,6 +22,11 @@ their getter docstrings. Attribute discovery covers class assignments, literal
 slots, and instance writes/literal setattr in methods, not inherited fields,
 computed names, receiver aliases, descriptors or dynamically generated APIs.
 
+``check_private_paths`` is a separate opt-in presence gate for private functions
+over ten physical definition lines, including nested functions/private classes.
+It excludes double-underscore names and does not judge prose quality or detect
+non-obvious short functions. Those still require review under SPEC 5.3.
+
 Example:
     violations = check_paths([Path('my_pkg')])
     assert not violations, format_violations(violations)
@@ -110,6 +115,73 @@ def check_paths(paths: Iterable[Union[str, Path]]) -> List[Violation]:
         source = file_path.read_text(encoding='utf-8')
         violations.extend(check_source(source, str(file_path)))
     return violations
+
+
+def check_private_source(source: str, path: str = '<string>') -> List[Violation]:
+    """检查超过十行的私有函数是否有非空说明，不替代公共 API 检查.
+
+    行数从 def/async def 到最后一条语句末行计算，含空行、注释和多行签名，
+    不含装饰器。检查嵌套定义及私有类方法，排除双下划线开头的名称。
+    这里只检查说明存在；短而复杂的函数和说明准确性仍需人工或代码审查。
+
+    Args:
+        source: 待解析的 Python 源码，不会导入或执行。
+        path: 诊断信息中使用的文件路径。
+
+    Returns:
+        按源码位置排序的缺失说明列表。
+
+    Raises:
+        SyntaxError: 源码不是有效的 Python。
+    """
+    tree = ast.parse(source, filename=path)
+    violations = []
+    for name, node in _private_functions(tree):
+        if node.end_lineno - node.lineno + 1 > 10 and not (ast.get_docstring(node) or '').strip():
+            violations.append(Violation(
+                path, node.lineno, name, 'missing docstring for private function over 10 lines'))
+    return sorted(violations, key=lambda item: item.line)
+
+
+def check_private_paths(paths: Iterable[Union[str, Path]]) -> List[Violation]:
+    """按文件顺序检查指定源码中的长私有函数说明.
+
+    Args:
+        paths: 文件或目录；目录递归扫描时忽略 test_ 开头的文件，
+            显式传入的 Python 测试文件仍检查，与公共 API 门禁一致。
+
+    Returns:
+        按路径及源码位置排序的违规列表；没有缺失时为空。
+
+    Raises:
+        SyntaxError: 某个文件不是有效的 Python。
+        OSError: 无法读取待检查文件。
+    """
+    violations = []
+    for file_path in sorted(_iter_python_files(paths)):
+        violations.extend(check_private_source(
+            file_path.read_text(encoding='utf-8'), str(file_path)))
+    return violations
+
+
+def _private_functions(node: ast.AST, prefix: str = '') -> Iterator[tuple[str, FunctionNode]]:
+    """遍历全部语法子树并保留类与函数限定名，不执行任何源码.
+
+    Args:
+        node: 当前语法节点，包含条件分支中的定义。
+        prefix: 外层类与函数的点分名称前缀。
+
+    Yields:
+        单下划线私有函数的限定名与 AST 节点，包括异步和嵌套定义。
+    """
+    if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        name = prefix + node.name
+        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name.startswith('_') and not node.name.startswith('__')):
+            yield name, node
+        prefix = name + '.'
+    for child in ast.iter_child_nodes(node):
+        yield from _private_functions(child, prefix)
 
 
 def format_violations(violations: Sequence[Violation]) -> str:

@@ -112,6 +112,14 @@ class RosHost:
         await asyncio.shield(self._quiesce_task)
 
     async def _quiesce(self) -> None:
+        """在线程中等待回调退出，仅在确认完成后释放执行器引用.
+
+        失败后置位不可重试标记；节点与上下文仍归本宿主持有，不能继续销毁。
+
+        Raises:
+            RuntimeError: 先前清理不完整，或无法证明本次回调已退出。
+            BaseException: 线程清理失败或等待被取消，保留不完整标记后透传。
+        """
         if self._shutdown_incomplete:
             raise RuntimeError('ROS executor shutdown was incomplete; retaining node/context')
         try:
@@ -124,6 +132,15 @@ class RosHost:
         self._quiesced = True
 
     def _shutdown_callbacks(self) -> None:
+        """在辅助线程关闭执行器并排空已提交回调，不接收新的 DDS 工作.
+
+        Dock 模式先检查 Humble 私有队列布局，再等待线程池和队列尾部任务；
+        调用方必须已停止 spin，并保持 asyncio 所有者循环存活。
+
+        Raises:
+            RuntimeError: 执行器布局不受支持、关闭不完整或尾部任务未正常结束。
+            Exception: ROS 执行器或线程池关闭失败，资源仍由宿主持有。
+        """
         executor = self._executor
         if executor is None:
             return
@@ -142,6 +159,15 @@ class RosHost:
 
     @staticmethod
     def _drain_sdk_tasks(executor) -> None:
+        """同步排空已停止执行器中可立即完成的 SDK 尾部任务.
+
+        Args:
+            executor: 已关闭 spin 和线程池、具有 Humble 任务队列的执行器。
+
+        Raises:
+            RuntimeError: 任务仍在执行、调用后仍挂起或已带异常结束；不能释放资源。
+            Exception: 读取或调用 SDK 任务失败，交由宿主保留清理所有权。
+        """
         # David's Humble Task.set_result schedules done callbacks through create_task,
         # not through the pool. No spin driver or pool worker may remain here. These
         # queued tasks run on this shutdown helper thread with the asyncio loop alive.

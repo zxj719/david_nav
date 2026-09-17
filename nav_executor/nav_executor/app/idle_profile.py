@@ -23,6 +23,19 @@ class _Counters:
 
 
 def _read_counters(pid, proc_root=Path('/proc')):
+    """只读解析 Linux 进程计数器，不记录命令名、命令行或环境.
+
+    Args:
+        pid: 目标进程号，必须与 stat 中的身份一致。
+        proc_root: proc 根目录，可注入离线测试目录。
+
+    Returns:
+        启动和 CPU tick、RSS 字节数、线程数及进程状态快照。
+
+    Raises:
+        OSError: 无法读取 stat 或系统页大小。
+        ValueError: 身份、字段、数值或进程存活状态不合法。
+    """
     # comm may contain spaces and parentheses. Never record comm/cmdline/environ.
     text = (proc_root / str(pid) / 'stat').read_text(encoding='utf-8')
     end = text.rfind(')')
@@ -49,6 +62,24 @@ def _positive(value):
 
 def _collect(source, seconds, interval, tick_hz, emit, *, idle_confirmed=False,
              clock=time.monotonic, sleep=time.sleep):
+    """被动采样同一进程的 CPU 增量，给出完整性与 R6 资格而非自动认定空闲.
+
+    OSError、ValueError 和键盘中断转为不完整原因；其它注入函数异常透传。
+    CPU 百分比以单核为 100%，包含进程线程，不包含子进程。
+
+    Args:
+        source: 返回进程计数器快照的只读函数。
+        seconds: 请求采样时长（正数秒）。
+        interval: 采样间隔（正数秒，调用方保证不超过总时长）。
+        tick_hz: 每秒 CPU tick 数，调用方保证为正。
+        emit: 接收每条样本字典的函数；首条百分比为 None。
+        idle_confirmed: 操作者是否确认目标在整个窗口内空闲。
+        clock: 返回单调时钟秒数的函数。
+        sleep: 秒制阻塞等待函数，可由测试替换。
+
+    Returns:
+        含实际时长、均值、间隔质量、不完整原因与 R6 资格的汇总字典。
+    """
     started, last_stamp, baseline, previous = None, None, None, None
     rows, elapsed, cpu_delta, max_gap = 0, 0.0, 0, 0.0
     reason = None

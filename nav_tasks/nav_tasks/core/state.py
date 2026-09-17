@@ -188,6 +188,22 @@ class TaskManager:
         self, request: TaskRequest, handler: Handler, payload: object,
         on_settled: Callable[[TaskCompletion], None] | None,
     ) -> TaskSnapshot:
+        """在转换锁内完成准入，必要时先确认旧任务清理再分配新一代所有权.
+
+        Args:
+            request: 含身份、来源及抢占策略的任务请求。
+            handler: 已注册的异步技能函数。
+            payload: 已解码的技能输入。
+            on_settled: 所有权释放后调用一次的同步回调，或 None。
+
+        Returns:
+            新任务的 STARTING 状态快照，不表示已经到达目标。
+
+        Raises:
+            ClosedError: 准入已封闭，包括等待旧任务取消期间发生关闭。
+            BusyError: 已有运动所有者且请求不允许抢占。
+            Exception: 旧任务清理或新工作任务创建失败。
+        """
         async with self._transition_lock:
             self._check_open()
             if self._active is not None:
@@ -207,6 +223,18 @@ class TaskManager:
             return self.status()
 
     async def _run(self, active: _Active, handler: Handler, payload: object) -> None:
+        """运行一代技能，终态释放所有权；外部取消沿用 paused 且仍持有的语义.
+
+        Args:
+            active: 已登记的任务所有者；过期代次不得提交结果。
+            handler: 返回 NavOutcome 的异步技能。
+            payload: 准入前已解码的技能输入。
+
+        Raises:
+            TypeError: 技能未返回带合法 NavStatus 的 NavOutcome。
+            asyncio.CancelledError: 工作任务被取消，封闭反馈后交给取消流程收尾。
+            Exception: 技能执行失败，由 supervisor 通知崩溃处理并保留所有权。
+        """
         context = TaskContext(
             active.request.task_id, active.request.sub_id, active.generation,
             lambda remaining: self._feedback(active, remaining),
@@ -240,6 +268,14 @@ class TaskManager:
         self._settled(active, outcome)
 
     def _settled(self, active: _Active, outcome: NavOutcome) -> None:
+        """在所有权已释放后发送观察事件，并最多调用一次完成回调.
+
+        Args:
+            active: 已结束的任务记录；调用前由外层解除 active 引用。
+            outcome: 已确认的最终结果，而非取消请求的接收响应。
+
+        完成回调先从记录移除再调用，异常交给崩溃报告，不重发完成通知。
+        """
         self._observe(active, 'task_' + outcome.status.value,
                       ownership_released=True, detail=outcome.detail)
         callback, active.on_settled = active.on_settled, None
@@ -285,6 +321,15 @@ class TaskManager:
             self._observe(active, 'task_paused' if status == 'paused' else 'task_progress')
 
     def _observe(self, active, name, *, ownership_released=False, detail='', error_type=''):
+        """发送带任务代次和当前状态的观察快照，观察函数异常只记录警告.
+
+        Args:
+            active: 被观察的任务所有者记录。
+            name: 观察事件名称。
+            ownership_released: 是否已经确认运动所有权释放。
+            detail: 结果或清理说明。
+            error_type: 故障类型名称，不传递异常对象。
+        """
         if self._on_event is None:
             return
         request = active.request
@@ -300,6 +345,19 @@ class TaskManager:
             _LOGGER.warning('Task observation failed (%s)', type(error).__name__)
 
     async def _cancel_active(self) -> _Active:
+        """封闭反馈并等待后端和工作任务收尾，仅在两者均确认后释放 active.
+
+        调用方持有转换锁且必须存在活动任务。已报告的工作任务异常允许在
+        清理时再次读出；本次取消中新出现的异常仍视为失败，保留 ERROR 所有者。
+
+        Returns:
+            已释放所有权的任务记录，供调用方发送兼容的 paused 通知。
+
+        Raises:
+            AssertionError: 调用时不存在活动任务。
+            asyncio.CancelledError: 后端清理被取消，所有权仍保留。
+            Exception: 后端或工作任务清理失败，不能接收下一次运动任务。
+        """
         active = self._active
         assert active is not None
         # Only a crash known before this cleanup attempt is an expected worker
@@ -359,6 +417,18 @@ class TaskManager:
                 await self._cancel_active()
 
     def _on_crash(self, name: str, error: BaseException) -> None:
+        """仅为当前工作任务的首次异常登记故障并安排持锁清理.
+
+        已开始显式取消时只保留异常，不制造第二个终态；其它观察器或旧任务
+        的错误不夺取当前运动所有权。
+
+        Args:
+            name: supervisor 报告的已结束任务名称。
+            error: 已取出的异常对象，以身份确认确为当前工作任务异常。
+
+        Raises:
+            Exception: 故障报告或后台清理任务创建失败，由 supervisor 接管报告。
+        """
         if not isinstance(error, NavTaskError):
             _LOGGER.error('Task operation %s failed: %s', name, error)
         active = self._active

@@ -253,6 +253,20 @@ class ActionSession:
             raise RuntimeError('action session used from a different event loop')
 
     async def _wait_phase(self, future: FutureLike, timeout: float | None) -> object:
+        """等待一个动作阶段，超时仅取消本地桥接任务，不取消原 ROS Future.
+
+        Args:
+            future: 仍由动作尝试持有、用于迟到接收和终态清理的 Future。
+            timeout: 等待预算（秒）；None 或已完成 Future 不走定时分支。
+
+        Returns:
+            ROS Future 的结果。
+
+        Raises:
+            _PhaseExpired: 预算内桥接任务未结束，原 Future 仍由尝试持有。
+            asyncio.CancelledError: 等待者被取消，本地桥接任务先收尾。
+            Exception: ROS Future 或桥接任务失败。
+        """
         if timeout is None or future.done():
             return await await_rclpy_future(future)
         waiter = self._supervisor.spawn(await_rclpy_future(future), 'action-phase-wait')
@@ -277,6 +291,19 @@ class ActionSession:
         await asyncio.wait_for(asyncio.shield(attempt.cleanup), timeout=self._cancel_timeout)
 
     async def _cleanup(self, attempt: _Attempt) -> None:
+        """等待迟到的目标接收并确认动作终态后，才释放尝试的所有权.
+
+        取消服务应答不等于终态；失败结果可重新请求，不能仅凭取消请求成功
+        就允许下一段动作。失败时保持 active，供上层重试清理。
+
+        Args:
+            attempt: 持有提交、结果和目标句柄的动作尝试。
+
+        Raises:
+            RuntimeError: 提交不可追踪，或结果未确认动作处于终态。
+            Exception: ROS 提交、取消或结果 Future 失败，所有权不释放。
+            asyncio.CancelledError: 清理被取消，所有权不释放。
+        """
         if attempt.submission_started and attempt.send is None:
             raise RuntimeError('goal submission failed without a trackable future')
         if attempt.send is not None:

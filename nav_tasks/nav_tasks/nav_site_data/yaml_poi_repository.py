@@ -51,6 +51,16 @@ class YamlPoiRepository:
         self._load_from(self.path)
 
     def _load_from(self, path: Path) -> None:
+        """只读合并一个 YAML 文件，同名 POI 覆盖内存中的先前记录.
+
+        Args:
+            path: 初始来源或本地缓存路径；不存在时忽略，不自动创建文件。
+
+        Raises:
+            OSError: 文件读取失败。
+            yaml.YAMLError: YAML 解析失败。
+            Exception: 单条记录转换失败；已合并的记录不会回滚。
+        """
         if not path.exists():
             return
         with path.open('r', encoding='utf-8') as handle:
@@ -159,6 +169,15 @@ class YamlPoiRepository:
             transform.yaw + pose.yaw, pose.stamp_sec)
 
     def _write(self) -> None:
+        """按内存顺序写同目录临时 YAML，再原子替换本地缓存文件.
+
+        只用于单写入者；不写只读来源、不提供 fsync 持久化保证。上层已修改
+        内存，写失败不回滚内存，也不主动删除可能留下的 .tmp 文件。
+
+        Raises:
+            OSError: 创建目录、写入文件或替换缓存失败。
+            yaml.YAMLError: POI 数据无法序列化。
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(self.path.suffix + '.tmp')
         payload = {'pois': [

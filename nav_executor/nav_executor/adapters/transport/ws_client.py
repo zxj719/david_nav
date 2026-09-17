@@ -125,6 +125,23 @@ async def send_heartbeat(
 
 
 async def _connection(socket, adapter, outbox, options, last_inbound, emit, now):
+    """持有单次连接的收包、心跳与发包任务，任一结束后取消并等待其余任务.
+
+    不关闭跨重连复用的命令适配器和 outbox，也不取消导航任务。
+
+    Args:
+        socket: 已建立连接的 WebSocket。
+        adapter: 进程生命周期的命令适配器。
+        outbox: 跨连接保留未送达帧的可靠队列。
+        options: 含秒制心跳间隔的传输选项。
+        last_inbound: 与心跳共享的单元素单调时钟秒数列表。
+        emit: 原有无前缀日志接收函数。
+        now: 返回单调时钟秒数的函数。
+
+    Raises:
+        Exception: 子任务失败；其余子任务已在 finally 中取消并等待。
+        asyncio.CancelledError: 连接所有者被取消，仍先等待子任务清理。
+    """
     # Strong local references survive until all children have been joined. A
     # failed sender must wake the connection owner even if receive is blocked.
     children = (

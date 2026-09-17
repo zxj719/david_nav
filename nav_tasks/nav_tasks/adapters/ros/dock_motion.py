@@ -96,6 +96,16 @@ class _DockMotion:
         return answer.result()
 
     def _dispatch(self, answer, kind, goal, label, timeout, extra):
+        """在所有者循环接收工作线程请求，同一时刻最多持有一个动作阶段.
+
+        Args:
+            answer: 跨线程结果 Future；拒绝或创建异常通过它交还工作线程。
+            kind: navigate 或 spin，选择共享后端动作。
+            goal: 平面位姿（米、弧度）或 SpinGoal（弧度、秒）。
+            label: 保持不变的阶段日志标签。
+            timeout: 接收目标后的结果等待预算（秒）。
+            extra: 导航反馈附加距离（米），旋转阶段不使用。
+        """
         try:
             if self._stop.is_set():
                 self._logger.warn('[dock] %s: 已收到取消请求，不再下发' % label)
@@ -123,6 +133,22 @@ class _DockMotion:
             answer.set_exception(error)
 
     async def _run_stage(self, kind, goal, label, timeout, extra):
+        """通过唯一后端执行导航或旋转，确认终态后转换为 Dock 阶段结果.
+
+        Args:
+            kind: navigate 使用位姿动作，否则使用已验证的旋转动作。
+            goal: 平面位姿（米、弧度）或含角度及时间预算的 SpinGoal。
+            label: 原有日志阶段标签。
+            timeout: 接收目标后的本地结果等待预算（秒）。
+            extra: 转发导航反馈时附加的剩余距离（米）。
+
+        Returns:
+            成功、失败或取消的阶段结果；停止标志优先于动作成功。
+
+        Raises:
+            Exception: 后端或清理失败，不转换为可继续执行的普通失败结果。
+            asyncio.CancelledError: 当前阶段被取消，由后端完成其清理约定。
+        """
         def deadline(state):
             if state == ActionState.SEND_TIMEOUT:
                 self._logger.error('[dock] %s: 发目标后 10s 没有应答' % label)

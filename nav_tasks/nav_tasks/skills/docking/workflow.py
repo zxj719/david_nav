@@ -192,6 +192,17 @@ class DockWorkflow:
             self._logger.error('[dock] ===== 失败: %s' % message)
 
     def _log_event(self, name, **values):
+        """把已知精调事件映射为冻结的 Dock 日志行，未知事件不输出.
+
+        Args:
+            name: measured、spin、after_spin 或 no_pose 事件名。
+            values: 对应事件字段；exy 为米，eyaw/target_yaw 输入为弧度，
+                日志显示为度，index 为修正次数，settled 为停稳判定。
+
+        Raises:
+            KeyError: 已知事件缺少必需字段。
+            Exception: 数值格式化或日志接收函数失败。
+        """
         if name == 'measured':
             self._logger.info(
                 '[dock] 入位实测 exy=%.3fm eyaw=%.1f° (停稳=%s)'

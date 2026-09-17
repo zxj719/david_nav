@@ -112,6 +112,17 @@ class SnapSearch:
     def _ring_candidates(
         anchor_xy: Point, snap_radius: float, costmap: GridMapView | None,
     ) -> list[Point]:
+        """按栅格行优先顺序生成圆环候选点，不在此检查占用或按机器人距离排序.
+
+        Args:
+            anchor_xy: 世界坐标锚点（米）。
+            snap_radius: 搜索圆环半径（米）。
+            costmap: 使用既有轴对齐约定的代价地图；None 时没有候选。
+
+        Returns:
+            圆环半径误差不超过半格加数值容差的栅格中心坐标；
+            缺地图或锚点在图外时为空列表。
+        """
         if costmap is None:
             return []
         anchor_cell = costmap.world_to_cell(*anchor_xy)

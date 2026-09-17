@@ -71,6 +71,13 @@ class TaskSupervisor:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     def _finished(self, task: asyncio.Task) -> None:
+        """移除已完成任务的强引用，取出非取消异常并报告一次.
+
+        Args:
+            task: 本 supervisor 创建且已完成的 asyncio 任务。
+
+        崩溃回调自身失败时，把原异常与回调异常一起交给事件循环错误处理器。
+        """
         self._tasks.discard(task)
         if task.cancelled():
             return

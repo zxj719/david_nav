@@ -55,6 +55,22 @@ def _text(value, field, allow_empty=False):
 
 
 def _decode(payload):
+    """按既有 v1 规则构造命令对象，不执行导航或写入 POI 仓库.
+
+    Args:
+        payload: 已由外层确认类型的 JSON 字典；导航只使用 target_id。
+
+    Returns:
+        与 action 对应的命令对象，POI 批量更新保留原始字段值。
+
+    Raises:
+        MalformedCommandError: 导航请求缺少 request_id 或有效 target_id。
+        UnsupportedActionError: action 未受支持。
+        KeyError: 缺少其它命令的必需字段，外层会转换为协议错误。
+        TypeError: 字段结构或类型错误，外层会转换为协议错误。
+        ValueError: 字段为空或整数转换失败，外层会转换为协议错误。
+        OverflowError: 整数转换溢出，外层会转换为协议错误。
+    """
     action = _text(payload.get("action", ""), 'action', allow_empty=True)
     if action == "navigate_to":
         # v1 仅按 target_id 查 POI；残留的 target_pose/label 不参与导航。

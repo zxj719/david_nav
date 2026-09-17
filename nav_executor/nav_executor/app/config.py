@@ -204,6 +204,17 @@ def load_headless_executor_section(path: Path) -> dict:
 
 
 def _profile_values(path):
+    """读取机器人档案的执行器绑定，并记录每项值的来源.
+
+    Args:
+        path: 只读机器人 YAML 档案路径。
+
+    Returns:
+        配置值与来源字典二元组；executor 项覆盖绑定值，重连秒数字段重命名。
+
+    Raises:
+        ConfigError: 文件读取失败、不是映射或缺少必需的绑定键。
+    """
     profile = _read_mapping(path)
     bindings = {
         'robot_base_frame': ('frames', 'poi_capture'),
@@ -228,6 +239,15 @@ def _profile_values(path):
 
 
 def _normalize(values):
+    """原地验证并规范化执行器选项，保持既有字段优先级.
+
+    Args:
+        values: 待修改的配置字典；数值转为声明类型，Dock ID 去空去重，
+            文件路径展开用户目录。中途失败时先前修改不会回滚。
+
+    Raises:
+        ConfigError: 未知字段、类型错误、非有限或越界数值、空必需字符串。
+    """
     definitions = {field.name: field for field in fields(ExecutorConfig)}
     unknown = set(values) - definitions.keys()
     if unknown:
@@ -260,6 +280,18 @@ def _normalize(values):
 
 
 def _dock_configuration(values, sources):
+    """先完整验证 Dock 文件，再应用执行器动作名覆盖并记录来源.
+
+    Args:
+        values: 执行器配置字典；缺动作名时回填 Dock 文件中的动作名。
+        sources: 配置来源字典；随上述回填原地更新。
+
+    Returns:
+        Dock 配置和只读参数映射；未配置文件时返回两个 None。
+
+    Raises:
+        ConfigError: 文件、ROS 参数包装结构或 Dock 参数无效。
+    """
     path = values.get('dock_config_file')
     if path is None:
         return None, None

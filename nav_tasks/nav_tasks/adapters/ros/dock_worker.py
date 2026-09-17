@@ -248,6 +248,18 @@ class DockWorker:
                 thread.join(timeout=0)
 
     def _run(self, completion, stop, motion, goal, observe):
+        """在线程执行同步 Dock 流程，在位姿、地图检查和等待前后检查停止标志.
+
+        此处完成 Future 不等于线程已退出；外层 _wait_thread 仍负责确认并 join。
+        流程异常写入 completion，不从线程悄悄丢失。
+
+        Args:
+            completion: 工作结果或异常的跨线程 Future，由外层持有。
+            stop: 取消与关闭共享的线程事件。
+            motion: 把动作调用交给唯一 asyncio 后端的阻塞端口。
+            goal: 全局平面目标位姿（米、弧度）。
+            observe: 在工作线程调用的观察回调；外层负责其线程安全。
+        """
         def check_stop():
             if stop.is_set():
                 raise _WorkerStopped

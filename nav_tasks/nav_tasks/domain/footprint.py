@@ -281,6 +281,16 @@ def _point_on_segment(
     start: Tuple[float, float],
     end: Tuple[float, float],
 ) -> bool:
+    """按既有叉积与点积容差检查点是否落在闭线段上.
+
+    Args:
+        point: 待检查的平面点，与端点采用相同坐标单位。
+        start: 线段起点。
+        end: 线段终点；该计算假定边不退化为零长度。
+
+    Returns:
+        叉积绝对值不超过 _EPS，且点积在带 _EPS 容差的线段范围内时为 True。
+    """
     cross = (
         (point[0] - start[0]) * (end[1] - start[1])
         - (point[1] - start[1]) * (end[0] - start[0])

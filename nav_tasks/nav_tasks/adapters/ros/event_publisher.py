@@ -114,6 +114,18 @@ class NavigationEvents:
                     setattr(self, field, None)
 
     def _publish(self, source, name, severity, data, *, dock_name=None):
+        """在发布与销毁共享锁内构造观察事件，坏数据或投递失败仅记警告.
+
+        导航事件和可选 Dock 镜像共享事件 ID 与秒制时间戳；发布失败不回滚
+        序号、不重试、不影响运动控制。未打开或已封闭时直接忽略。
+
+        Args:
+            source: 观察来源名称。
+            name: 非空导航事件名称。
+            severity: 事件严重程度标签。
+            data: 可序列化为有限数值 JSON 的观察数据映射。
+            dock_name: Dock 镜像的工作流事件名；None 表示不构造镜像。
+        """
         with self._lock:
             if not self._opened or self._sealed:
                 return

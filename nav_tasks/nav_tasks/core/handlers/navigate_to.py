@@ -105,6 +105,20 @@ class NavigateToPoi:
         return outcome
 
     async def _navigate(self, context: TaskContext, poi: StoredPoi, phase: str) -> NavOutcome:
+        """执行一个导航段及其失败重试，并封闭已结束尝试的迟到反馈.
+
+        Args:
+            context: 当前任务身份、取消检查和米制进度回调。
+            poi: 该段的不可变目标快照。
+            phase: to_snap 或 to_anchor，用于任务状态与观察事件。
+
+        Returns:
+            重试策略给出的最终导航结果；本函数不决定是否继续去锚点。
+
+        Raises:
+            asyncio.CancelledError: 任务取消，禁止重试和后续导航段。
+            Exception: 后端、观察函数或重试等待失败，由任务管理器处理。
+        """
         context.check_cancelled()
         context.describe(poi.poi_id, phase)
         context.start_segment()

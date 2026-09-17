@@ -195,6 +195,19 @@ class DockIngress:
             raise RuntimeError('Dock ingress used from a different event loop')
 
     def _call(self, function: Callable, *args):
+        """把同步操作投递到入口所有者循环，并在 ROS 回调线程等待结果.
+
+        Args:
+            function: 不应阻塞所有者循环的同步函数；同线程时直接调用。
+            args: 传给函数的位置参数。
+
+        Returns:
+            函数结果；跨线程等待没有超时，所有者循环必须保持存活。
+
+        Raises:
+            BaseException: 函数异常由 Future 原样转回调用线程。
+            RuntimeError: 无法向已关闭的事件循环投递。
+        """
         if threading.get_ident() == self._thread:
             return function(*args)
         answer = Future()
@@ -235,6 +248,17 @@ class DockIngress:
         return self._call(admit)
 
     def _cancel_callback(self, handle):
+        """在所有者循环记录动作取消请求，唤醒已登记任务或保留提前取消.
+
+        Args:
+            handle: ROS 动作目标句柄，以对象身份匹配入口任务。
+
+        Returns:
+            ROS 取消接收响应；仅确认请求已记录，不代表运动已停稳。
+
+        Raises:
+            Exception: 跨线程投递或循环中的取消记录操作失败。
+        """
         def cancel():
             self._logger.warn('[dock] 收到动作取消请求')
             for entry in self._entries.values():
@@ -249,6 +273,19 @@ class DockIngress:
         return self._call(cancel)
 
     def _execute_action(self, handle):
+        """在 ROS 工作线程等待入口任务收尾，再设置动作句柄的终态.
+
+        Args:
+            handle: ROS 动作目标句柄；其请求位姿沿用既有不转换 header 的约定。
+
+        Returns:
+            空动作结果；成功、取消或失败由句柄状态表达。
+
+        Raises:
+            RuntimeError: 在 asyncio 所有者线程调用会死锁，因此直接拒绝。
+            Exception: ROS 终态设置或清理提前取消记录失败；任务执行异常
+                本身会记录并转换为失败结果。
+        """
         if threading.get_ident() == self._thread:
             raise RuntimeError('Dock action execution requires a multithreaded ROS host')
         answer = Future()
@@ -270,6 +307,16 @@ class DockIngress:
         return self._action.Result()
 
     def _start(self, pose, handle, answer):
+        """在所有者循环登记入口请求，并把执行结果桥接给等待中的 ROS 线程.
+
+        Args:
+            pose: 请求位姿记录，位置为米、yaw 为弧度。
+            handle: 动作句柄；话题入口为 None。
+            answer: ROS 线程持有的结果 Future；话题入口为 None。
+
+        Raises:
+            Exception: 创建后台任务或写入应答失败；已登记入口仍由本对象持有。
+        """
         if self._closing or not self._opened:
             if answer is not None:
                 answer.set_result(NavStatus.CANCELED)
@@ -289,6 +336,22 @@ class DockIngress:
             entry.task.add_done_callback(completed)
 
     async def _run(self, entry, pose):
+        """提交 Dock 请求并等待所有权释放凭据，不把进度事件误当作完成.
+
+        关闭、取消或观察失败时等待自有任务清理；finally 等待 ROS 取消状态
+        可见后解除事件订阅并移除入口，避免取消应答与执行结果竞态。
+
+        Args:
+            entry: 本次入口记录，持有任务身份、事件队列和收尾 Future。
+            pose: 提交给任务内核的 Dock 位姿记录（米、弧度）。
+
+        Returns:
+            收尾结果的导航状态；忙碌、配置错误和已处理异常转换为失败。
+
+        Raises:
+            asyncio.CancelledError: 外部取消协程；finally 仍回收事件观察资源。
+            Exception: 异常处理中的清理或最终回收本身失败。
+        """
         events = None
         observer = None
         try:
