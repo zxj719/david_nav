@@ -38,6 +38,20 @@ class RecordReader:
 
     @contextmanager
     def _directory(self, parts: tuple) -> Iterator[int]:
+        """相对于固定记录目录逐级打开子目录，并在退出上下文时关闭描述符.
+
+        只复制初始描述符，不关闭借入的根描述符；逐级 O_NOFOLLOW 拒绝链接。
+        路径组件应由调用方先校验，本函数不自行拒绝 .. 等输入。
+
+        Args:
+            parts: 调用方已校验的相对目录组件元组；空元组表示记录根。
+
+        Yields:
+            当前子目录的借用描述符，仅在 with 上下文内有效。
+
+        Raises:
+            OSError: 描述符复制、目录安全打开或关闭失败。
+        """
         descriptor = os.dup(self._descriptor)
         try:
             for part in parts:

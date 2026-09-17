@@ -361,6 +361,19 @@ def write_bundle(bundle: PreparedBundle) -> None:
 def _publish_marker(path: Path, content: bytes) -> None:
     # A hard link publishes complete bytes exclusively: unlike replace/rename,
     # it cannot clobber a marker created since the preflight check.
+    """通过同目录临时文件和排他硬链接发布完整标记，不覆盖已有目标.
+
+    先 flush 和 fsync 临时文件，再链接到目标；并发创建的目标使发布失败，
+    上下文负责删除临时文件。不宣称目录项已经具备断电持久性。
+
+    Args:
+        path: 已有父目录下待首次发布的标记路径。
+        content: 已生成的完整标记字节。
+
+    Raises:
+        FileExistsError: 目标已存在或在预检查后被并发创建。
+        OSError: 临时文件写入、同步、链接或回收失败。
+    """
     with tempfile.NamedTemporaryFile(prefix='.launch-', dir=path.parent) as stream:
         stream.write(content)
         stream.flush()

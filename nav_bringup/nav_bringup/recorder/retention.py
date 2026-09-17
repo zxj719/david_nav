@@ -211,6 +211,18 @@ def apply_gc(plan: GcPlan, root: Union[str, Path]) -> int:
 
 
 def _require_run_under(run_path: Path, root_path: Path) -> None:
+    """按路径字面结构要求待清理运行是记录根的直接子目录.
+
+    展开用户目录并转绝对路径，拒绝 .. 与非法运行 ID；不跟随符号链接
+    验证真实目录身份，后续删除流程仍需完成类型和设备号/inode 复核。
+
+    Args:
+        run_path: 要检查的运行目录路径，不在本函数中删除。
+        root_path: 调用方已规范化的绝对记录根。
+
+    Raises:
+        ValueError: 运行路径不在指定根下一级，或名称不符合运行 ID 格式。
+    """
     path = run_path.expanduser().absolute()
     if ('..' in path.parts or path.parent != root_path
             or RUN_ID_RE.fullmatch(path.name) is None):

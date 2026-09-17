@@ -39,6 +39,18 @@ def stop_session(process: subprocess.Popen, timeout_sec: float) -> int:
 
 
 def _signal_group(process_group: int, signum: int) -> None:
+    """向调用方选定的辅助进程组发信号，忽略进程组已消失的竞态.
+
+    调用方必须持有自己启动的会话；数字组号本身不是所有权凭据，
+    本辅助函数不执行 PID 复用防护，也不查找或选择外部进程。
+
+    Args:
+        process_group: 调用方拥有的辅助进程组编号。
+        signum: 要发送的信号编号。
+
+    Raises:
+        OSError: 除进程组不存在之外的信号发送错误。
+    """
     try:
         os.killpg(process_group, signum)
     except ProcessLookupError:

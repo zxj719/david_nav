@@ -132,10 +132,28 @@ class OwnedProcess:
         return status
 
     def _check_owner(self) -> None:
+        """拒绝 fork 后的子进程使用继承对象操作原进程的子进程组.
+
+        这里只核创建者 PID；领导进程仍可等待等条件由 poll 和 close 另行核对。
+
+        Raises:
+            RuntimeError: 当前进程不是创建此对象的进程。
+        """
         if self._owner_pid != os.getpid():
             raise RuntimeError('only the creating process owns this child group')
 
     def _signal(self, signum: int) -> None:
+        """向本对象记录的子进程组发送信号，只忽略组已经消失的竞态.
+
+        调用方必须先核创建者与仍可等待的领导进程，且尚未完成 close；
+        本辅助函数自身不验证数字 PID 的所有权，不可用于任意外部进程。
+
+        Args:
+            signum: 向整个自有进程组发送的信号编号。
+
+        Raises:
+            OSError: 除进程组不存在之外的信号发送错误。
+        """
         try:
             os.killpg(self.pid, signum)
         except ProcessLookupError:

@@ -319,6 +319,18 @@ def _working_directory(proc_dir: Path, pid: int) -> Optional[str]:
 
 
 def _unique_target(destination: Path, source: Path) -> Path:
+    """按原文件名、父目录前缀和计数后缀挑选未占用的拷贝目标名.
+
+    这里只按 exists 的当前观察选名，不创建、锁定或原子保留路径，
+    因此不能把返回值当作防并发覆盖或符号链接校验凭据。
+
+    Args:
+        destination: 本次运行拥有的日志摘录目标目录。
+        source: 用于构造文件名和冲突前缀的源路径。
+
+    Returns:
+        当前检查未占用的候选路径；冲突计数后缀从 2 开始。
+    """
     candidate = destination / source.name
     if not candidate.exists():
         return candidate

@@ -97,6 +97,19 @@ def _nonempty(value, limit):
 
 
 def _pairs(pairs):
+    """从 JSON 键值对构建事件对象，拒绝重复字段覆盖已有证据.
+
+    用作 object_pairs_hook，同一层重复键即报错，不采用最后一个值。
+
+    Args:
+        pairs: JSON 解码器按出现顺序提供的键值对。
+
+    Returns:
+        无重复键且保留输入键顺序的对象字典。
+
+    Raises:
+        ValueError: 同一事件对象含重复键。
+    """
     result = {}
     for key, value in pairs:
         if key in result:

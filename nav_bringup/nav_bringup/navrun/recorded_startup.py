@@ -312,6 +312,19 @@ def _validate(options, steps):
 
 
 def _check_plan(options, plan, path):
+    """拒绝与当前运行身份不匹配或已含错误的准备计划.
+
+    这里只核运行目录字符串、机器人、场地、模式和已有错误列表；
+    不替代资产哈希、ROS 就绪或运动安全验证。
+
+    Args:
+        options: 当前启动请求中的身份设置。
+        plan: 已准备的启动计划及其错误列表。
+        path: 本次运行目录，用字符串与准备记录比对。
+
+    Raises:
+        ValueError: 准备记录身份不一致，或计划含错误。
+    """
     if (plan.bundle.options.run_dir != str(path) or plan.bundle.robot != options.robot
             or plan.bundle.site != options.site or plan.bundle.options.mode != options.mode):
         raise ValueError('prepared bundle identity does not match this run')
@@ -352,6 +365,18 @@ def _link_spec(plan):
 
 def _write_manifest(path, record):
     # A failed update must not truncate the previous, readable manifest.
+    """先写同目录临时清单，再替换目标，避免写失败截断旧清单.
+
+    最终清理临时路径；这是替换式发布，不是断电持久性保证，也不阻止并发写入。
+
+    Args:
+        path: 运行清单的目标路径，父目录已存在。
+        record: 交给清单序列化器的完整记录。
+
+    Raises:
+        OSError: 临时文件创建、清单写入、替换或清理失败。
+        Exception: 清单序列化失败，尚未执行目标替换。
+    """
     with tempfile.NamedTemporaryFile(prefix='.manifest-', dir=path.parent,
                                      delete=False) as temporary:
         temporary_path = Path(temporary.name)
@@ -398,6 +423,20 @@ def _retry_pause():
 
 
 def _gc(options, run, started, events):
+    """为历史运行规划并实际执行保留策略，排除当前运行后记录结果.
+
+    这是有删除副作用的执行步骤，不是预览；调用方负责授权并选定记录根。
+    有时区的开始时间转为本地无时区时间，以匹配保留策略的时间口径。
+
+    Args:
+        options: 含保留策略的运行设置。
+        run: 当前运行目录与记录根，当前 ID 始终受保护。
+        started: 本次运行开始时间。
+        events: 删除执行后追加 gc_finished 的事件记录器。
+
+    Raises:
+        Exception: 历史读取、规划、删除或事件写入失败；此处不回滚已完成删除。
+    """
     history = [previous for previous in run_dir_lib.list_runs(run.root)
                if previous.run_id != run.run_id]
     local_time = started.astimezone().replace(tzinfo=None) if started.tzinfo else started

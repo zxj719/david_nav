@@ -266,6 +266,18 @@ class _SignalRelay:
         self._previous.clear()
 
     def _handle(self, signum: int, frame: Any) -> None:
+        """记录所收信号，仅把非 SIGINT 信号转交仍存活的直接子进程.
+
+        终端 Ctrl+C 已发给共享前台进程组，因此不重复转发 SIGINT；
+        这里不是对子进程树逐个发信号的接口。
+
+        Args:
+            signum: 收到的信号编号。
+            frame: 信号处理器提供的栈帧，此处不使用。
+
+        Raises:
+            OSError: 子进程状态检查或信号转交失败。
+        """
         self.received.append(signum)
         child = self.child
         if signum != signal.SIGINT and child is not None and child.poll() is None:

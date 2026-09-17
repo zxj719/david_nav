@@ -86,6 +86,20 @@ class HygieneResult:
 
 
 def _pid_entries(proc_dir: Path) -> Dict[str, Tuple[int, int]]:
+    """读取数字命名进程目录的设备号与 inode，供前后快照比对.
+
+    使用 lstat 拒绝冒充进程目录的符号链接等非目录项；单次枚举不是原子快照，
+    也不证明进程映射可读，完整性仍由外层读取和复查判断。
+
+    Args:
+        proc_dir: 待枚举的进程文件系统根目录，可为测试用私有目录。
+
+    Returns:
+        数字目录名到设备号、inode 的映射。
+
+    Raises:
+        OSError: 枚举或读取失败，或数字名称对应项不是实际目录。
+    """
     result = {}
     for path in proc_dir.iterdir():
         if not path.name.isdecimal():
@@ -137,6 +151,21 @@ def _state(path: Path) -> _FileState:
 
 
 def _directory(directory: Path) -> Tuple[int, int]:
+    """检查清理目录的显式路径与末级类型，返回待复核的目录身份.
+
+    只做检查，不删除文件；不把根目录、用户主目录或含 .. 的路径作为目标。
+    lstat 只检查末级不是符号链接，本函数不承诺逐级固定祖先目录。
+
+    Args:
+        directory: 调用方明确指定的绝对共享内存目录路径。
+
+    Returns:
+        本次读取的设备号与 inode，用于后续比对。
+
+    Raises:
+        ValueError: 路径不明确、过宽，或末级不是实际目录。
+        OSError: 无法读取目录元数据。
+    """
     if (not directory.is_absolute() or '..' in directory.parts
             or directory in (Path('/'), Path.home())):
         raise ValueError('hygiene requires an explicit normalized shared-memory directory')
