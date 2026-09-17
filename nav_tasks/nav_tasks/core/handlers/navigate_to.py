@@ -131,6 +131,19 @@ class NavigateToPoi:
         goal = NavGoal(poi, context.task_id, context.sub_id)
 
         async def attempt() -> NavOutcome:
+            """执行一次导航，并用独立反馈开关隔离上一轮尝试的迟到回调.
+
+            每次重置节流时间与接收开关，在后端调用前后检查取消。
+            finally 始终关闭该尝试的反馈；同任务 ID 的重试不能仅靠代际隔离。
+            本闭包不决定重试预算，策略由外层 RetryPolicy 持有。
+
+            Returns:
+                后端单次导航结果。
+
+            Raises:
+                asyncio.CancelledError: 前后取消检查或后端传播的取消。
+                Exception: 后端、时钟或反馈上下文的异常。
+            """
             context.check_cancelled()
             last_reported = 0.0
             accepting = True

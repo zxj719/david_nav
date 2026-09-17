@@ -1,1 +1,1 @@
-"""ROS integration helpers; importing this package does not start ROS."""
+"""提供 ROS 适配辅助接口，导入本包不会启动 ROS."""

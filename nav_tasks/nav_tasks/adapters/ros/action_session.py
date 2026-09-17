@@ -1,4 +1,4 @@
-"""Single-slot ROS action ownership, including late-handle cancellation cleanup."""
+"""以单个共享槽位持有 ROS 动作，包括迟到句柄的取消清理."""
 
 import asyncio
 from dataclasses import dataclass
@@ -18,44 +18,44 @@ _TERMINAL_STATUSES = frozenset((4, 5, 6))
 
 
 class _PhaseExpired(Exception):
-    """Local wait expiration, distinct from errors returned by the ROS future."""
+    """表示本地阶段等待到期，与源 Future 返回的 TimeoutError 区分."""
 
 
 class ActionClientLike(Protocol):
-    """Action client operations needed without importing rclpy at module load."""
+    """描述动作客户端所需接口，模块导入时不依赖 rclpy."""
 
     def server_is_ready(self) -> bool:
-        """Probe availability without blocking the event loop.
+        """探测服务就绪，约定实现不能阻塞事件循环.
 
         Returns:
-            Whether the action server is currently ready.
+            当前服务是否可用；协议本身不强制非阻塞或等待期限。
         """
         ...
 
     def send_goal_async(
         self, goal: object, feedback_callback: Callable[[object], None],
     ) -> FutureLike:
-        """Send a goal asynchronously.
+        """异步提交动作目标并返回可追踪接收状态的 Future.
 
         Args:
-            goal: Action-specific goal message.
-            feedback_callback: Raw feedback callback on the ROS executor thread.
+            goal: 对应动作类型的目标消息。
+            feedback_callback: 原始反馈回调，可能由 ROS executor 线程调用。
 
         Returns:
-            Future resolving to a goal handle or rejection.
+            最终给出目标句柄或拒绝状态的 Future。
         """
         ...
 
 
 class ActionState(str, Enum):
-    """Single-attempt result before action-specific domain translation.
+    """描述单次尝试的会话分类，尚未转换成具体技能结果.
 
     Attributes:
-        REJECTED: 服务明确拒绝目标。
-        RESULT_TIMEOUT: 等待执行结果超过期限。
-        SEND_TIMEOUT: 发送/接受目标阶段超过期限。
-        TERMINAL: 收到 ROS 动作终态响应，具体状态见 response。
-        UNAVAILABLE: 期限内未发现动作服务。
+        REJECTED: 服务拒绝目标或未给出句柄。
+        RESULT_TIMEOUT: 结果等待到期，且已确认软件清理。
+        SEND_TIMEOUT: 接收等待到期，且已确认软件清理。
+        TERMINAL: 收到状态 4、5 或 6；不是物理停稳证明。
+        UNAVAILABLE: 就绪预算内未发现服务。
     """
 
     UNAVAILABLE = 'unavailable'
@@ -67,11 +67,13 @@ class ActionState(str, Enum):
 
 @dataclass(frozen=True)
 class ActionOutcome:
-    """Single-attempt result and optional ROS terminal response.
+    """保存单次尝试分类与可选 ROS 响应，不深度冻结响应对象.
+
+    构造本身不校验状态与响应的匹配关系。
 
     Attributes:
-        response: 可选的 ROS 终态响应；无响应时为 None。
-        state: 动作会话单次尝试的状态分类。
+        response: 可选的原始终态响应引用，默认 None。
+        state: 会话结果分类。
     """
 
     state: ActionState
@@ -80,6 +82,19 @@ class ActionOutcome:
 
 @dataclass
 class _Attempt:
+    """记录单次动作的可变所有权状态，不把软件标志当作物理停稳证据.
+
+    Attributes:
+        on_feedback: 本次尝试的循环线程反馈接收者。
+        submission_started: 已进入提交调用，即使调用尚未返回可追踪 Future。
+        send: 接收 Future；提交抛错时可能仍为 None，不能据此断言未发出。
+        handle: 可选目标句柄，供迟到接收与取消使用。
+        result: 可选终态 Future，失败时可在清理路径重新获取。
+        cancel_requested: 取消请求标志，同时封闭旧反馈。
+        settled: 已确认软件所有权结束，不是实体静止标志。
+        cleanup: 受监督并保留强引用的后台清理任务。
+    """
+
     on_feedback: Callable[[object], None]
     submission_started: bool = False
     send: FutureLike | None = None
@@ -91,27 +106,28 @@ class _Attempt:
 
 
 class ActionSession:
-    """Own one action at a time across all clients sharing this session.
+    """让所有共享客户端一次仅持有一个动作，含未完成取消清理.
 
-    Cancellation waits for admission, cancel acknowledgement and a terminal
-    result. A caller timeout does not discard cleanup: the supervisor retains
-    it so a late accepted handle is still canceled. The slot remains busy until
-    ownership is proven settled, never merely because a waiter was canceled.
+    取消需处理迟到接收、取消确认与终态；已确认终态或拒绝无需额外取消。
+    调用方等待超时或取消不会丢弃后台清理，也不因此释放槽位。
+    这些屏障描述软件所有权，不保证实车已经停止。
     """
 
     def __init__(
         self, *, cancel_timeout_sec: float = 5.0, server_poll_sec: float = 0.05,
         clock: Clock | None = None,
     ) -> None:
-        """Construct on the asyncio loop that owns action state.
+        """在持有动作状态的 asyncio 循环内创建会话，不启动动作.
 
         Args:
-            cancel_timeout_sec: Per-caller cleanup wait; timeout retains owned cleanup.
-            server_poll_sec: Nonblocking readiness probe interval while submitting.
-            clock: Injectable monotonic clock for readiness waits.
+            cancel_timeout_sec: 每次调用方清理等待预算，有限非负；超时保留清理。
+            server_poll_sec: 就绪探测间隔，有限且严格为正。
+            clock: 可注入的就绪等待单调时钟；阶段定时仍使用 asyncio。
 
         Raises:
-            ConfigError: Wait intervals are nonfinite or invalid.
+            ConfigError: 已检查的间隔非有限或范围错误。
+            RuntimeError: 当前没有运行中的 asyncio 循环。
+            Exception: 类型转换等异常；此处未统一拒绝布尔值或归一化类型错误。
         """
         if not math.isfinite(cancel_timeout_sec) or cancel_timeout_sec < 0:
             raise ConfigError('cancel_timeout_sec must be finite and nonnegative')
@@ -127,7 +143,7 @@ class ActionSession:
 
     @property
     def busy(self) -> bool:
-        """Whether an attempt still owns the shared action slot."""
+        """读取是否仍有尝试持有槽位；这不是跨线程同步或物理运动状态."""
         return self._active is not None
 
     async def execute(
@@ -137,27 +153,33 @@ class ActionSession:
         result_timeout_sec: float | None = None,
         on_timeout: Callable[[ActionState], None] | None = None,
     ) -> ActionOutcome:
-        """Execute one goal, returning only a confirmed terminal/rejection outcome.
+        """执行单次目标，按接收、终态或清理后的超时分类返回.
+
+        先占有槽位再等待就绪，服务可用后才构造目标。仅状态 4/5/6 确认终态。
+        本地阶段到期会先调用审计钩子，再尝试清理；钩子异常也不跳过清理。
+        源异常或非法终态不证明所有权结束，可能保留忙碌槽位，需外层清理。
+        调用方取消时尝试清理，清理异常可能替代原取消异常。
 
         Args:
-            client: Action client owned by the runtime, using its existing executor.
-            goal_factory: Build a fresh stamped message after the server is ready.
-            on_feedback: Loop-thread callback, never called after cancellation starts.
-            server_timeout_sec: Maximum nonblocking wait for server availability.
-            send_timeout_sec: Optional admission wait budget, separate from cleanup.
-            result_timeout_sec: Optional result wait budget starting after admission.
-            on_timeout: Optional synchronous audit hook before deadline cleanup begins.
+            client: 由运行时持有、使用既有 ROS executor 的动作客户端。
+            goal_factory: 服务就绪后生成新消息的工厂。
+            on_feedback: 循环线程回调；取消开始后过滤排队的旧反馈。
+            server_timeout_sec: 就绪等待预算，使用注入时钟。
+            send_timeout_sec: 可选接收预算，与清理预算分开。
+            result_timeout_sec: 可选接收后结果预算；已完成 Future 走直接读取路径。
+            on_timeout: 可选同步审计钩子，在本地超时清理前运行。
 
         Returns:
-            Unavailable, rejected, terminal, or a timeout after confirmed cleanup.
+            不可用、拒绝、终态，或仅在确认清理后返回的阶段超时。
 
         Raises:
-            BusyError: Another action or unresolved cleanup owns the slot.
-            ClosedError: Session admission has been sealed.
-            ConfigError: A wait duration is invalid.
-            asyncio.CancelledError: The caller canceled; cleanup is attempted first.
-            RuntimeError: The server returned a nonterminal result response.
-            TimeoutError: Cancellation wait expired; owned cleanup continues.
+            BusyError: 其他动作或未完成清理占据槽位。
+            ClosedError: 接收已封闭。
+            ConfigError: 已检查的等待预算无效。
+            asyncio.CancelledError: 调用方或源动作取消，已尝试清理。
+            RuntimeError: 跨事件循环调用或结果不是认可的终态。
+            TimeoutError: 清理等待到期，或源 Future 自身抛出此异常。
+            Exception: 工厂、客户端、时钟、审计或清理异常。
         """
         self._check_loop()
         if self._closed:
@@ -228,21 +250,29 @@ class ActionSession:
                 self._active = None
 
     async def cancel(self) -> None:
-        """Cancel and settle the current action, or do nothing when idle.
+        """取消并清理当前动作，空闲时不做操作，也不封闭后续接收.
+
+        等待超时或等待者取消仅结束本次等待，受监督的清理继续持有槽位。
+        结束的失败清理可重试，但不保证底层动作错误能够恢复。
 
         Raises:
-            TimeoutError: Cleanup is still owned and running after the caller deadline.
-            Exception: Cleanup failed; ownership remains busy and can be retried.
+            TimeoutError: 清理等待预算用尽，所有权不释放。
+            asyncio.CancelledError: 等待者或底层清理取消。
+            Exception: 清理失败或跨循环调用。
         """
         self._check_loop()
         if self._active is not None:
             await self._cancel_attempt(self._active)
 
     async def close(self) -> None:
-        """Seal new actions and settle owned work before clients may be destroyed.
+        """先永久封闭新动作，再等待已持有工作清理完成.
+
+        失败后仍保持封闭，后续 close 可重试清理；成功前不得销毁 ROS 客户端。
+        这里只确认动作软件所有权结束，不执行实体停稳采样。
 
         Raises:
-            Exception: Cleanup did not complete; do not destroy the ROS clients yet.
+            Exception: 清理未完成或跨循环调用，相关资源仍需保留。
+            asyncio.CancelledError: 等待者或底层清理取消。
         """
         self._check_loop()
         self._closed = True

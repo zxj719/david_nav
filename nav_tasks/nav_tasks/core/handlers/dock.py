@@ -119,6 +119,19 @@ class Dock:
                 context.feedback(latest)
 
         async def attempt():
+            """执行一次 Dock，并为 POI 失败补齐冻结格式的诊断文本.
+
+            后端返回后再次检查显式取消；非失败或直接位姿目标原样返回。
+            POI 失败文本固定写 status=6(ABORTED)，并非重新读取后端原始状态；
+            距离取最新反馈，耗时取本次技能的起始时间。本闭包不自行重试。
+
+            Returns:
+                原始结果或带兼容诊断的失败结果。
+
+            Raises:
+                asyncio.CancelledError: 任务取消，不转换成普通失败。
+                Exception: 后端、时钟或上下文错误向外传播。
+            """
             outcome = await self._backend.dock(goal, feedback)
             context.check_cancelled()
             if outcome.status != NavStatus.FAILED or payload.poi is None:

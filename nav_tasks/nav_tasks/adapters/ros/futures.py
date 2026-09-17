@@ -1,8 +1,7 @@
-"""Bridge ROS futures without creating or spinning another ROS executor.
+"""桥接 ROS Future，不另建或驱动 ROS executor.
 
-The owning runtime alone spins ROS. A second executor around an action client
-previously corrupted its wait-set ownership; see ADR-0005. Async cancellation
-only abandons this waiter, never the source future needed for late-goal cleanup.
+只有外层运行时驱动 ROS；第二个 executor 曾破坏 wait-set 所有权，
+见 ADR-0005。等待者取消仅放弃本地等待，不取消迟到目标清理所需的源 Future。
 """
 
 import asyncio
@@ -14,44 +13,55 @@ from typing import Any, Callable, Protocol
 
 
 class FutureLike(Protocol):
-    """Minimal callback future contract shared by ROS and test doubles."""
+    """描述 ROS 与测试替身共享的最小回调 Future 协议."""
 
     def add_done_callback(self, callback: Callable[['FutureLike'], None]) -> None:
-        """Register a completion callback, possibly invoked immediately.
+        """注册完成回调，允许立即调用，也允许从另一线程调用.
 
         Args:
-            callback: Callback receiving this completed future.
+            callback: 接收本源 Future 的完成回调。
         """
         ...
 
     def result(self) -> Any:
-        """Retrieve a completed result or re-raise its exception.
+        """读取完成结果或重新抛出源异常，调用方应先等待完成.
+
+        协议不统一未完成时的行为：Humble Future 可能返回 None，
+        而标准库 Future 可能阻塞；不得依赖两者在未完成时等价。
 
         Returns:
-            Result object produced by the operation.
+            源操作结果。
+
+        Raises:
+            BaseException: 源对象保存的异常，包括 asyncio.CancelledError。
         """
         ...
 
     def done(self) -> bool:
-        """Check whether the operation completed.
+        """读取实现定义的完成标志，取消状态需另行考虑.
 
         Returns:
-            Completion state; ROS reports cancellation separately.
+            完成标志；Humble 的取消与 done 分离，测试替身可能不同。
         """
         ...
 
 
 async def await_rclpy_future(future: FutureLike) -> Any:
-    """Wait from asyncio without spinning or canceling the underlying ROS future.
+    """在 asyncio 中等待源 Future，既不驱动 ROS 也不取消源对象.
+
+    通过标准库 Future 转交跨线程结果。普通异常和保存于源中的
+    asyncio.CancelledError 都传递给等待者；迟到异常仍会被取出。
+    没有隐含期限或动作清理，不统一处理其余 BaseException。
 
     Args:
-        future: ROS callback future; callbacks may run on another thread.
+        future: 由外层 ROS executor 或测试线程完成的回调 Future。
 
     Returns:
-        Completed result, with source exceptions propagated to this waiter.
+        源结果；本地等待取消后源操作仍可继续。
 
     Raises:
-        asyncio.CancelledError: The waiter or source future was canceled.
+        asyncio.CancelledError: 等待者取消、源取消标志或源保存的取消异常。
+        Exception: 回调注册失败或源普通异常。
     """
     wrapped: concurrent.futures.Future = concurrent.futures.Future()
 
@@ -86,16 +96,24 @@ def wait_rclpy_future(
     future: FutureLike, timeout_sec: float, should_cancel: Callable[[], bool] | None = None,
     poll_sec: float = 0.1,
 ) -> bool:
-    """Wait on a threading event, preserving the existing dock wait policy.
+    """阻塞当前线程等待完成通知，保留既有 Dock 轮询策略.
+
+    只等待通知，不调用 result、不取消源对象。True 不证明结果成功、
+    动作已清理或物理停稳。带取消谓词时先检查剩余时间，再等待事件，
+    最后查询谓词；不能概括为所有零期限场景都优先返回完成。
+    本函数不增加数值有限性校验，也不限制谓词自身的耗时。
 
     Args:
-        future: Future completed by the runtime's own ROS executor.
-        timeout_sec: Maximum wait duration.
-        should_cancel: Optional cancellation predicate checked between event waits.
-        poll_sec: Polling interval only when the predicate is provided.
+        future: 由外层既有 ROS executor 完成的 Future。
+        timeout_sec: 本地等待预算，单位为秒。
+        should_cancel: 可选取消谓词，在事件等待之间调用。
+        poll_sec: 仅有取消谓词时采用的轮询间隔。
 
     Returns:
-        True for completion, False for timeout or requested cancellation.
+        True 表示已完成或收到通知；False 表示预算到期或谓词要求取消。
+
+    Raises:
+        Exception: 回调注册、等待参数或取消谓词的异常。
     """
     event = threading.Event()
     future.add_done_callback(lambda _: event.set())

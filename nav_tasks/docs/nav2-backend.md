@@ -4,8 +4,9 @@
 port. It uses one `ActionSession` for ownership; additional action types used by
 Dock must share that session, never bypass its busy/cancel checks. The wrapper
 now implements NavigateToPose and opt-in Spin on the same instance. The ordinary
-POI runtime is assembled; Dock orchestration/configuration remains pending.
-No existing legacy entry point is switched by installing this code.
+POI and Dock runtime, ingress and compatibility shims are assembled in the
+refactor workspace; see [runtime](runtime.md) and [ADR-0006](adr-0006-dock-thread.md).
+This is not a production deployment or physical-motion acceptance claim.
 
 Construct on the task asyncio loop with an existing node, explicit action name
 and server timeout. Real rclpy/nav2_msgs imports occur only when no fake client
@@ -46,7 +47,7 @@ client construction fails, the already-created navigation client is rolled back;
 failed rollback raises RuntimeAssemblyError with a retained async cleanup handle.
 Construction rollback does not close an externally supplied shared ActionSession.
 A failed close must not be followed by unconditional client/node
-destruction in the eventual assembly root. No physical-stop guarantee follows
+destruction in the outer assembly root. No physical-stop guarantee follows
 from fake action results or these software ownership tests.
 
 ## Compatibility and timing
@@ -83,8 +84,8 @@ from the transport itself is not a local deadline and does not release ownership
 The Dock worker bridge selects the old 10-second admission and per-stage result
 budgets, emits frozen action logs, and joins the blocking worker. An optional
 synchronous on_timeout audit callback runs before deadline cleanup; even if it
-raises, cleanup is still attempted. This additive API does not activate Dock's
-runtime ingress or change the existing legacy run_action entry.
+raises, cleanup is still attempted. The API alone does not start an ingress;
+the assembled Dock worker, runtime ingress and compatibility entry use it.
 
 `navigate_pose` accepts a PoseRecord and forwards complete raw navigation feedback;
 `spin_action` uses the same validated Spin factory without distance feedback. Both
@@ -109,9 +110,9 @@ traveled in radians; it must not be forwarded as POI remaining distance in meter
 
 Readiness has an independent explicit `spin_server_timeout_sec` (default 5 s,
 matching the old Dock wait). The goal's time_allowance is the Nav2 server-side
-allowance; it is not a client-result or cleanup deadline. Dock's future migration
-must preserve its separate send/result deadlines, settling, retry budget and
-frozen `[dock]` audit lines. This wrapper adds no retry or implicit settle check,
+allowance; it is not a client-result or cleanup deadline. The current Dock workflow
+retains separate send/result deadlines, settling, retry budget and frozen `[dock]`
+audit lines; physical acceptance remains pending. This wrapper adds no retry or implicit settle check,
 and its returned diagnostics are not substitutes for those frozen log lines.
 Normal statuses 4/5/6 map to success/canceled/failed. No-action admission failures
 release the slot; unresolved cleanup keeps both action types blocked.

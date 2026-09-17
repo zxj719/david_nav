@@ -1,1 +1,1 @@
-"""Concrete I/O adapters kept outside the pure task core."""
+"""将具体输入输出适配器放在纯任务核心之外."""
