@@ -1,4 +1,9 @@
-"""Parent-owned terminal snapshot and explicit keyboard activation capabilities."""
+"""父进程持有的终端快照，以及显式的键盘启用能力.
+
+父进程在启动任何子进程之前先打开终端并保存 termios 设置，子进程崩溃时由父进程
+负责恢复。交给子进程的是显式继承的描述符（租约、控制套接字、终端），不是路径，
+也不是环境变量开关；控制套接字只传"就绪"和"放行"两个字节，速度指令从不走它。
+"""
 
 from __future__ import annotations
 
@@ -11,19 +16,19 @@ from nav_bringup.navrun.locking import RunLock
 
 
 class KeyboardSession:
-    """Retain terminal recovery state until every owned child has drained.
+    """保留终端恢复状态，直到自己启动的子进程全部收尾.
 
     Attributes:
         device: 配置选择的终端设备路径。
-        lease: 父进程已持有的导航锁，本对象不负责释放。
+        lease: 父进程已持有的导航锁，本对象只借用它的描述符，从不释放它。
     """
 
     def __init__(self, lease: RunLock, device: str) -> None:
-        """Describe the handoff without opening any terminal or socket.
+        """只描述这次交接，不打开终端也不建套接字.
 
         Args:
-            lease: Parent's acquired navigation lock, never released by this object.
-            device: Profile-selected terminal, opened in the parent's original session.
+            lease: 父进程已取得的导航锁；本对象不会释放它。
+            device: 档案选定的终端，在父进程原来的会话里打开。
         """
         self.lease, self.device = lease, device
         self._tty: Optional[int] = None
@@ -32,15 +37,18 @@ class KeyboardSession:
         self._child: Optional[socket.socket] = None
 
     def __enter__(self) -> KeyboardSession:
-        """Capture terminal state before any child or platform operation starts.
+        """在任何子进程或平台操作开始之前先抓取终端状态.
+
+        只确认父进程手上有锁描述符，不重新校验锁的路径身份；随后以只读、不接管控制
+        终端的方式打开设备，保存当前 termios 设置，并建立一对本地控制套接字。
 
         Returns:
-            The parent-owned, close-on-exec capability set.
+            已备好能力集的本对象，描述符均为 close-on-exec。
 
         Raises:
-            RuntimeError: Not locked or already open.
-            ValueError: The selected device is not a terminal.
-            OSError: Opening or inspecting the terminal fails.
+            RuntimeError: 父进程没有持锁，或本对象已经打开。
+            ValueError: 选定的设备不是终端。
+            OSError: 打开或检查终端失败。
         """
         self.lease.fileno()
         if self._tty is not None:
@@ -58,16 +66,17 @@ class KeyboardSession:
             raise
 
     def command(self, argv: Sequence[str]) -> Tuple[Tuple[str, ...], Tuple[int, ...]]:
-        """Bind inherited descriptors for exactly one directly owned keyboard child.
+        """绑定要继承的描述符，只供一个由本进程直接启动的键盘子进程使用.
 
         Args:
-            argv: Managed keyboard command including its frozen ROS parameters.
+            argv: 受管的键盘命令，含其已固化的 ROS 参数。
 
         Returns:
-            Argument vector and explicit pass_fds tuple for OwnedProcess.
+            补好 --lock-fd、--control-fd、--tty-fd 的参数元组，以及需要显式传递的
+            描述符元组（供 OwnedProcess 的 pass_fds 使用）。
 
         Raises:
-            RuntimeError: The session is closed or already handed off.
+            RuntimeError: 会话未打开，或子进程端点已经交出去了。
         """
         if self._tty is None or self._child is None:
             raise RuntimeError('keyboard capabilities are not available')
@@ -78,20 +87,20 @@ class KeyboardSession:
         return arguments, descriptors
 
     def child_started(self) -> None:
-        """Close the parent's spare child endpoint so child death produces real EOF."""
+        """关掉父进程手里多余的那一端，好让子进程死亡时能读到真正的 EOF."""
         if self._child is not None:
             self._child.close()
             self._child = None
 
     def ready(self) -> bool:
-        """Poll the child's completed publisher-exclusion handshake.
+        """查询一次子进程的"独占发布者"握手是否已完成.
 
         Returns:
-            True for readiness; False while discovery is still pending.
+            收到就绪字节为 True；仍在发现阶段为 False。
 
         Raises:
-            RuntimeError: The child disconnected or sent invalid protocol data.
-            OSError: The local channel failed.
+            RuntimeError: 子进程在就绪之前断开，或发来非约定数据。
+            OSError: 本地通道失败。
         """
         if self._parent is None:
             raise RuntimeError('keyboard owner channel is closed')
@@ -104,26 +113,29 @@ class KeyboardSession:
         return True
 
     def permit(self) -> None:
-        """Activate only after the parent has started its owned chassis graph.
+        """等父进程自己的底盘图起来之后，才放行键盘.
 
         Raises:
-            RuntimeError: The owner channel is closed or permission cannot be sent.
-            OSError: The keyboard disconnected.
+            RuntimeError: 控制通道已关闭，或放行字节没能立即送达。
+            OSError: 键盘子进程已断开。
         """
         if self._parent is None or self._parent.send(b'G', socket.MSG_DONTWAIT) != 1:
             raise RuntimeError('keyboard activation failed')
 
     def revoke(self) -> None:
-        """Request keyboard shutdown by dropping only the parent-owned socket endpoint."""
+        """只关闭父进程这一端的套接字，以此要求键盘退出."""
         if self._parent is not None:
             self._parent.close()
             self._parent = None
 
     def close(self) -> None:
-        """Restore the saved terminal after child cleanup, without unlocking the lease.
+        """在子进程收尾之后恢复终端设置，且不解锁租约.
+
+        调用方必须先把自己启动的子进程全部收掉：子进程若还活着并继续改终端设置，
+        这里恢复的结果会被它再次覆盖。无论恢复是否成功，描述符都会关闭。
 
         Raises:
-            OSError: Restoration failed; descriptors are closed regardless.
+            OSError: 恢复终端设置失败。
         """
         self.revoke()
         self.child_started()
@@ -137,11 +149,11 @@ class KeyboardSession:
                 os.close(descriptor)
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
-        """Restore and close only after the caller has drained all owned children.
+        """等调用方收完所有子进程之后，再恢复并关闭.
 
         Args:
-            exc_type: Context exception class.
-            exc: Context exception instance.
-            traceback: Context exception traceback.
+            exc_type: 异常类型，没有异常时为 None。
+            exc: 异常对象，没有异常时为 None。
+            traceback: 异常栈，没有异常时为 None。
         """
         self.close()

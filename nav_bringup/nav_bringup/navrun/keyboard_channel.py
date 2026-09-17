@@ -1,8 +1,7 @@
-"""Inherited, local keyboard readiness and supervisor-liveness channel.
+"""键盘侧的本地通道：宣告就绪、等待放行、监视持有方是否还在.
 
-This is an explicit socket capability, never a pathname or environment flag.
-The keyboard must independently validate its inherited navigation lease before
-using it. Only ready/permit are transferred; velocity values are never carried.
+这是一个显式继承的套接字能力，不是路径，也不是环境变量开关。键盘进程必须自己
+先校验继承到的导航租约，再使用它。通道只传"就绪"和"放行"，速度值从不经过这里。
 """
 
 from __future__ import annotations
@@ -13,24 +12,24 @@ from typing import Optional
 
 
 class KeyboardOwnerLost(RuntimeError):
-    """The owning supervisor disappeared or violated the activation protocol."""
+    """持有方消失，或违反了放行协议."""
 
 
 class KeyboardChannel:
-    """Close-only socket duplicate for a keyboard's startup and liveness checks.
+    """键盘启动与存活检查用的套接字副本，关闭时只关自己这一份.
 
     Attributes:
         source: 显式继承的 Unix 流套接字描述符，不是速度通道。
     """
 
     def __init__(self, descriptor: int) -> None:
-        """Store a socket selector without opening or sending anything.
+        """只记住用哪个描述符，不打开也不发送任何东西.
 
         Args:
-            descriptor: Explicit inherited Unix stream socket descriptor.
+            descriptor: 显式继承的 Unix 流套接字描述符；必须是 int，且不小于 3。
 
         Raises:
-            ValueError: Descriptor is malformed or denotes a standard stream.
+            ValueError: 描述符类型不对，或指向标准输入输出。
         """
         if type(descriptor) is not int or descriptor < 3:
             raise ValueError('owner channel requires an explicit inherited descriptor')
@@ -38,15 +37,18 @@ class KeyboardChannel:
         self._socket: Optional[socket.socket] = None
 
     def __enter__(self) -> KeyboardChannel:
-        """Duplicate and validate the connected local stream socket.
+        """复制并校验这条已连接的本地流套接字.
+
+        校验只看协议族、类型和是否已连接，不校验对端身份；随后把副本设为不可继承，
+        原描述符保持原样，连阻塞标志都不改。
 
         Returns:
-            This nonblocking channel.
+            本对象；后续收发一律用 MSG_DONTWAIT，不改套接字自身的阻塞标志。
 
         Raises:
-            RuntimeError: Already open.
-            ValueError: The descriptor is not a connected Unix stream socket.
-            OSError: Duplicating or inspecting the descriptor fails.
+            RuntimeError: 已经打开。
+            ValueError: 描述符不是已连接的 Unix 流套接字。
+            OSError: 复制或检查描述符失败。
         """
         if self._socket is not None:
             raise RuntimeError('owner channel is already open')
@@ -69,11 +71,11 @@ class KeyboardChannel:
         return self
 
     def ready(self) -> None:
-        """Announce completed publisher exclusion before the parent starts its adapter.
+        """在父进程启动底盘适配之前，宣告发布者独占检查已完成.
 
         Raises:
-            RuntimeError: The context is closed.
-            KeyboardOwnerLost: The ready byte cannot be delivered immediately.
+            RuntimeError: 上下文已关闭。
+            KeyboardOwnerLost: 就绪字节无法立即送达。
         """
         try:
             if self._opened().send(b'R', socket.MSG_DONTWAIT) != 1:
@@ -82,14 +84,14 @@ class KeyboardChannel:
             raise KeyboardOwnerLost('owner channel is unavailable') from error
 
     def permitted(self) -> bool:
-        """Poll once for activation, distinguishing a pending owner from disconnection.
+        """查询一次放行，能区分"还没放行"与"持有方已断开".
 
         Returns:
-            True for the parent's activation byte; False while it has not arrived.
+            收到放行字节为 True；还没收到为 False。
 
         Raises:
-            RuntimeError: The context is closed.
-            KeyboardOwnerLost: The parent disconnected or sent an invalid message.
+            RuntimeError: 上下文已关闭。
+            KeyboardOwnerLost: 持有方断开，或发来非约定消息。
         """
         try:
             message = self._opened().recv(1, socket.MSG_DONTWAIT)
@@ -102,11 +104,13 @@ class KeyboardChannel:
         return True
 
     def check_owner(self) -> None:
-        """Reject EOF or unexpected data before processing another keyboard command.
+        """在处理下一条键盘指令之前，拒绝 EOF 与多余数据.
+
+        用 MSG_PEEK 只看不取：持有方还在、且没有发来东西时立即返回。
 
         Raises:
-            RuntimeError: The context is closed.
-            KeyboardOwnerLost: The parent disappeared or sent extra protocol data.
+            RuntimeError: 上下文已关闭。
+            KeyboardOwnerLost: 持有方消失，或发来多余的协议数据。
         """
         try:
             self._opened().recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
@@ -122,17 +126,21 @@ class KeyboardChannel:
         return self._socket
 
     def close(self) -> None:
-        """Close this duplicate only; never signal the parent or change its lock."""
+        """只关闭这一份副本；不通知持有方，也不动它的锁.
+
+        继承进来的原描述符仍然开着，持有方因此不会立刻读到 EOF；真正的断开发生在
+        键盘进程退出、所有副本都关闭之后。
+        """
         if self._socket is not None:
             connection, self._socket = self._socket, None
             connection.close()
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
-        """Release the duplicate on normal or failed keyboard shutdown.
+        """键盘正常退出或失败退出时，释放这份副本.
 
         Args:
-            exc_type: Context exception class.
-            exc: Context exception instance.
-            traceback: Context exception traceback.
+            exc_type: 异常类型，没有异常时为 None。
+            exc: 异常对象，没有异常时为 None。
+            traceback: 异常栈，没有异常时为 None。
         """
         self.close()
