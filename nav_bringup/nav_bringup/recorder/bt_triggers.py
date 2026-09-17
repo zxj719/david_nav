@@ -1,14 +1,10 @@
-"""Detect escape and recovery triggers in Nav2 behavior tree status changes.
+"""把行为树状态变化转换为脱困与恢复观测事件.
 
-Nav2's ``bt_navigator`` publishes the status changes of the running tree on
-``/behavior_tree_log``. The David escape nodes already print ``WARN_THROTTLE``
-when they fire, but that output is buried in launch logs. This module turns
-the status changes of recovery-related nodes into run events and an operator
-line, without changing the tree or its C++ nodes (refactor plan §10.3; a new
-escape policy is TODO-E1).
+按节点名和目标状态匹配规则，生成记录数据和终端行；不修改行为树、
+C++ 节点或恢复策略，也不下发导航指令。脱困结束只是一条观测，
+不能据此声明导航 Goal succeeded。
 
-The module is pure Python and imports no ROS packages; the subscriber lives in
-:mod:`nav_bringup.recorder.bt_log_watcher`.
+本模块为纯 Python；ROS 订阅和运行日志写入由外层记录器负责。
 """
 
 from __future__ import annotations
@@ -33,14 +29,13 @@ _LINE_PREFIXES = {
 
 @dataclass(frozen=True)
 class StatusChange:
-    """One entry of ``nav2_msgs/BehaviorTreeLog.event_log``.
+    """表示一条行为树状态变化，构造时不执行字段校验.
 
     Attributes:
-        node_name: Tree node name: the XML ``name`` attribute, or the node type
-            when the attribute is absent.
-        previous_status: One of :data:`STATUSES`.
-        current_status: One of :data:`STATUSES`.
-        stamp: Behavior tree event time in seconds since the epoch.
+        node_name: 行为树节点名，通常来自 XML name 或节点类型名。
+        previous_status: 上一个状态，调用方预期使用 STATUSES 中的值。
+        current_status: 当前状态，调用方预期使用 STATUSES 中的值。
+        stamp: 行为树事件秒级时间，不与本地墙钟自动同步或校验有限性。
     """
 
     node_name: str
@@ -51,14 +46,14 @@ class StatusChange:
 
 @dataclass(frozen=True)
 class TriggerRule:
-    """A node status that is reported to operators.
+    """描述按节点名与目标状态匹配的观测规则.
 
     Attributes:
-        node_name: Tree node name to match exactly.
-        statuses: Current statuses that fire the rule.
-        event_type: Event type to record, for example ``escape_triggered``.
-        severity: Event severity, one of ``info``, ``warn`` or ``error``.
-        label: Short description shown to operators.
+        node_name: 精确匹配的行为树节点名。
+        statuses: 可触发规则的当前状态元组。
+        event_type: 输出事件类型，不在此处执行协议枚举验证。
+        severity: 事件等级，由 TriggerDetector 检查是否为已知等级。
+        label: 面向操作员的说明文本。
     """
 
     node_name: str
@@ -70,13 +65,13 @@ class TriggerRule:
 
 @dataclass(frozen=True)
 class Pose2D:
-    """Planar robot pose.
+    """保存观测到的平面位姿，不校验参考系或数值有限性.
 
     Attributes:
-        x: Position along x in meters.
-        y: Position along y in meters.
-        yaw: Heading in radians.
-        frame_id: Frame the pose is expressed in.
+        x: x 方向位置，单位米。
+        y: y 方向位置，单位米。
+        yaw: 平面朝向，单位弧度。
+        frame_id: 位姿所属参考系名称。
     """
 
     x: float
@@ -87,12 +82,12 @@ class Pose2D:
 
 @dataclass(frozen=True)
 class Trigger:
-    """A fired rule.
+    """保存一次规则触发与当前计数，不代表动作执行结果.
 
     Attributes:
-        rule: The rule that fired.
-        change: The status change that fired it.
-        attempt: How often the rule fired in the current navigation, from 1.
+        rule: 本次匹配的规则。
+        change: 触发规则的状态变化。
+        attempt: 该规则自最近根节点结束重置后的已报告次数，从一开始。
     """
 
     rule: TriggerRule
@@ -102,15 +97,15 @@ class Trigger:
     def event_data(
         self, pose: Optional[Pose2D] = None, task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Build the ``data`` of the run event.
+        """生成本地运行事件的数据字段，不执行完整线协议校验.
 
         Args:
-            pose: Robot pose when the trigger was seen, if known.
-            task_id: Active navigation task, if known.
+            pose: 观察时获得的可选位姿，不保证与行为树时间同步。
+            task_id: 可选任务号；空字符串与 None 均不输出该字段。
 
         Returns:
-            JSON-serializable details: node, label, status change, attempt,
-            behavior tree stamp, and the pose and task when given.
+            包含节点、标签、状态变化、计数及行为树时间的字典；
+            时间保留六位、位姿保留三位小数，不拒绝非有限数值。
         """
         data: Dict[str, Any] = {
             'node': self.change.node_name,
@@ -158,13 +153,12 @@ DEFAULT_RULES: Tuple[TriggerRule, ...] = (
 
 
 class TriggerDetector:
-    """Turn behavior tree status changes into triggers.
+    """顺序匹配状态变化并对同一规则限流、计数.
 
-    A rule fires when its node changes into one of the rule's statuses.
-    Firings of the same rule less than ``min_interval_sec`` of tree time after
-    the previous one are dropped, so a flapping node cannot flood the
-    terminal. Attempt counters restart when the root recovery node finishes,
-    fails or is halted, that is when a navigation ends.
+    相邻已报告触发的树时间差小于 min_interval_sec 时抑制；
+    恰好等于间隔可通过。时间倒退不会重置历史，负差同样可能被抑制。
+    根节点变为 SUCCESS、FAILURE 或 IDLE 时仅清空次数，
+    不清空上次触发时间或累计抑制数。这里观察树状态，不判定导航动作终态。
     """
 
     def __init__(
@@ -173,16 +167,16 @@ class TriggerDetector:
         min_interval_sec: float = 0.5,
         root_node: str = ROOT_RECOVERY_NODE,
     ) -> None:
-        """Create a detector.
+        """建立规则索引与空的触发历史.
 
         Args:
-            rules: Rules to evaluate.
-            min_interval_sec: Minimum tree time between firings of one rule.
-            root_node: Node whose end marks the end of a navigation.
+            rules: 按输入顺序索引的规则，不去重；相等规则共享历史键。
+            min_interval_sec: 同一规则允许再次报告的最小树时间间隔。
+            root_node: 变化到结束状态时重置所有规则次数的节点名。
 
         Raises:
-            ValueError: If a rule has an unknown status or severity, or
-                ``min_interval_sec`` is negative.
+            ValueError: 状态集合为空、含未知状态，等级未知或间隔为负。
+                不额外验证间隔有限性、事件类型或规则名。
         """
         if min_interval_sec < 0:
             raise ValueError('min_interval_sec must not be negative')
@@ -202,17 +196,20 @@ class TriggerDetector:
 
     @property
     def suppressed(self) -> int:
-        """int: Firings dropped because of the minimum interval."""
+        """int: 因间隔限制被抑制的累计规则匹配次数，根节点结束不清零."""
         return self._suppressed
 
     def process(self, changes: Sequence[StatusChange]) -> List[Trigger]:
-        """Evaluate status changes in order.
+        """按传入顺序处理状态变化，不排序或补齐缺失事件.
+
+        前后状态相同的条目完全跳过，包括根节点重置。规则处理后才检查
+        根节点结束；返回的计数只包含通过限流的触发，不是全部恢复尝试数。
 
         Args:
-            changes: Status changes, typically one ``BehaviorTreeLog`` message.
+            changes: 一组状态变化，通常来自一条 BehaviorTreeLog。
 
         Returns:
-            The triggers fired by these changes, in order.
+            按条目和规则遍历顺序产生的触发列表；内部次数与限流历史同时更新。
         """
         triggers: List[Trigger] = []
         for change in changes:
@@ -241,19 +238,17 @@ def format_trigger_line(
     pose: Optional[Pose2D] = None,
     task_id: Optional[str] = None,
 ) -> str:
-    """Format the operator line for a trigger.
-
-    Example: ``[06:12:03] ⚠ 脱困触发：RobotEmbeddedInObstacle 确认嵌入（第 1 次，位姿
-    x=14.20 y=22.31 yaw=-0.95）``.
+    """生成操作员可读的单条观测文本，保持既有日志格式.
 
     Args:
-        trigger: The fired rule.
-        wall_time: Local wall-clock time of the line in seconds since the epoch.
-        pose: Robot pose, if known.
-        task_id: Active navigation task, if known.
+        trigger: 已匹配的触发记录，不重新校验规则。
+        wall_time: Unix 秒级时间，按本地时区格式化为时分秒。
+        pose: 可选位姿，以两位小数显示。
+        task_id: 可选任务号，只有非空值才显示。
 
     Returns:
-        One line without a trailing newline.
+        不附加结尾换行的字符串；多目标状态规则额外显示当前状态，
+        不对标签、任务号等输入做换行清理。
     """
     rule = trigger.rule
     default_prefix = '· 行为树' if rule.severity == 'info' else '⚠ 行为树'
@@ -271,15 +266,16 @@ def format_trigger_line(
 
 
 def yaw_from_quaternion(x: float, y: float, z: float, w: float) -> float:
-    """Extract the heading from a rotation quaternion.
+    """按四元数分量公式计算平面朝向，不归一化或校验输入.
 
     Args:
-        x: Quaternion x component.
-        y: Quaternion y component.
-        z: Quaternion z component.
-        w: Quaternion w component.
+        x: 四元数 x 分量。
+        y: 四元数 y 分量。
+        z: 四元数 z 分量。
+        w: 四元数 w 分量。
 
     Returns:
-        Rotation about z in radians, in ``[-pi, pi]``.
+        对合法有限单位四元数返回 [-pi, pi] 内的 z 轴转角，单位弧度；
+        非单位或非有限输入不能据此保证有效姿态。
     """
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))

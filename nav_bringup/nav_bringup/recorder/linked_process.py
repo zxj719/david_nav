@@ -1,20 +1,11 @@
-"""Link a separately started process, such as localization, to a run.
+"""只读观察独立启动的进程，并为导航运行截取其日志.
 
-Localization is started on its own (alias 3 on David) and keeps running
-across navigation runs, so a run cannot own it. A run record must still say
-which localization was running, with which configuration, and what it logged
-during the run (refactor plan §13.2). This module answers that read-only:
+定位栈由现场独立管理，本模块只读取 procfs、配置及匹配日志，不发送进程信号。
+snapshot 选最小匹配 PID，记录命令行、启动时间、配置哈希和日志路径的大小；
+collect_logs 根据路径大小差与修改时间截取尾部，并不证明日志由该进程写入。
 
-* :func:`snapshot` finds the process by executable name in procfs at run
-  start and records its pid, start time, command line, the SHA-256 of the
-  configuration files named on its command line, and the sizes of its log
-  files;
-* :func:`collect_logs` copies at run end what those log files gained during
-  the run, and whole log files written during the run, into the run
-  directory, keeping at most the last ``max_copy_bytes`` of each file.
-
-Processes are never signaled, and nothing outside the run directory is
-written.
+写入位置由调用方提供的 destination 决定；模块本身不验证它位于运行目录内。
+路径查询可能跟随符号链接，快照与复制不具备原子性，不能作为安全隔离或完整审计证据。
 """
 
 from __future__ import annotations
@@ -36,17 +27,15 @@ _COPY_CHUNK_BYTES = 1 << 20
 
 @dataclass(frozen=True)
 class LinkSpec:
-    """A separately started process to link to runs.
+    """描述要观察的独立进程及其日志匹配规则.
 
     Attributes:
-        name: Label of the manifest entry and of the ``logs/<name>/`` directory.
-        executable: Executable file name, compared with the base name of the
-            first command line argument of each process.
-        config_flags: Flags whose value names a configuration file to hash.
-        log_globs: Glob patterns of its log files; ``{pid}`` is replaced with
-            the process id and ``~`` is expanded.
-        max_copy_bytes: Most bytes copied per log file; the end is kept.
-        proc_dir: procfs mount point.
+        name: 清单条目及预期 logs 子目录标签，不含斜杠且不是点目录。
+        executable: 与进程 argv[0] 的文件名比较的字符串，不解析包装器。
+        config_flags: 从命令行提取配置路径的选项名。
+        log_globs: 日志 glob 模式；展开 ~，并将 {pid} 替换为所选 PID。
+        max_copy_bytes: 每个日志最多复制的字节数，超出时保留尾部。
+        proc_dir: procfs 根路径，测试可使用临时目录。
     """
 
     name: str
@@ -57,11 +46,12 @@ class LinkSpec:
     proc_dir: Path = Path('/proc')
 
     def __post_init__(self) -> None:
-        """Validate the specification.
+        """检查标签、可执行名和复制上限的基本条件.
+
+        不检查目标目录归属、模式指向的文件类型或路径可信性。
 
         Raises:
-            ValueError: If the name is not a single path component, the
-                executable is empty, or the copy limit is not positive.
+            ValueError: 标签为空、含斜杠、为点目录，或可执行名为空、上限非正。
         """
         if not self.name or '/' in self.name or self.name in ('.', '..'):
             raise ValueError(f'invalid link name {self.name!r}')
@@ -73,15 +63,17 @@ class LinkSpec:
 
 @dataclass(frozen=True)
 class LinkedProcess:
-    """State of a linked process at run start.
+    """保存一次关联进程观察结果，不代表一致的系统快照.
+
+    冻结只限制字段重新赋值，不深度冻结 configs 和 log_sizes。
 
     Attributes:
-        pid: Process id; the lowest one if several instances run.
-        other_pids: Ids of further instances.
-        started_at: Local start time in ISO 8601, or ``None`` if unknown.
-        command: Command line.
-        configs: SHA-256 per configuration file path; ``None`` for a missing file.
-        log_sizes: Size in bytes of each matching log file.
+        pid: 所有匹配进程中最小的 PID，不代表最早启动。
+        other_pids: 其余匹配 PID，按数值升序排列。
+        started_at: 带本地时区的 ISO 8601 秒级启动时间，未知为 None。
+        command: 从 procfs 读取的命令行参数。
+        configs: 配置路径到 SHA-256 的映射；文件不可用时可为 None。
+        log_sizes: 匹配日志路径到观察到的文件字节数的映射。
     """
 
     pid: int
@@ -92,10 +84,10 @@ class LinkedProcess:
     log_sizes: Mapping[str, int]
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert the state to manifest data.
+        """复制字段容器，生成适合写入运行清单的数据.
 
         Returns:
-            A YAML-serializable mapping.
+            列表和字典组成的映射；不重新读取进程或校验字段。
         """
         return {
             'pid': self.pid,
@@ -109,13 +101,13 @@ class LinkedProcess:
 
 @dataclass(frozen=True)
 class CopiedLog:
-    """A log excerpt copied into a run directory.
+    """描述一次成功返回的日志摘录写入.
 
     Attributes:
-        source: Original log file.
-        destination: Copy inside the run directory.
-        copied_bytes: Bytes written.
-        truncated: Whether the beginning was dropped to respect the limit.
+        source: 来源日志路径。
+        destination: 实际写入目标路径，由调用方目录派生。
+        copied_bytes: 实际复制字节数，来源并发缩短时可能少于计划。
+        truncated: 是否因每文件字节上限丢弃开头，不表示完整性验证结果。
     """
 
     source: str
@@ -125,15 +117,17 @@ class CopiedLog:
 
 
 def find_processes(proc_dir: Path, executable: str) -> List[Tuple[int, List[str]]]:
-    """Find processes by executable name.
+    """按 procfs 命令行首参数的文件名查找进程.
+
+    读取失败的单个 cmdline 被跳过；不核验 PID 是否在查询期间复用，
+    也不解开 ros2 run 或 Python 等包装器。目录遍历异常仍可传播。
 
     Args:
-        proc_dir: procfs mount point.
-        executable: File name compared with the base name of the first
-            command line argument, so wrappers such as ``ros2 run`` do not match.
+        proc_dir: procfs 根目录；不存在或不是目录时返回空列表。
+        executable: 与 argv[0] 的 basename 精确比较的名称。
 
     Returns:
-        ``(pid, command line)`` pairs sorted by pid.
+        按 PID 升序排列的 (pid, 参数列表)，解码错误字节替换为占位字符。
     """
     found: List[Tuple[int, List[str]]] = []
     if not proc_dir.is_dir():
@@ -154,15 +148,16 @@ def find_processes(proc_dir: Path, executable: str) -> List[Tuple[int, List[str]
 def process_start_time(
     proc_dir: Path, pid: int, clock_ticks: Optional[int] = None,
 ) -> Optional[datetime.datetime]:
-    """Compute when a process started.
+    """从系统启动时间和进程时钟滴答估算本地启动时刻.
 
     Args:
-        proc_dir: procfs mount point.
-        pid: Process id.
-        clock_ticks: Kernel clock ticks per second; defaults to ``SC_CLK_TCK``.
+        proc_dir: procfs 根目录。
+        pid: 要读取 stat 的进程号。
+        clock_ticks: 每秒滴答数；None 或零时读取 SC_CLK_TCK，不校验负数。
 
     Returns:
-        The naive local start time, or ``None`` if procfs cannot tell.
+        无时区的本地 datetime；文件读取或已处理的字段解析失败时为 None。
+        系统时钟配置和时间转换异常不统一转为 None。
     """
     try:
         stat = (proc_dir / str(pid) / 'stat').read_text(encoding='utf-8', errors='replace')
@@ -180,14 +175,15 @@ def process_start_time(
 
 
 def config_paths(command: Sequence[str], flags: Sequence[str]) -> List[str]:
-    """Extract configuration file paths from a command line.
+    """按给定选项提取配置路径，不校验路径或完整命令行语义.
 
     Args:
-        command: Command line arguments.
-        flags: Flags whose value is a path, as ``--flag value`` or ``--flag=value``.
+        command: 按原顺序提供的参数。
+        flags: 接受 --flag value 与 --flag=value 两种形式的选项名。
 
     Returns:
-        The paths in command line order.
+        按参数和选项遍历顺序收集的值，保留重复、空值和类似选项的值；
+        位于末尾且没有后继参数的独立选项被忽略。
     """
     paths = []
     for index, argument in enumerate(command):
@@ -200,14 +196,15 @@ def config_paths(command: Sequence[str], flags: Sequence[str]) -> List[str]:
 
 
 def matching_logs(log_globs: Sequence[str], pid: Optional[int]) -> List[Path]:
-    """Expand log file patterns.
+    """展开日志模式并收集当前被识别为文件的路径.
 
     Args:
-        log_globs: Glob patterns; ``{pid}`` is replaced and ``~`` is expanded.
-        pid: Process id, or ``None`` to skip the patterns that contain ``{pid}``.
+        log_globs: 展开用户目录和 {pid} 的 glob 模式，不启用递归 glob。
+        pid: 用于替换的 PID；None 时跳过含 {pid} 的模式。
 
     Returns:
-        Existing files, sorted and without duplicates.
+        按路径排序且去除相同路径的列表。isfile 可跟随符号链接，
+        不按 inode 去重，也不证明文件归属于目标进程。
     """
     files = set()
     for pattern in log_globs:
@@ -222,14 +219,19 @@ def matching_logs(log_globs: Sequence[str], pid: Optional[int]) -> List[Path]:
 
 
 def snapshot(spec: LinkSpec, clock_ticks: Optional[int] = None) -> Optional[LinkedProcess]:
-    """Record the state of a linked process at run start.
+    """读取所选进程的命令行、启动时间、配置哈希与日志大小.
+
+    各项依次读取，不锁定进程、不校验 PID 复用，不保证跨字段一致性。
+    相对配置路径优先按进程 cwd 拼接；cwd 不可读时保留相对路径，
+    后续哈希按记录器自身当前目录解析，不能当作配置归属证明。
 
     Args:
-        spec: What to link.
-        clock_ticks: Kernel clock ticks per second, replaceable in tests.
+        spec: 进程匹配及日志观察规则。
+        clock_ticks: 可替换的每秒滴答数，传给启动时间解析器。
 
     Returns:
-        The process state, or ``None`` if no process matches.
+        最小匹配 PID 的观察结果，附带其它匹配 PID；没有匹配进程为 None。
+        日志 stat 失败的项被跳过，其它未处理异常可传播。
     """
     processes = find_processes(spec.proc_dir, spec.executable)
     if not processes:
@@ -264,22 +266,23 @@ def collect_logs(
     destination: Path,
     since: float,
 ) -> List[CopiedLog]:
-    """Copy what the linked log files gained during a run.
+    """按路径、大小及修改时间截取运行期间可能新增的日志字节.
 
-    A file that existed at the snapshot contributes the bytes appended since
-    then, or its whole content if it shrank (rotated or truncated). Any other
-    matching file contributes its whole content if it was modified at or
-    after ``since``. Only the last ``spec.max_copy_bytes`` of each are kept.
+    已有路径变大时从旧大小开始，变小时从零开始，等长时直接跳过；
+    这不是按 inode 跟踪轮转，同路径等长替换不会被发现。新增路径仅在
+    mtime 不早于 since 时复制；每个文件最终只保留上限内的尾部。
+
+    来源 stat 或复制的 OSError 被跳过；复制失败可能留下未列入返回值的
+    部分目标，不回滚。创建目录等其它错误仍可传播，目标选名不具备并发排他性。
 
     Args:
-        spec: What was linked.
-        linked: Snapshot taken at run start, or ``None`` if the process was not
-            running then.
-        destination: Directory of the copies; created when something is copied.
-        since: Run start in seconds since the epoch.
+        spec: 日志模式及单文件复制上限。
+        linked: 启动时观察结果；None 时没有旧大小且跳过含 PID 的模式。
+        destination: 调用方拥有的目标目录，有内容需复制时创建；不检查运行目录归属。
+        since: 用于筛选新增路径的 Unix 秒级时间。
 
     Returns:
-        The copies that were written.
+        成功完成复制调用的摘录列表，不保证来源稳定、字节完整或持久化。
     """
     sizes = linked.log_sizes if linked is not None else {}
     pid = linked.pid if linked is not None else None
