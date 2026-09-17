@@ -259,7 +259,7 @@ def find_markers(tree: Any, prefix: str = '') -> Dict[str, str]:
     if isinstance(tree, str):
         if not tree.startswith(_MARKER_PREFIX):
             return {}
-        match = _MARKER_RE.match(tree)
+        match = _MARKER_RE.fullmatch(tree)
         if match is None:
             raise RenderError(f'{prefix}: malformed binding marker {tree!r}')
         return {prefix: match.group('key')}
@@ -340,7 +340,7 @@ def parse_bindings(data: Any, source: Union[str, Path]) -> Dict[str, Binding]:
     owners: Dict[str, str] = {}
     bindings: Dict[str, Binding] = {}
     for key, entry in entries.items():
-        if not isinstance(key, str) or not _KEY_RE.match(key):
+        if not isinstance(key, str) or not _KEY_RE.fullmatch(key):
             raise RenderError(f'{source}: invalid profile key {key!r}')
         if isinstance(entry, list):
             entry = {'paths': entry}

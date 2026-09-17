@@ -138,7 +138,7 @@ def parse_schema(data: Any, path: Union[str, Path]) -> PackageSchema:
     if version != SCHEMA_VERSION:
         raise SchemaError(f'{source}: schema_version must be {SCHEMA_VERSION}, got {version!r}')
     package = data.get('package')
-    if not isinstance(package, str) or not _PACKAGE_RE.match(package):
+    if not isinstance(package, str) or not _PACKAGE_RE.fullmatch(package):
         raise SchemaError(f'{source}: package must be a ROS package name, got {package!r}')
     unknown = sorted(str(name) for name in set(data) - _TOP_LEVEL_FIELDS)
     if unknown:
@@ -409,7 +409,7 @@ def _parse_spec(key: Any, fields: Any, package: str, source: str) -> ParameterSp
     Raises:
         SchemaError: 键、未知字段、类型/约束组合、说明或默认值不合法。
     """
-    if not isinstance(key, str) or not _KEY_RE.match(key):
+    if not isinstance(key, str) or not _KEY_RE.fullmatch(key):
         raise SchemaError(f'{source}: invalid key {key!r}; use dotted lowercase words')
     where = f'{source}: {key}'
     if not isinstance(fields, dict):
