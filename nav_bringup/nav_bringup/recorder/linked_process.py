@@ -331,6 +331,20 @@ def _unique_target(destination: Path, source: Path) -> Path:
 
 
 def _copy_range(source: Path, target: Path, start: int, end: int) -> int:
+    """按有界分块复制来源字节区间，允许来源提前结束而返回实际复制量.
+
+    Args:
+        source: 只读来源文件。
+        target: 本次选定的摘录文件，wb 打开会截断现有目标。
+        start: 来源起始字节偏移。
+        end: 来源结束字节偏移，不包含该位置。
+
+    Returns:
+        实际写入字节数，可能小于 end-start；不保证来源并发修改时的快照一致性。
+
+    Raises:
+        OSError: 来源读取或目标写入失败，目标可能已部分写入。
+    """
     written = 0
     with source.open('rb') as reader, target.open('wb') as writer:
         reader.seek(start)

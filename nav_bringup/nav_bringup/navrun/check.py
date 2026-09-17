@@ -53,6 +53,19 @@ def _catalog(args: argparse.Namespace) -> schema.ParameterCatalog:
 
 
 def _trees(root: Path, tree: Dict[str, Any]) -> Dict[str, str]:
+    """读取准备目录所属的行为树 XML，供离线核对而不执行行为树.
+
+    Args:
+        root: 已准备运行目录。
+        tree: 含 bt_navigator 参数的渲染树。
+
+    Returns:
+        文件名到 XML 原文的映射；三个配置键可引用同一文件。
+
+    Raises:
+        ValueError: 路径为空、不是绝对路径或解析后不在预备 BT 目录。
+        OSError: 目录或文件不存在、不可读取。
+    """
     directory = (root / 'params/rendered/bt').resolve(strict=True)
     result = {}
     for key in ('default_bt_xml_filename', 'default_nav_to_pose_bt_xml',

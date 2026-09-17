@@ -51,6 +51,17 @@ def managed_actions(graph: LaunchGraph, factory: ProcessFactory) -> List[Action]
 
 
 def _owned_actions(spec: ProcessSpec, factory: ProcessFactory, used: int) -> List[Action]:
+    """为一个自有进程注册退出策略，再按需延迟启动.
+
+    Args:
+        spec: 包含启动延迟和重启预算的进程描述。
+        factory: 创建该次受管进程 action 的工厂。
+        used: 已消耗的重启次数，递归重启时递增。
+
+    Returns:
+        先注册一次性退出处理器、再启动的 action 列表；重启取消额外启动延迟，
+        预算耗尽时请求所属 launch 关闭，不按名称搜杀其它进程。
+    """
     process = factory(spec)
 
     def on_exit(event: ProcessExited, context: LaunchContext) -> List[Action]:

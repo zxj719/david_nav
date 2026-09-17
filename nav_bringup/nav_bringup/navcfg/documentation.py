@@ -65,6 +65,14 @@ def write_catalog(
 
 
 def _row(spec: ParameterSpec) -> str:
+    """把参数声明转换为经过表格转义的一行 Markdown.
+
+    Args:
+        spec: 含类型、单位、约束、说明和可选调参链接的参数声明。
+
+    Returns:
+        固定列顺序的表格行；仅格式化元数据，不验证运行中的参数值。
+    """
     cells = [
         f'`{spec.key}`',
         f'`{_type_name(spec)}`',

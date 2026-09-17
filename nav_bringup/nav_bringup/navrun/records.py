@@ -37,6 +37,18 @@ def _mapping(text: str) -> Dict[str, Any]:
 
 
 def _brief(reader: record_reader.RecordReader) -> Dict[str, Any]:
+    """读取并验证运行摘要身份，只返回有界标量字段.
+
+    Args:
+        reader: 绑定特定 run_id 的受限记录读取器。
+
+    Returns:
+        固定摘要字段及依据 ended_at 推导的记录状态，不等于在线进程状态。
+
+    Raises:
+        ValueError: 清单缺失、schema/身份不符、字段非标量或超过长度限制。
+        OSError: 记录读取失败。
+    """
     contents = reader.read('manifest.yaml')
     if contents is None:
         raise ValueError('manifest is missing')
@@ -54,6 +66,19 @@ def _brief(reader: record_reader.RecordReader) -> Dict[str, Any]:
 
 
 def _diff(reader: record_reader.RecordReader) -> Dict[str, Any]:
+    """比较冻结机器人档案与模式叠加，明确不冒充生效参数比较.
+
+    Args:
+        reader: 只读的运行记录访问器。
+
+    Returns:
+        档案文本差异、独立 Nav2 覆盖及可选遥控选项；缺源快照时
+        available=False，runtime_comparison 始终标记为未计算。
+
+    Raises:
+        ValueError: 冻结映射或模式格式无效。
+        OSError: 读取冻结输入失败。
+    """
     robot_text = reader.read('params/inputs/robot.yaml')
     mode_text = reader.read('params/inputs/mode.yaml')
     if robot_text is None or mode_text is None:

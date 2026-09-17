@@ -229,3 +229,9 @@ def test_nav_bringup_package_complies():
     """The nav_bringup package itself follows the docstring policy."""
     violations = docstrings.check_paths([PACKAGE_DIR])
     assert not violations, docstrings.format_violations(violations)
+
+
+def test_long_private_functions_are_documented():
+    """Require explanations for long private helpers in the whole bringup package."""
+    violations = docstrings.check_private_paths([PACKAGE_DIR])
+    assert not violations, docstrings.format_violations(violations)

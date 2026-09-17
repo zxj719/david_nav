@@ -85,6 +85,20 @@ def _identity(info: os.stat_result) -> Tuple[int, int]:
 
 
 def _complete(descriptor: int, name: str, entries: Dict[tuple, os.stat_result]) -> bool:
+    """通过已打开目录验证记录有完成标记，不能替代在线进程存活检查.
+
+    Args:
+        descriptor: 调用方持有的运行目录描述符。
+        name: 预期 run_id。
+        entries: 已扫描文件身份，供不跟随链接的读取复核。
+
+    Returns:
+        保留文件为单硬链接普通文件、清单身份/schema 合法且 ended_at 可解析
+        为日期时间时为 True；内容异常或身份不符为 False。
+
+    Raises:
+        OSError: 相对目录打开或读取失败，由上层保守跳过清理。
+    """
     for filename in _KEPT:
         info = entries.get((filename,))
         if info is None or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:

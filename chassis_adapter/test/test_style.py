@@ -8,6 +8,13 @@ from ament_pep257.main import main as pep257
 from nav_bringup.lint import docstrings, literals
 
 
+def test_long_private_functions_are_documented():
+    """Keep the already compliant adapter covered by the shared private-doc gate."""
+    paths = [Path(__file__).resolve().parents[1] / 'chassis_adapter']
+    violations = docstrings.check_private_paths(paths)
+    assert not violations, docstrings.format_violations(violations)
+
+
 def test_flake8():
     """Package and test code follow the ROS Python format."""
     code, errors = main_with_errors(argv=[])

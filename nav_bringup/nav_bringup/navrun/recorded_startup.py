@@ -289,6 +289,15 @@ def run_recorded_startup(
 
 
 def _validate(options, steps):
+    """验证受管启动身份、绝对路径和唯一主机步骤标签.
+
+    Args:
+        options: 含模式、机器人/场地、记录根目录、仓库及锁路径的选项。
+        steps: 尚未执行的主机准备步骤。
+
+    Raises:
+        ValueError: 名称、模式、路径或步骤标签不符合约束。
+    """
     if options.mode not in ('tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'):
         raise ValueError('unknown startup mode')
     for name in (options.robot, options.site):
@@ -316,6 +325,15 @@ def _check_signal(stopped):
 
 
 def _link_spec(plan):
+    """从冻结档案构造定位侧只读关联说明，不启动或控制定位提供者.
+
+    Args:
+        plan: 已准备的启动计划，含机器人及模式输入快照。
+
+    Returns:
+        导航模式且配置了进程名时的 LinkSpec；其它情况为 None。
+        仅描述配置参数标记与日志路径规则，不读取日志负载。
+    """
     if plan.bundle.options.mode not in ('tour', 'precise', 'bench_slamgt'):
         return None
     artifacts = dict(plan.bundle.artifacts)
@@ -352,6 +370,15 @@ def _event(events, name, severity, data):
 
 
 def _drain_remaining(result, events):
+    """持续重试本次仍持有的子进程关闭，确认成功前不放弃引用.
+
+    Args:
+        result: 前一清理阶段返回的 remaining 自有子进程集合。
+        events: 清理重试事件接收器。
+
+    每次 close 使用十秒预算，失败记录并暂停后重试；没有把总等待时间到期
+    当作资源已释放的退出分支，不查杀原集合外的进程。
+    """
     remaining = list(result.remaining)
     while remaining:
         for child in tuple(remaining):

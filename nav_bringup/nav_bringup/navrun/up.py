@@ -57,6 +57,20 @@ def preview(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def _plan(args, run_dir):
+    """解析资源与 schema，并基于只读进程快照生成启动计划.
+
+    Args:
+        args: CLI 的模式、机器人/场地、底盘、记录及可选源码根配置。
+        run_dir: 计划所属运行目录路径。
+
+    Returns:
+        plan_up 生成的未执行计划；不在本函数创建 ROS 或发送信号。
+
+    Raises:
+        ValueError: 没有 schema 或请求/配置验证失败。
+        LookupError: 资源包或所需可执行文件未找到。
+        OSError: 输入资源或进程快照无法读取。
+    """
     request = UpRequest(args.mode, args.robot, args.site, run_dir,
                         args.chassis, args.record, args.no_executor,
                         TeleopOptions(args.layout, args.linear_speed, args.angular_speed),

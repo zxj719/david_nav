@@ -146,6 +146,15 @@ def _group_running(group: int) -> bool:
     # /proc stat exposes group and state without inspecting argv or secrets.
     # Insufficient visibility only costs the remaining grace period: it never
     # authorizes signaling another group or implies that children have exited.
+    """只读检查给定进程组是否还有非僵尸成员，观察不确定时保守返回存活.
+
+    Args:
+        group: 外层已经确认由自己持有的进程组号。
+
+    Returns:
+        有成员或 /proc 读取/解析不完整时为 True；完整扫描无成员才为 False。
+        不读 argv、不扩大信号目标，也不在此发送信号。
+    """
     try:
         for entry in Path('/proc').iterdir():
             if not entry.name.isdecimal():

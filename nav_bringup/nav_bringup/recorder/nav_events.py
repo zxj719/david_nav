@@ -106,6 +106,15 @@ def _pairs(pairs):
 
 
 def _finite_tree(value, depth=0):
+    """递归检查 JSON 数据的最大嵌套深度及浮点有限性.
+
+    Args:
+        value: 已解码的数据子树。
+        depth: 当前嵌套深度，从零开始递增。
+
+    Raises:
+        ValueError: 深度超过 MAX_DEPTH 或遇到 NaN/无穷浮点值。
+    """
     if depth > MAX_DEPTH:
         raise ValueError('event JSON nesting limit exceeded')
     if isinstance(value, float) and not math.isfinite(value):
@@ -119,6 +128,19 @@ def _finite_tree(value, depth=0):
 
 
 def _decode(message):
+    """验证 NavEvent 信封和数据对象，附传输身份后构造本地记录事件.
+
+    Args:
+        message: 含事件标识、秒制时间戳、来源、等级和 JSON 数据的消息。
+
+    Returns:
+        原事件 ID 与 Event 二元组；仅转换值，不发布或落盘。
+
+    Raises:
+        ValueError: 标识、等级、时间、JSON 尺寸/结构/重复键或保留字段无效。
+        UnicodeError: JSON 字符串无法编码为 UTF-8。
+        RecursionError: 解码嵌套超出 Python 解析器限制。
+    """
     identity = _nonempty(message.event_id, 256)
     source = _nonempty(message.source, 128)
     name = _nonempty(message.event_type, 128)

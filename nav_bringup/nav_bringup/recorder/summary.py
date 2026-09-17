@@ -115,6 +115,15 @@ def _clock_time(stamp: float) -> str:
 
 
 def _event_counts(events: Sequence[Event], skipped: int) -> List[str]:
+    """生成按次数降序排列的事件计数段，保留无法解析行的提示.
+
+    Args:
+        events: 已解析事件序列。
+        skipped: 上游跳过的坏行数量。
+
+    Returns:
+        Markdown 行列表，包含类型/等级计数和原始日志查阅提示。
+    """
     lines = ['## 事件统计', '']
     if not events:
         lines.append('无事件。')
@@ -131,6 +140,16 @@ def _event_counts(events: Sequence[Event], skipped: int) -> List[str]:
 
 
 def _listed_events(title: str, events: Sequence[Event], by_node: bool = False) -> List[str]:
+    """生成有数量和负载长度上限的事件明细，避免摘要无限增长.
+
+    Args:
+        title: 摘要小节标题。
+        events: 已筛选、保持输入顺序的事件。
+        by_node: 是否先附按节点统计的次数排行。
+
+    Returns:
+        Markdown 行列表；截断只影响展示，完整事件仍留原始日志。
+    """
     lines = [f'## {title}（{len(events)} 次）', '']
     if not events:
         lines.append('无。')
@@ -151,6 +170,15 @@ def _listed_events(title: str, events: Sequence[Event], by_node: bool = False) -
 
 
 def _resources(resources: ResourceSummary) -> List[str]:
+    """把现有资源汇总渲染为整机与进程占用段，不重新采样.
+
+    Args:
+        resources: 已计算的系统和进程 CPU/内存统计。
+
+    Returns:
+        Markdown 行列表；进程 CPU 以单核 100% 标示，只展示有限数量进程。
+        空样本明确写无采样，不以零值冒充实际测量。
+    """
     lines = ['## 资源占用', '']
     system: Optional[Any] = resources.system
     if system is None and not resources.processes:
@@ -177,6 +205,14 @@ def _resources(resources: ResourceSummary) -> List[str]:
 
 
 def _topics(topics: Optional[TopicsSummary]) -> List[str]:
+    """渲染话题频率与 TF 延迟统计，显式保留缺样和无发布者提示.
+
+    Args:
+        topics: 已有话题/变换汇总或 None；频率为 Hz，TF 延迟字段为毫秒。
+
+    Returns:
+        Markdown 行列表；无观测时写明无采样，不推断正式 ROS 栈状态。
+    """
     lines = ['## 话题频率与 TF 延迟', '']
     if topics is None or (not topics.topics and not topics.transforms):
         lines.extend(['无话题采样。', ''])

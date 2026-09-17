@@ -95,6 +95,17 @@ def _profile_value(
     rule: str,
     issues: List[ValidationIssue],
 ) -> Any:
+    """读取点分档案键，缺失时累积错误而非立即中止其余规则.
+
+    Args:
+        profile: 待验证的档案映射。
+        key: 点分参数键。
+        rule: 本条检查规则的诊断标识。
+        issues: 原地追加缺失错误的列表。
+
+    Returns:
+        原值，或专用 _MISSING 哨兵；不会用 None 混淆合法配置值。
+    """
     try:
         return render.profile_value(profile, key)
     except render.RenderError:
@@ -108,6 +119,17 @@ def _rendered_value(
     rule: str,
     issues: List[ValidationIssue],
 ) -> Any:
+    """读取渲染树路径，缺失时记录所属规则的错误.
+
+    Args:
+        tree: 已渲染参数树。
+        path: 目标参数路径。
+        rule: 本条检查规则的标识。
+        issues: 原地追加缺失诊断的列表。
+
+    Returns:
+        原值或 _MISSING 哨兵，不修改参数树。
+    """
     try:
         return render.get_path(tree, path)
     except render.RenderError:
@@ -137,6 +159,17 @@ def _check_at_most(
     rule: str,
     issues: List[ValidationIssue],
 ) -> None:
+    """检查同单位的两个配置数值满足下限项不大于上限项.
+
+    Args:
+        profile: 已读取的机器人档案。
+        lower_key: 应较小或相等的参数键。
+        upper_key: 应较大或相等的参数键。
+        rule: 诊断规则标识。
+        issues: 原地追加缺失、非数值或顺序不符错误的列表。
+
+    不在此转换单位或验证有限性；bool 明确不是数值，缺键后不重复比较。
+    """
     lower = _profile_value(profile, lower_key, rule, issues)
     upper = _profile_value(profile, upper_key, rule, issues)
     if _MISSING in (lower, upper):

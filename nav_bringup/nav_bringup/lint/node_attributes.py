@@ -110,6 +110,19 @@ def _ordinary(name):
 
 
 def _bindings(module, tree, is_package):
+    """收集语法树中的导入别名，作为静态名称解析的绑定表.
+
+    Args:
+        module: 当前模块限定名。
+        tree: 已解析语法树；会扫描嵌套导入，不模拟 Python 动态作用域。
+        is_package: 是否按包初始化模块解析相对导入。
+
+    Returns:
+        局部导入名到目标限定名的映射，重复键保留最后扫描到的绑定。
+
+    Raises:
+        ValueError: 相对导入超出当前包层级。
+    """
     result = {}
     context = module.split('.') if is_package else module.split('.')[:-1]
     for node in ast.walk(tree):
@@ -138,6 +151,15 @@ def _qualified(node, module, bindings):
 
 
 def _members(node):
+    """枚举类中可静态识别的方法、字段、slots 和方法接收者写入.
+
+    Args:
+        node: 待检查的类 AST 节点。
+
+    Yields:
+        名称、成员类别、行号和可选方法节点四元组；静态方法不扫描接收者写入，
+        不解析计算型字段名、任意接收者别名或动态生成成员。
+    """
     for statement in _class_statements(node):
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
             yield statement.name, 'method', statement.lineno, statement
@@ -175,6 +197,16 @@ def _class_statements(node):
 
 
 def _canonical(name, aliases):
+    """沿最长匹配导入别名展开限定名，以循环标记保证有界终止.
+
+    Args:
+        name: 待归一化的点分名称。
+        aliases: 局部限定名前缀到目标限定名的映射。
+
+    Returns:
+        无可展开绑定时的名称；循环或反复扩展同一前缀时保留当前名称，
+        不执行模块来尝试证明动态身份。
+    """
     visited = set()
     expanded = set()
     while name not in visited:

@@ -212,6 +212,17 @@ def _is_public(name: str) -> bool:
 
 
 def _check_definitions(body: Sequence[ast.stmt], path: str, prefix: str) -> List[Violation]:
+    """递归检查公开类及其直接公开方法，不扫描函数内部定义.
+
+    Args:
+        body: 当前模块或公开类的直接语句列表。
+        path: 用于诊断的文件路径。
+        prefix: 外层公开类的限定名前缀。
+
+    Returns:
+        缺模块成员说明、公共属性 Attributes 项或函数分节的违规列表。
+        私有函数由独立门禁检查；这里不替代语义审查。
+    """
     violations: List[Violation] = []
     for node in body:
         if isinstance(node, ast.ClassDef) and _is_public(node.name):
@@ -272,6 +283,17 @@ def _class_attributes(node: ast.ClassDef) -> set[str]:
 
 
 def _check_function(node: FunctionNode, path: str, qualified_name: str) -> List[Violation]:
+    """检查一个公共函数的文档分节与静态可见的参数、返回和异常约定.
+
+    Args:
+        node: 普通或异步函数 AST 节点。
+        path: 诊断文件路径。
+        qualified_name: 诊断中展示的限定名称。
+
+    Returns:
+        缺说明或缺必要分节的违规列表；property 返回说明豁免，
+        检查显式 raise 而非推断所有下游异常。
+    """
     docstring = ast.get_docstring(node)
     if docstring is None:
         return [Violation(path, node.lineno, qualified_name, 'missing function docstring')]

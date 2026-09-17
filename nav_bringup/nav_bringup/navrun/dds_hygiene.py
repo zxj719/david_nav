@@ -194,6 +194,20 @@ def plan_hygiene(
 def _recheck(
     original: HygienePlan, latest: HygienePlan, entry: _FileState, removed: set[str],
 ) -> str:
+    """复核共享内存候选的目录身份、文件代次和同组伴随文件，不执行删除.
+
+    Args:
+        original: 初始只读清理计划。
+        latest: 紧邻操作前重新观测的计划。
+        entry: 当前待复核文件状态。
+        removed: 本操作中已成功移除的文件名集合。
+
+    Returns:
+        不可继续的保留原因；空字符串只表示本次复核未发现保留理由。
+
+    Raises:
+        ValueError: 共享内存目录身份已变化，拒绝继续。
+    """
     if latest._directory_identity != original._directory_identity:
         raise ValueError('shared-memory directory identity changed')
     group = _group(entry.name)

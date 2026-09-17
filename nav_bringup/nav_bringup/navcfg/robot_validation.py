@@ -22,6 +22,15 @@ from nav_bringup.navrun.up_planning import discover_inputs, UpRequest
 
 
 def _share(args: argparse.Namespace) -> Callable[[str], Path]:
+    """创建只读包资源解析器，优先使用显式源码根目录.
+
+    Args:
+        args: 含可选 source_root 的命令行选项。
+
+    Returns:
+        包名到目录 Path 的函数；源码模式要求 package.xml 存在，
+        安装模式延迟导入 ament 索引。资源不存在时由返回函数抛 LookupError。
+    """
     def resolve(package: str) -> Path:
         if args.source_root is not None:
             path = args.source_root.expanduser().absolute() / package
@@ -36,6 +45,19 @@ def _share(args: argparse.Namespace) -> Callable[[str], Path]:
 
 
 def _select(args: argparse.Namespace) -> Tuple[UpRequest, BundleInputs]:
+    """按机器人、模式和场地名称解析离线校验输入，不创建运行目录.
+
+    Args:
+        args: 命名资源接口的已解析选项，不允许混用显式文件覆盖。
+
+    Returns:
+        UpRequest 与 BundleInputs；无场地参数时仅在唯一场地可选时自动选择。
+
+    Raises:
+        ValueError: 名称/模式/覆盖组合无效，或导航模式场地选择不唯一。
+        LookupError: 包资源不存在。
+        OSError: 资源目录无法读取。
+    """
     mode, robot = str(args.mode), args.robot
     site = str(args.site) if args.site is not None else None
     if mode not in MODES:
@@ -65,6 +87,21 @@ def _select(args: argparse.Namespace) -> Tuple[UpRequest, BundleInputs]:
 
 def _prepare(request: UpRequest, inputs: BundleInputs,
              catalog: schema.ParameterCatalog) -> PreparedBundle:
+    """以普通准备器离线渲染并交叉核对选定身份及输入快照.
+
+    Args:
+        request: 仅用于渲染绑定的机器人、模式和场地选择。
+        inputs: 只读源码资源路径。
+        catalog: 参数声明目录，用于常规配置验证。
+
+    Returns:
+        内存中的 PreparedBundle；不写文件、不启动进程或探测 ROS。
+
+    Raises:
+        ValueError: 档案结构、身份或渲染验证无效，或读取期间输入发生变化。
+        OSError: 输入无法读取。
+        yaml.YAMLError: 输入不是合法 YAML。
+    """
     profile = yaml.safe_load(inputs.profile.read_bytes())
     if not isinstance(profile, dict):
         raise ValueError('robot profile must be a mapping')

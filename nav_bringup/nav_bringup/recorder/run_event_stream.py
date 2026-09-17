@@ -172,6 +172,15 @@ class RunEventStream:
             self._lease.close()
 
     def _load(self):
+        """读取并验证本运行的有界事件游标，不存在时持久化初始状态.
+
+        游标必须为普通文件且不跟随链接；精确字段、UUID、非负偏移及文件身份
+        均验证后才回填内存，不能把坏游标当从零开始继续发送。
+
+        Raises:
+            ValueError: 游标格式、尺寸、身份或偏移状态无效。
+            OSError: 游标打开/读取或初始保存失败。
+        """
         try:
             descriptor = os.open(self._state_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         except FileNotFoundError:
@@ -202,6 +211,13 @@ class RunEventStream:
         self._offset, self._discarding = value['offset'], value['discarding']
 
     def _save(self):
+        """用同目录临时文件原子替换游标，成功替换后才清除 dirty 标记.
+
+        不提供 fsync 持久化保证；finally 只尝试移除本次创建的临时路径。
+
+        Raises:
+            OSError: 创建、替换或临时文件收尾失败；错误可能发生在替换已经完成之后。
+        """
         self._dirty = True
         value = dict(version=1, identity=self._identity, file=self._file,
                      offset=self._offset, discarding=self._discarding)
@@ -225,6 +241,20 @@ class RunEventStream:
             pass
 
     def _message(self, line, offset):
+        """把允许转发的本地事件转换为脱敏传输映射，拒绝已带传输标记的回声.
+
+        Args:
+            line: 已取得的一条 JSON 事件原文。
+            offset: 该记录在源文件中的字节位置，用于稳定事件身份和追踪。
+
+        Returns:
+            白名单字段、遗漏数量和偏移组成的传输消息；不是 navrun 来源或已有
+            传输标记时为 None，不发送消息、不修改原记录。
+
+        Raises:
+            ValueError: JSON、重复键、信封、数据结构或数值不合法。
+            KeyError: 本地事件缺少必需信封字段。
+        """
         value = json.loads(line, object_pairs_hook=_pairs)
         if not isinstance(value, dict):
             raise ValueError('event must be an object')

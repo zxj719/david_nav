@@ -296,6 +296,16 @@ class ParameterCatalog:
         issues: List[ProfileIssue],
         seen: List[str],
     ) -> None:
+        """递归比对档案映射与已声明参数，把检查结果累积到调用方列表.
+
+        Args:
+            mapping: 当前档案层级。
+            prefix: 当前点分键前缀。
+            issues: 原地追加类型/约束错误和未声明字段警告的列表。
+            seen: 原地记录匹配声明键，供上层检查缺失必需值。
+
+        显式默认 None 的声明允许该值；只有声明过下层键时才继续递归。
+        """
         for name, value in mapping.items():
             key = f'{prefix}.{name}' if prefix else str(name)
             spec = self._specs.get(key)
@@ -385,6 +395,20 @@ def load_catalog(paths: Iterable[Union[str, Path]]) -> ParameterCatalog:
 
 
 def _parse_spec(key: Any, fields: Any, package: str, source: str) -> ParameterSpec:
+    """严格解析单个参数声明，并验证非 None 默认值符合自身约束.
+
+    Args:
+        key: 小写点分参数键。
+        fields: 原始声明字段映射。
+        package: 提供声明的包名。
+        source: 用于错误定位的来源名称。
+
+    Returns:
+        保留默认值存在性、类型、范围、枚举和单位的 ParameterSpec。
+
+    Raises:
+        SchemaError: 键、未知字段、类型/约束组合、说明或默认值不合法。
+    """
     if not isinstance(key, str) or not _KEY_RE.match(key):
         raise SchemaError(f'{source}: invalid key {key!r}; use dotted lowercase words')
     where = f'{source}: {key}'
@@ -459,6 +483,15 @@ def _parse_range(value: Any, where: str) -> Tuple[Optional[float], Optional[floa
 
 
 def _has_type(value: Any, value_type: str) -> bool:
+    """按 schema 已验证的类型名检查 Python 值，不在此检查有限性或范围.
+
+    Args:
+        value: 待检查值。
+        value_type: 已确认受支持的声明类型名；末分支对应 dict。
+
+    Returns:
+        类型是否匹配；bool 不作为 int/float，float 声明允许整数值。
+    """
     if value_type == 'bool':
         return isinstance(value, bool)
     if value_type == 'int':

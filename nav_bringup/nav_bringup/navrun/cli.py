@@ -325,6 +325,15 @@ def _as_flag(name: str) -> str:
 
 
 def _doctor(args: argparse.Namespace) -> int:
+    """执行只读 doctor 检查，按显式 live 选项追加在线探针并打印报告.
+
+    Args:
+        args: 包含输出格式、话题/帧选择和秒制等待预算的 CLI 选项。
+
+    Returns:
+        最坏状态为 FAIL 时返回一，否则返回零；WARN 不当作命令失败。
+        本函数不修复检查项，也不重启 ROS daemon 或定位栈。
+    """
     results = checks.run_checks(checks.default_context(os.environ))
     if args.live:
         results.extend(live.run_live_checks(live.LiveContext(
@@ -343,6 +352,19 @@ def _doctor(args: argparse.Namespace) -> int:
 
 
 def _monitor(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    """把 CLI 选项转换为观察器配置并进入该运行记录的监测循环.
+
+    Args:
+        parser: 用于报告参数错误的解析器。
+        args: 包含运行目录、帧、话题及秒制周期的选项。
+
+    Returns:
+        monitor.spin 的退出码。
+
+    Raises:
+        SystemExit: 监测配置无效，由 parser.error 报告。
+        Exception: 运行目录解析或观察循环失败。
+    """
     try:
         options = monitor.MonitorOptions(
             base_frame=args.base_frame,
@@ -360,6 +382,19 @@ def _monitor(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
 
 def _dump_params(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    """采集真实 ROS 参数并输出完整性结果，不以部分 dump 宣称全部成功.
+
+    Args:
+        parser: CLI 错误报告器。
+        args: 输出/运行目录及秒制发现、超时、重试次数选项。
+
+    Returns:
+        参数报告完整时为零，否则为一；属于运行记录时另追加采集事件。
+
+    Raises:
+        SystemExit: 重试次数或输出目录选择无效。
+        OSError: 参数输出或事件记录写入失败。
+    """
     if args.attempts < 1:
         parser.error('--attempts must be at least 1')
     run = None if args.output_dir is not None else _run_directory(args.run_dir)
@@ -386,6 +421,19 @@ def _dump_params(parser: argparse.ArgumentParser, args: argparse.Namespace) -> i
 
 
 def _wrap(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    """解析命令包装、观察与定位日志关联配置，再委托受管运行器执行.
+
+    Args:
+        parser: CLI 参数错误报告器。
+        args: 包含待执行命令、记录目录、采样及可选监测选项的参数。
+
+    Returns:
+        受管命令的退出码；创建的运行目录和退出原因打印到标准错误。
+
+    Raises:
+        SystemExit: 缺少命令、文件标记或关联配置无效。
+        Exception: 运行器启动、采样或收尾失败；不在此自行扩大进程管理范围。
+    """
     command = list(args.command)
     if command and command[0] == '--':
         command = command[1:]

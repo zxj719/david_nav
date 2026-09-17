@@ -54,6 +54,18 @@ class CheckedComponentLoader(Action):
             self._load(context, client, requests)))
 
     async def _load(self, context, client, requests):
+        """按一个总期限顺序加载组件，关闭时停止投递并取消尚未完成的本地 Future.
+
+        Args:
+            context: 持有异步循环和关闭状态的 launch 上下文。
+            client: launch ROS 适配器持有的 LoadNode 客户端，不在此销毁。
+            requests: 已转换的组件加载请求，保持输入顺序。
+
+        Raises:
+            RuntimeError: 总秒制期限耗尽、响应为空或组件明确加载失败。
+            Exception: 服务 Future 失败，交给 launch 完成任务触发自有进程收尾。
+            asyncio.CancelledError: 加载被取消，finally 清理仍挂起的本地 Future。
+        """
         deadline = context.asyncio_loop.time() + self._timeout
         pending = None
         try:

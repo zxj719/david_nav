@@ -82,6 +82,14 @@ class UpPlan:
 
 
 def _validate(request: UpRequest) -> None:
+    """校验启动请求及遥控覆盖，拒绝不明确路径或不支持的功能组合.
+
+    Args:
+        request: 未执行的模式、资源名称、底盘/记录选择和输出目录请求。
+
+    Raises:
+        ValueError: 标识、枚举、布尔开关、模式覆盖或运行目录无效。
+    """
     request.teleop_options.values(request.mode)
     if request.mode not in MODES:
         raise ValueError('unknown mode')

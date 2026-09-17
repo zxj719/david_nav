@@ -145,6 +145,12 @@ class ResourceSampler:
             return None
 
     def _tree_pids(self) -> List[int]:
+        """收集选定根进程及递归后代的唯一 PID，观察权限/消失错误保守跳过.
+
+        Returns:
+            按发现顺序去重的 PID 列表；不读取任意无关进程，
+            根或后代扫描失败可导致样本缺失而非证明它们不存在。
+        """
         pids: Dict[int, None] = {}
         for root_pid in self._root_pids():
             root = self._processes.get(root_pid) or self._open_process(root_pid)
@@ -159,6 +165,15 @@ class ResourceSampler:
         return list(pids)
 
     def _append(self, samples: List[ProcessSample]) -> None:
+        """追加资源样本到 CSV，只在文件不存在或为空时写表头.
+
+        Args:
+            samples: 秒制时间、PID、进程名、CPU 百分比、内存及线程数快照。
+                数值沿用既有三位时间/一位 CPU 和内存显示精度。
+
+        Raises:
+            OSError: 文件状态读取、追加写入或关闭失败；不回滚已写入的行。
+        """
         write_header = not self._csv_path.is_file() or self._csv_path.stat().st_size == 0
         with self._csv_path.open('a', encoding='utf-8', newline='') as handle:
             writer = csv.writer(handle)

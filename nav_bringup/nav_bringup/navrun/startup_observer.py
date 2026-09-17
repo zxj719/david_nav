@@ -90,6 +90,11 @@ class StartupObserver:
             self._thread = None
 
     def _record(self):
+        """在记录线程中轮询控制、按秒采样资源并转发输出，观察故障写入 errors.
+
+        控制回调或采样首次失败后只停用对应观察源；日志转发的外层异常结束线程。
+        停止事件以 0.1 秒等待响应，不在此停止主进程或丢弃其资源所有权。
+        """
         next_sample = time.monotonic() + 1.0
         try:
             while not self._stop.is_set():
@@ -113,6 +118,15 @@ class StartupObserver:
             self.errors.append(str(error))
 
     def _forward(self, drain=False):
+        """从子日志已有偏移增量转发字节，再处理结构化事件.
+
+        Args:
+            drain: True 时读取打开后观测到的全部剩余字节；否则每文件最多 64 KiB。
+                排空不是追随未来增长，console.log、链接和非文件均跳过。
+
+        Raises:
+            OSError: 子日志读取或记录输出失败，交给外层记录器处理。
+        """
         for path in sorted(self.run.logs.glob('*.log')):
             if path.name == 'console.log' or path.is_symlink() or not path.is_file():
                 continue
@@ -133,6 +147,17 @@ class StartupObserver:
         self._forward_events(drain)
 
     def _forward_events(self, drain):
+        """按字节偏移转发完整 JSONL 事件，保留跨块碎片并记录坏行.
+
+        Args:
+            drain: 是否排空当前观测到的剩余字节；实时单轮最多读取 64 KiB。
+
+        超过 1 MiB 的未完成碎片丢弃并记录错误；原 events.jsonl 仍是权威来源，
+        不是通过终端可见性证明事件已可靠送达其它进程。
+
+        Raises:
+            OSError: 事件文件读取或输出写入失败。
+        """
         if not self.run.events.is_file() or self.run.events.is_symlink():
             return
         with self.run.events.open('rb') as stream:
@@ -162,6 +187,16 @@ class StartupObserver:
                     self._write(message.encode('utf-8'))
 
     def _write(self, chunk):
+        """先写并刷新权威控制台日志，再尽力转发到可选终端.
+
+        Args:
+            chunk: 待写入的字节块；终端短写时循环补齐。
+
+        终端 OSError/ValueError 仅记入 errors 并停用终端，不关闭权威日志。
+
+        Raises:
+            OSError: 控制台日志写入或刷新失败。
+        """
         self._console.write(chunk)
         self._console.flush()
         if self.terminal is not None:

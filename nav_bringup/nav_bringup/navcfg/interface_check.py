@@ -31,6 +31,15 @@ class InterfaceResult:
 
 
 def _evidence_valid(value):
+    """检查接口探针返回 JSON 的结构和端点计数类型，不判断接口是否满足要求.
+
+    Args:
+        value: 候选证据对象，必须具有精确字段集合。
+
+    Returns:
+        结构合法时为 True；计数必须为非负真整数，变换对为两个字符串，
+        空证据可合法但并不表示实际定位或话题就绪。
+    """
     if not isinstance(value, dict) or set(value) != {
             'transforms', 'publishers', 'subscribers', 'samples', 'types', 'cloud_frame'}:
         return False

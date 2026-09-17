@@ -93,6 +93,20 @@ def check_sources(
 
 
 def _imports(module, source, is_package):
+    """从整棵源码 AST 收集显式导入目标，展开相对路径但不导入模块.
+
+    Args:
+        module: 当前模块点分名称。
+        source: Python 源码字符串。
+        is_package: 当前源码是否为包的初始化模块。
+
+    Returns:
+        可能的模块及 from-import 成员目标集合；不判断分支是否运行。
+
+    Raises:
+        SyntaxError: 源码不能解析。
+        ValueError: 相对导入层级超出包上下文。
+    """
     targets = set()
     context = module.split('.') if is_package else module.split('.')[:-1]
     for node in ast.walk(ast.parse(source, filename=module)):
@@ -129,6 +143,16 @@ def _adapter(module):
 
 
 def _violations(package, origin, target):
+    """逐项报告一条静态导入边违反的分层规则.
+
+    Args:
+        package: 被检查的包名。
+        origin: 发起导入的模块限定名。
+        target: 已解析的目标模块或成员限定名。
+
+    Yields:
+        可读违规标签；一条边可命中多条规则，不证明动态导入行为。
+    """
     root = target.split('.')[0]
     pure = _section(origin) in _PURE
     if root == 'david_nav':

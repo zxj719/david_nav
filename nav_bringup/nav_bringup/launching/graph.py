@@ -142,6 +142,14 @@ class LaunchGraph:
 
 
 def _validate(options: GraphOptions) -> None:
+    """在生成启动图前验证已经解析的模式、开关、路径与秒制预算.
+
+    Args:
+        options: 完整 GraphOptions；不在此读取环境或替换默认值。
+
+    Raises:
+        ValueError: 类型、范围、名称、路径或模式与功能组合不合法。
+    """
     if options.adapter_implementation not in ('python', 'cpp'):
         raise ValueError('adapter implementation must be python or cpp')
     if options.mode not in MODES:
@@ -265,6 +273,17 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
 
 
 def _task_manager(options, params, delay):
+    """构造唯一任务管理器描述，根据模式接入 Dock 并保留显式动作名覆盖.
+
+    Args:
+        options: 已验证的启动选项；start_executor 决定是否开启 WS。
+        params: 将参数资产名解析为运行目录文件路径的函数。
+        delay: 该进程启动延迟（秒）。
+
+    Returns:
+        未执行的 ProcessSpec，包含配置依赖与导航就绪条件；ROS-only precise
+        入口和带 WS 的包装入口沿用各自的参数传入方式。
+    """
     profile = params('executor_profile')
     files = (profile,)
     arguments = options.executor_arguments

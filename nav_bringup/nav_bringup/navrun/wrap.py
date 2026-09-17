@@ -280,6 +280,23 @@ def _supervise(
     relay: _SignalRelay,
     events: EventLog,
 ) -> Tuple[int, str]:
+    """包装一个前台命令并观察其输出和资源，沿用既有有界线程收尾策略.
+
+    Args:
+        options: 已校验的命令及采样/监测选项。
+        run: 本次运行记录目录。
+        child_env: 显式传给子进程的环境。
+        sinks: 输出接收器列表，None 项忽略。
+        relay: 只绑定本次主子进程的信号转发器。
+        events: 本次运行事件日志。
+
+    Returns:
+        规范退出码与原因；主命令无法启动时返回 127/start_failed。
+        tee/采样线程的有界 join 不构成任意后代全部退出的证明。
+
+    Raises:
+        Exception: 记录、观察器创建或收尾失败；这里不是按名称清理外部栈的接口。
+    """
     with (run.logs / CONSOLE_LOG_NAME).open('ab') as console_log:
         outputs = [sink for sink in sinks if sink is not None] + [console_log]
         try:
@@ -323,6 +340,21 @@ def _start_monitor(
     outputs: Sequence[Any],
     events: EventLog,
 ) -> Tuple[Optional[subprocess.Popen], Optional[threading.Thread]]:
+    """在独立会话启动可选监测进程，保留其句柄与输出线程供外层收尾.
+
+    Args:
+        options: 包含可选 monitor_command 的包装配置。
+        child_env: 监测进程环境。
+        outputs: 共享字节输出接收器。
+        events: 启动结果事件记录器。
+
+    Returns:
+        自有进程和 tee 线程；未配置或进程创建 OSError 时返回两个 None，
+        启动失败记录警告，不改变主命令策略。
+
+    Raises:
+        Exception: 输出、事件记录或线程创建失败。
+    """
     if not options.monitor_command:
         return None, None
     command = list(options.monitor_command)
@@ -350,6 +382,16 @@ def _stop_monitor(
     thread: Optional[threading.Thread],
     events: EventLog,
 ) -> None:
+    """关闭本次持有的监测会话，按是否提前退出记录严重程度.
+
+    Args:
+        process: _start_monitor 创建的进程句柄；None 时无需清理。
+        thread: 对应 tee 线程，或 None；只按既有预算等待。
+        events: 监测结束事件接收器。
+
+    Raises:
+        Exception: 会话关闭、线程等待或事件记录失败。
+    """
     if process is None:
         return
     exited_early = process.poll() is not None
@@ -362,6 +404,15 @@ def _stop_monitor(
 
 
 def _exit_status(return_code: int, received: Sequence[int]) -> Tuple[int, str]:
+    """规范化子进程退出码，并按已收信号优先判定运行结束原因.
+
+    Args:
+        return_code: Popen 退出状态，负数表示被信号终止。
+        received: 包装器记录的信号序列。
+
+    Returns:
+        shell 风格退出码与原因；SIGINT 优先于 TERM/HUP，负退出值转 128+信号号。
+    """
     exit_code = 128 - return_code if return_code < 0 else return_code
     if signal.SIGINT in received:
         return exit_code, 'ctrl_c'
@@ -380,6 +431,19 @@ def _collect_garbage(
     now: datetime.datetime,
     events: EventLog,
 ) -> None:
+    """按保留策略规划并执行旧运行记录清理，始终保护本次 run_id.
+
+    Args:
+        options: 指定记录根目录和保留策略的包装选项。
+        run: 本次运行，不能作为候选被删除。
+        now: 用于计算保留期限的日期时间。
+        events: 实际清理后记录目标清单与释放字节数的事件接收器。
+
+    本函数会调用 apply_gc，并非预览；调用方须先确认清理授权与目标范围。
+
+    Raises:
+        Exception: 计划、清理或记录失败；清理可能已经部分完成。
+    """
     plan = retention.plan_gc(
         run_dir_lib.list_runs(options.runs_root),
         options.retention_policy,

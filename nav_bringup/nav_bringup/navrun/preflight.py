@@ -83,6 +83,18 @@ def _patterns(values: Any, label: str) -> Tuple[str, ...]:
 
 
 def _policy(profile: Mapping[str, Any]) -> _Policy:
+    """从档案解析预检策略，并把定位提供者加入保护匹配规则.
+
+    Args:
+        profile: 已读入的机器人档案，不在此访问进程或更改配置。
+
+    Returns:
+        含清理、外部栈、驱动和保护正则及显式开关的不可变策略；
+        未配置清理开关时沿用 False。
+
+    Raises:
+        ValueError: 配置节、布尔开关、正则或定位可执行文件名不合法。
+    """
     preflight = profile.get('preflight', {})
     chassis = profile.get('chassis', {})
     if not isinstance(chassis, Mapping):
@@ -110,6 +122,15 @@ def _policy(profile: Mapping[str, Any]) -> _Policy:
 
 
 def _command(process: ProcessInfo) -> str:
+    """提取进程启动身份前缀供匹配，避免把普通参数中的名称当作启动目标.
+
+    Args:
+        process: 含不可变 argv 快照的进程记录。
+
+    Returns:
+        支持的 Python/脚本/ros2 包装器身份前缀；不明确的解释器选项或
+        Python -c 返回空串，不执行命令或输出完整参数内容。
+    """
     argv = process.argv
     if not argv:
         return ''
@@ -157,6 +178,18 @@ def is_task_manager(process: ProcessInfo) -> bool:
 
 
 def _table(processes: Sequence[ProcessInfo], own_pid: int) -> Dict[int, ProcessInfo]:
+    """验证进程快照身份字段并构建唯一 PID 索引.
+
+    Args:
+        processes: 同一次只读扫描得到的进程记录。
+        own_pid: 必须存在于快照中的监督者 PID。
+
+    Returns:
+        PID 到原始记录的字典，保留 UID、父 PID 和启动时间供后续身份复核。
+
+    Raises:
+        ValueError: 字段不完整/非法、PID 重复或缺少监督者身份。
+    """
     table = {}
     for process in processes:
         if (type(process.pid) is not int or process.pid <= 0 or type(process.ppid) is not int
@@ -176,6 +209,18 @@ def _table(processes: Sequence[ProcessInfo], own_pid: int) -> Dict[int, ProcessI
 
 
 def _ancestry(pid: int, table: Mapping[int, ProcessInfo]) -> set[int]:
+    """沿父 PID 链收集自身及祖先，缺失快照节点处停止.
+
+    Args:
+        pid: 开始追溯的进程号。
+        table: 当前 PID 到进程身份的快照映射。
+
+    Returns:
+        访问过的正 PID 集合，包含最后一个快照缺失的祖先号。
+
+    Raises:
+        ValueError: 祖先链出现循环，不能据此判断保护边界。
+    """
     result = set()
     while pid > 0:
         if pid in result:
@@ -200,6 +245,19 @@ def _is_launch_wrapper(process: ProcessInfo) -> bool:
 def _protected_tree(seed: int, table: Mapping[int, ProcessInfo], barriers: set[int]) -> set[int]:
     # Ascend only inside the external branch, stopping before shared supervisor
     # ancestors. Protect sibling sensor/RSP processes under that external launch.
+    """保护外部启动分支及相关祖先，不把共享终端的其它分支算作自己持有.
+
+    Args:
+        seed: 定位/驱动等需要保留的外部进程 PID。
+        table: 已验证的进程快照。
+        barriers: 监督者自身及祖先集合，向上扩展前在此停止。
+
+    Returns:
+        外部包装器子树和非屏障祖先的保护 PID 集合，不执行任何信号操作。
+
+    Raises:
+        ValueError: 外部进程祖先链存在循环。
+    """
     root = seed
     visited = set()
     while root in table and root not in visited:
@@ -225,6 +283,21 @@ def _protected_tree(seed: int, table: Mapping[int, ProcessInfo], barriers: set[i
 def _make_plan(
     policy: _Policy, table: Mapping[int, ProcessInfo], own_pid: int, chassis: str,
 ) -> PreflightPlan:
+    """基于快照生成预检计划，保护外部定位分支和不同用户进程.
+
+    Args:
+        policy: 已解析的匹配规则与显式清理开关。
+        table: 含监督者自身的已验证快照。
+        own_pid: 本次监督者 PID。
+        chassis: on、off 或 auto 的底盘启动选择。
+
+    Returns:
+        启动底盘决策、祖先优先排序的候选、保护集合和警告。
+        这是未执行的计划，不发送信号；执行时仍须通过身份复核入口。
+
+    Raises:
+        ValueError: 进程祖先/保护树关系无法安全确定。
+    """
     own = table[own_pid]
     commands = {pid: _command(process) for pid, process in table.items()}
     barriers = _ancestry(own_pid, table)
@@ -288,6 +361,19 @@ def _identity(process: ProcessInfo) -> tuple:
 
 
 def _remaining(plan: PreflightPlan, snapshot: Sequence[ProcessInfo]) -> Tuple[ProcessInfo, ...]:
+    """重扫原计划候选，只允许身份未变且仍符合原边界的残留进程.
+
+    Args:
+        plan: 原始预检计划，不允许扩大其 targets。
+        snapshot: 操作前的新进程身份快照。
+
+    Returns:
+        按原计划顺序仍存活且可处理的记录元组；不执行清理。
+
+    Raises:
+        PreflightError: 出现新候选、PID 被复用或目标变成受保护/不再符合策略。
+        ValueError: 新快照或祖先关系不合法。
+    """
     table = _table(snapshot, plan.own_pid)
     fresh = _make_plan(plan._policy, table, plan.own_pid, 'on' if plan.start_chassis else 'off')
     original = {process.pid: process for process in plan.targets}

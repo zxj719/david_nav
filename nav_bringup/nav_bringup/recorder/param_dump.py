@@ -217,6 +217,22 @@ def _dump_node(
     settings: DumpSettings,
     sleep: Callable[[float], None],
 ) -> bool:
+    """按固定尝试次数采集一个节点参数，只有成功且非空输出才写文件.
+
+    Args:
+        node: ROS 节点完整名称。
+        destination: 已选定的输出文件，成功时覆盖写入。
+        run: 已配置命令超时的 runner，返回退出码和文本。
+        settings: 发现等待、重试次数和间隔（时间单位秒）。
+        sleep: 可注入的秒制等待函数。
+
+    Returns:
+        至少一次成功写入时为 True；所有命令失败或空输出时为 False。
+
+    Raises:
+        OSError: 参数文件写入失败。
+        Exception: runner 或等待函数抛出未转换异常。
+    """
     command = ['ros2', 'param', 'dump', '--no-daemon', '--spin-time',
                f'{settings.spin_time_sec:g}', node]
     for attempt in range(1, settings.attempts + 1):

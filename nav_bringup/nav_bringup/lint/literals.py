@@ -116,6 +116,15 @@ def format_violations(violations: Sequence[LiteralViolation]) -> str:
 
 
 def _docstring_ids(tree: ast.AST) -> Set[int]:
+    """定位真正的定义 docstring 字符串节点，供字面量门禁排除文档.
+
+    Args:
+        tree: 已解析的模块 AST。
+
+    Returns:
+        模块、类及同步/异步函数首条字符串表达式的节点身份集合，
+        不排除普通运行时字符串或后续字符串表达式。
+    """
     ids = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):

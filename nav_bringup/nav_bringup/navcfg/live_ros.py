@@ -111,6 +111,12 @@ class RosProbe:
             self.spec.map_frame, self.spec.odom_frame, Time())
 
     def _age(self) -> Optional[float]:
+        """读取最新地图到导航基准 TF 的秒制年龄，不裁剪未来时间戳.
+
+        Returns:
+            节点当前 ROS 时间减 TF 时间；相同帧为零，变换不可用为 None。
+            新鲜度阈值由上层判定，本函数不发布初始位姿。
+        """
         if self.spec.map_frame == self.spec.nav_frame:
             return 0.0
         try:

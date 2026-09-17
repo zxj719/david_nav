@@ -129,6 +129,19 @@ def _json(data: Any) -> bytes:
 
 
 def _profile_options(options: GraphOptions, profile: Mapping[str, Any]) -> GraphOptions:
+    """把机器人档案绑定到启动选项副本，并用图构建器验证其组合.
+
+    Args:
+        options: 调用方选择的模式与启动开关。
+        profile: 已叠加模式的有效档案；时间配置单位为秒。
+
+    Returns:
+        填好驱动、话题、适配器实现和预算的 GraphOptions；
+        bench_slamgt 保留不自建 map_server 的策略。
+
+    Raises:
+        ValueError: 驱动配置、标识、图选项或 teleop 输入话题一致性不合法。
+    """
     driver = render.profile_value(profile, 'chassis.driver')
     if not isinstance(driver, dict):
         raise ValueError('chassis.driver must be a mapping')
@@ -165,6 +178,24 @@ def _navigation(
     mode: render.ModeOverlay, options: GraphOptions, site: Mapping[str, Any],
     catalog: schema.ParameterCatalog,
 ) -> Tuple[Dict[str, Any], Tuple[validation.ValidationIssue, ...]]:
+    """只读采集导航输入并渲染参数/行为树，验证后登记内存资产.
+
+    Args:
+        inputs: 地图、URDF、基础参数和模板等资源路径。
+        reader: 持有输入快照、指纹与待写资产的读取器。
+        profile: 源机器人档案。
+        mode: 已解析模式叠加。
+        options: 含运行目录的启动选项，供绑定输出路径。
+        site: 场地档案，named_poses 仅采指纹。
+        catalog: 完整参数 schema 目录。
+
+    Returns:
+        渲染 Nav2 参数与 URDF 的映射，以及配置诊断元组；没有写盘或启动 ROS。
+
+    Raises:
+        ValueError: 缺输入/模板、渲染或一致性验证失败。
+        OSError: 只读输入或指纹采集失败。
+    """
     if inputs.site is None or inputs.urdf is None:
         raise ValueError('navigation preparation requires site and urdf')
     effective = render.deep_merge(profile, mode.profile)

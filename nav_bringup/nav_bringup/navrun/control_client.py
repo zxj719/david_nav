@@ -17,6 +17,19 @@ from typing import Any, Dict, Tuple
 
 
 def _snapshot(path: Path) -> Tuple[bool, Dict[str, Any], Tuple[int, int]]:
+    """只读探测租约锁和有界元数据，并复核读取期间 inode 身份未变.
+
+    Args:
+        path: 当前用户的导航租约文件路径，不允许链接或组/其它用户写入。
+
+    Returns:
+        锁是否被占用、字典元数据、设备与 inode 三元组；不存在时为未持有，
+        非法 JSON 返回空字典。短暂共享锁探测结束后释放，不删除租约。
+
+    Raises:
+        ValueError: 文件安全属性、尺寸或身份复核失败。
+        OSError: 租约无法打开、读取或检查。
+    """
     try:
         before = path.lstat()
         if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.geteuid()
@@ -60,6 +73,22 @@ def _peer(sock: socket.socket) -> Tuple[int, int]:
 
 
 def _exchange(path: Path, operation: str, timeout: float) -> Dict[str, Any]:
+    """通过租约绑定的 Unix 对端交换一条协作请求，发送前再次核对实例身份.
+
+    Args:
+        path: 已知导航租约路径。
+        operation: 调用方选择的 status 或 down 操作。
+        timeout: 总通信预算（单调时钟秒）。
+
+    Returns:
+        经实例/PID/状态核对的响应，并附租约 inode；无持有者时返回 inactive，
+        不以不存在的进程推断清理已完成。
+
+    Raises:
+        ValueError: 租约协议、同用户对端、实例身份或响应内容不符。
+        TimeoutError: 连接/通信期限耗尽。
+        OSError: 租约读取或 socket 操作失败；不会改用信号搜杀进程。
+    """
     held, data, identity = _snapshot(path)
     if not held:
         return {'state': 'inactive', 'cleanup_complete': False}
@@ -103,6 +132,21 @@ def _exchange(path: Path, operation: str, timeout: float) -> Dict[str, Any]:
 
 
 def _wait(path: Path, result: Dict[str, Any], timeout: float) -> Dict[str, Any]:
+    """轮询同一租约实例的最终标记，不把释放锁或超时本身当清理成功.
+
+    Args:
+        path: 之前请求所绑定的租约路径。
+        result: 已验证响应，包含实例及私有 inode 身份。
+        timeout: 继续等待的单调时钟预算（秒），轮询间隔最多 0.05 秒。
+
+    Returns:
+        同实例释放且标记 finished 才返回 cleanup_complete=True；换代或无终态
+        返回 unknown，预算耗尽保留原响应。
+
+    Raises:
+        ValueError: 租约安全复核失败。
+        OSError: 租约读取失败。
+    """
     deadline = time.monotonic() + timeout
     while True:
         held, data, identity = _snapshot(path)
