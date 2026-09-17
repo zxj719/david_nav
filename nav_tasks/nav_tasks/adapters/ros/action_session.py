@@ -283,6 +283,19 @@ class ActionSession:
             await asyncio.gather(waiter, return_exceptions=True)
 
     async def _cancel_attempt(self, attempt: _Attempt) -> None:
+        """封闭本次动作反馈，并在调用方预算内等待仍由本会话持有的清理.
+
+        已经收尾的尝试直接返回；未运行或已结束的清理可重新创建。
+        shield 使等待超时或调用方取消不取消后台清理，不据此释放动作所有权。
+
+        Args:
+            attempt: 需要取消的动作尝试，包含清理任务及收尾状态。
+
+        Raises:
+            TimeoutError: 本次等待预算耗尽，后台清理仍可能运行。
+            asyncio.CancelledError: 等待者或清理任务被取消。
+            Exception: 清理失败，所有权保留供后续重试。
+        """
         attempt.cancel_requested = True
         if attempt.settled:
             return
@@ -334,6 +347,14 @@ class ActionSession:
 
     def _queue_feedback(self, attempt: _Attempt, message: object) -> None:
         # ROS may call from its executor thread. No task state is touched there.
+        """把 ROS 线程反馈排入所有者事件循环，不在回调线程修改任务状态.
+
+        循环已关闭时仅记录并忽略反馈；是否仍属于活动尝试由循环内回调判断。
+
+        Args:
+            attempt: 收到反馈的动作尝试。
+            message: ROS 原始反馈对象，不在此转换。
+        """
         try:
             self._loop.call_soon_threadsafe(self._feedback, attempt, message)
         except RuntimeError:
@@ -341,6 +362,17 @@ class ActionSession:
             _LOGGER.debug('Ignoring action feedback after the event loop closed')
 
     def _feedback(self, attempt: _Attempt, message: object) -> None:
+        """仅向仍活动且未取消、未收尾的尝试交付反馈.
+
+        必须在所有者事件循环调用；被替换尝试或迟到反馈不会重新激活任务。
+
+        Args:
+            attempt: 接收反馈时关联的动作尝试。
+            message: 交给尝试回调的 ROS 原始反馈。
+
+        Raises:
+            Exception: 活动尝试的反馈回调失败，由外层执行器处理。
+        """
         if self._active is attempt and not attempt.cancel_requested and not attempt.settled:
             attempt.on_feedback(message)
 

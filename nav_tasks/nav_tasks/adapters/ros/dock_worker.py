@@ -220,6 +220,17 @@ class DockWorker:
             raise RuntimeError('Dock worker used from a different event loop')
 
     def _cleanup_task(self, attempt):
+        """先封闭新运动阶段，再创建或复用本次工作线程的清理任务.
+
+        已收尾时不再发送取消请求；失败或已结束的清理任务可重新创建。
+        返回任务由 supervisor 持有，调用方应通过 shield 等待。
+
+        Args:
+            attempt: 持有运动端口、工作线程和清理状态的尝试。
+
+        Returns:
+            清理任务；已收尾且从未创建清理任务时可为 None。
+        """
         if attempt.settled:
             return attempt.cleanup
         attempt.motion.request_cancel()
@@ -228,6 +239,18 @@ class DockWorker:
         return attempt.cleanup
 
     async def _cleanup(self, attempt):
+        """确认后端取消并等工作任务结束，随后才释放本次 Dock 所有权.
+
+        后端取消失败时不继续释放；工作任务的异常已由 execute 或 supervisor
+        接管，gather 只收集结果。外层取消屏障阻止等待期间进入新的运动阶段。
+
+        Args:
+            attempt: 已设置运动取消屏障、仍由本对象持有的尝试。
+
+        Raises:
+            asyncio.CancelledError: 清理协程被取消，收尾标记尚未写入。
+            Exception: 后端取消失败，保留所有权供后续重试。
+        """
         await self._backend.cancel()
         # The cancellation fence prevents another stage while we join. Exceptions
         # already belong to execute/supervisor; confirmed cleanup can release them.
@@ -237,6 +260,22 @@ class DockWorker:
             self._active = None
 
     async def _wait_thread(self, thread, completion):
+        """等待跨线程结果，并在退出等待时确认工作线程实际结束.
+
+        Future 完成可能早于线程函数返回；finally 轮询存活状态后才做非阻塞 join。
+        本辅助函数自身不屏蔽重复取消，持续等待由外层所有权流程保证。
+
+        Args:
+            thread: 本次尝试拥有的线程，可能因启动失败而从未启动。
+            completion: 线程写入结果或异常的跨线程 Future。
+
+        Returns:
+            工作线程写入 completion 的结果。
+
+        Raises:
+            asyncio.CancelledError: 结果等待或线程退出轮询被取消。
+            Exception: 工作线程报告失败，在 finally 尝试等待线程退出后传播。
+        """
         try:
             return await await_rclpy_future(completion)
         finally:

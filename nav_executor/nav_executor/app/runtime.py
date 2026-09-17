@@ -23,12 +23,34 @@ from nav_executor.protocol.task_adapter import TaskCommandAdapter
 
 
 async def _join(tasks):
+    """取消所持有的后台任务并收集结束结果，不重新抛出其工作异常.
+
+    Args:
+        tasks: 由外层持有、需要一起取消并等待的任务序列。
+
+    Raises:
+        asyncio.CancelledError: 本等待协程被取消；本函数不自行屏蔽外部取消。
+    """
     for task in tasks:
         task.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _retry(operation, label, emit, delay):
+    """重试清理操作，操作失败或被取消时不把清理误报为成功.
+
+    操作本身的 Exception 和 CancelledError 会进入重试；日志的普通异常被忽略。
+    重试间隔内的取消仍可向外传播，持续清理的所有权由外层受屏蔽任务保证。
+
+    Args:
+        operation: 每次调用返回可等待清理操作的无参函数。
+        label: 失败日志中的资源名称。
+        emit: 同步诊断日志函数。
+        delay: 重试之间的等待秒数；此处不设置总清理期限。
+
+    Raises:
+        asyncio.CancelledError: 在重试等待或日志回调等未捕获位置被取消。
+    """
     while True:
         try:
             await operation()

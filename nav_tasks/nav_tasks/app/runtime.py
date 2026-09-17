@@ -190,6 +190,15 @@ class TaskRuntime:
         await asyncio.shield(self._settle_task)
 
     async def _settle(self) -> None:
+        """按观察器、任务内核、Dock 工作线程、后端顺序确认运动收尾.
+
+        不销毁 ROS 客户端或订阅；外层必须保持回调处理，直到后端确认结束。
+        某一步失败则停止后续步骤，外层保留本运行时并可重试。
+
+        Raises:
+            asyncio.CancelledError: 收尾任务被取消，不能据此释放资源。
+            Exception: 某个运动所有者或后端未能确认清理。
+        """
         await self.stop_loop_closure()
         await self.tasks.close()
         if self._dock_worker is not None:
@@ -197,6 +206,15 @@ class TaskRuntime:
         await self._backend.settle()
 
     async def _close(self) -> None:
+        """先确认运动收尾，再依序释放后端、观察器和输入资源.
+
+        仅全部关闭成功后写入 closed；外层负责持有并重试失败的关闭任务，
+        并在适当阶段静默 ROS 回调，不能因调用方等待超时提前销毁宿主。
+
+        Raises:
+            asyncio.CancelledError: 等待收尾或后端关闭时被取消。
+            Exception: 任一资源关闭失败，closed 标记仍未设置。
+        """
         await self.settle()
         await self._backend.close()
         if self._dock_observations is not None:

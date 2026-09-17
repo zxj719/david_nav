@@ -11,6 +11,19 @@ from nav_sim.selftest_scene import Scene
 
 
 def _pairs(items):
+    """按 JSON 键值对构造对象，拒绝重复键而不静默覆盖证据字段.
+
+    供 json.loads 的 object_pairs_hook 使用，每层 JSON 对象分别检查。
+
+    Args:
+        items: 解码器按输入顺序提供的字符串键与已解码值序列。
+
+    Returns:
+        保持输入键顺序且无重复键的字典。
+
+    Raises:
+        ValueError: 同一对象中出现重复键。
+    """
     result = {}
     for key, value in items:
         if key in result:
@@ -20,6 +33,18 @@ def _pairs(items):
 
 
 def _tree(value, depth=0):
+    """检查已解码 JSON 树的深度与浮点有限性，不修改输入.
+
+    根节点深度为零；字典值和列表元素各增加一级，节点深度不得超过 32。
+    只处理解码后的 JSON 结构，不作为任意 Python 对象的通用类型校验器。
+
+    Args:
+        value: 已由 JSON 解码器生成的当前节点。
+        depth: 当前节点相对根的深度，外部调用通常使用默认零。
+
+    Raises:
+        ValueError: 节点深度超过 32，或任一浮点值为 NaN 或无穷大。
+    """
     if depth > 32 or isinstance(value, float) and not math.isfinite(value):
         raise ValueError('invalid JSON depth or number')
     if isinstance(value, dict):

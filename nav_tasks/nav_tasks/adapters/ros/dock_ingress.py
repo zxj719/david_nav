@@ -415,6 +415,17 @@ class DockIngress:
                 entry.inbox.put_nowait(None)
 
     async def _cancel_owned(self, entry):
+        """按任务身份与代次重试取消，只等待自身入口对应的任务.
+
+        收尾凭据已到则无需取消；取消调用正常返回即结束本辅助函数。
+        真正的入口完成仍由外层检查 entry.settled，不把取消返回值当作完成凭据。
+
+        Args:
+            entry: 已有提交快照的入口记录，持有任务 ID、代次及收尾 Future。
+
+        Raises:
+            asyncio.CancelledError: 本协程被取消，普通异常重试不吞掉取消。
+        """
         while not entry.settled.done():
             try:
                 await self._tasks.cancel(entry.task_id, generation=entry.snapshot.generation)
@@ -424,6 +435,15 @@ class DockIngress:
                 await asyncio.sleep(self._retry)
 
     async def _close(self):
+        """等待所有入口任务退出后标记关闭，不销毁 ROS 入口对象.
+
+        外层已封闭入口；每轮固定当前任务快照，shield 保留仍在运行的入口任务。
+        任一等待失败时不设置 closed，允许外层保留资源并重试。
+
+        Raises:
+            asyncio.CancelledError: 等待者或入口任务被取消。
+            Exception: 某个入口任务失败，其余受屏蔽任务仍归入口持有。
+        """
         while self._entries:
             await asyncio.gather(*(asyncio.shield(entry.task)
                                    for entry in tuple(self._entries.values())))

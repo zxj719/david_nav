@@ -393,6 +393,21 @@ class TaskManager:
         return active
 
     async def _cancel(self, task_id: str | None, generation: int | None) -> bool:
+        """在转换锁内匹配任务身份与代次，确认清理后发送兼容暂停通知.
+
+        过期请求不取消新一代任务；已报告崩溃的任务不再补发 paused 进度事件。
+
+        Args:
+            task_id: 只取消此 ID；None 表示不按 ID 限定。
+            generation: 只取消此代次；None 表示不按代次限定。
+
+        Returns:
+            是否匹配并成功清理一个活动任务，而非目标导航成功标志。
+
+        Raises:
+            asyncio.CancelledError: 等待转换锁或清理时被取消。
+            Exception: 后端或工作任务清理失败，运动所有权仍保留。
+        """
         async with self._transition_lock:
             active = self._active
             if (active is None or (task_id is not None and task_id != active.request.task_id)
@@ -404,6 +419,14 @@ class TaskManager:
             return True
 
     async def _close(self) -> None:
+        """在转换锁内清理活动任务，完成后才关闭内核并清空订阅者.
+
+        准入由外层 close 先封闭；清理失败不写 CLOSED，也不清空订阅者集合。
+
+        Raises:
+            asyncio.CancelledError: 等待转换锁或清理时被取消。
+            Exception: 活动任务未能确认清理，保留现有资源。
+        """
         async with self._transition_lock:
             if self._active is not None:
                 await self._cancel_active()
@@ -411,6 +434,17 @@ class TaskManager:
             self._subscribers.clear()
 
     async def _recover_crash(self, active: _Active) -> None:
+        """持锁重查崩溃任务身份，仅清理仍占有当前槽位的那一代任务.
+
+        排队期间取消、抢占或关闭可能已释放旧所有者，不能误取消后继任务。
+
+        Args:
+            active: 报告崩溃时关联的任务记录，用对象身份比对当前所有者。
+
+        Raises:
+            asyncio.CancelledError: 等待转换锁或清理时被取消。
+            Exception: 当前崩溃任务清理失败，所有权仍保留。
+        """
         async with self._transition_lock:
             # A queued cancel/preempt/close may already have released this owner.
             if self._active is active:
