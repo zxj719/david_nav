@@ -173,19 +173,23 @@ class TaskRuntime:
         await asyncio.shield(self._close_task)
 
     async def settle(self) -> None:
-        """Seal task admission and settle motion without destroying ROS resources.
+        """封闭任务接纳并等待运动收尾，不销毁 ROS 资源.
 
-        Stop ingress first and keep ROS callbacks alive until success. A
-        multithreaded host can then quiesce its callbacks before close releases
-        clients/subscriptions. Repeated calls and canceled waiters retain cleanup.
+        先停止入口，保留 ROS 回调直到本调用成功；多线程宿主随后可等待回调静默，
+        再由 close 释放客户端和订阅。活跃收尾供重复调用共享，外层等待者取消
+        不会取消它；已终止且失败或取消的收尾可重试，成功收尾不重复执行。
+        失败重试仍从头按顺序调用各所有者，不能跳过尚未成功的清理步骤。
 
         Raises:
-            Exception: Motion cleanup failed; keep ROS alive and retry.
+            RuntimeError: 调用不在原所有者事件循环。
+            asyncio.CancelledError: 等待者或内部收尾被取消，不表示资源已释放。
+            Exception: 运动清理失败，须保留 ROS 和运行时后重试。
         """
         self._check_loop()
         self._closing = True
-        if self._settle_task is None or (self._settle_task.done()
-                                         and self._settle_task.exception() is not None):
+        if self._settle_task is None or (
+                self._settle_task.done() and (
+                    self._settle_task.cancelled() or self._settle_task.exception() is not None)):
             self._settle_task = self._supervisor.spawn(self._settle(), 'settle-task-runtime')
         await asyncio.shield(self._settle_task)
 

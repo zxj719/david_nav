@@ -47,6 +47,17 @@ are forwarding shims in the refactor workspace; production remains unchanged.
   stages are idempotent. Do not release a surrounding run lock or destroy the
   node merely because a cancellation deadline expired.
 
+The retry check distinguishes a canceled owned settle task from a canceled API
+waiter. A live owned task remains shielded and shared; a successfully completed
+settle is not repeated. If the owned task itself terminates with cancellation,
+the next call creates a new attempt before reading its exception (which would
+otherwise raise CancelledError forever). The new attempt still runs every required
+stage in order; persistent failures never authorize client/subscription destruction.
+Eight pure in-memory cases in `test/test_runtime_settle_retry.py` cover ordinary
+failure/cancellation at the task, Dock-worker and backend stages, live waiter
+cancellation, successful reuse and persistent cancellation. They do not prove
+real ROS resource release or physical stopping.
+
 Construction rolls back completed resources in reverse order, attempting all of
 them. If a cleanup fails, `RuntimeAssemblyError` retains its retryable async
 `cleanup` callable and chains the construction cause. The caller must retain that
