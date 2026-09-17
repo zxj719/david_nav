@@ -168,6 +168,10 @@ def dump_graph(
     Writes one ``<node file name>.yaml`` per dumped node, ``nodes.txt`` with
     the listed names, and ``dump_report.yaml`` with the report.
 
+    不同的非跳过节点映射为相同文件名，或命中报告保留文件名时，
+    将所有冲突节点列入 failed，不请求其参数或写入该节点文件。
+    既有冲突文件保留，不重命名；无冲突节点仍按原规则采集。
+
     Args:
         output_dir: Destination directory; created if missing.
         runner: Runs ``ros2`` commands; defaults to :func:`default_runner`.
@@ -191,10 +195,18 @@ def dump_graph(
         dumped: List[str] = []
         skipped: List[str] = []
         failed: List[str] = []
+        destinations = {
+            name: node_file_name(name) for name in names
+            if not should_skip(name, settings.skip_patterns)
+        }
+        destination_counts = Counter(destinations.values())
         for name in names:
-            if should_skip(name, settings.skip_patterns):
+            if name not in destinations:
                 skipped.append(name)
-            elif _dump_node(name, output / node_file_name(name), run, settings, sleep):
+            elif (destination_counts[destinations[name]] > 1
+                  or destinations[name] in (NODES_FILE_NAME, REPORT_FILE_NAME)):
+                failed.append(name)
+            elif _dump_node(name, output / destinations[name], run, settings, sleep):
                 dumped.append(name)
             else:
                 failed.append(name)
