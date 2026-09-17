@@ -57,10 +57,8 @@ def _text(value, field, allow_empty=False):
 def _decode(payload):
     action = _text(payload.get("action", ""), 'action', allow_empty=True)
     if action == "navigate_to":
-        # nav 协议 v1(2026-07-22 回退定稿):只认 target_id(POI id 字符串)。
-        # v2 的 target_pose/label 字段按协议要求直接忽略——即使还带着,也
-        # 不再走坐标直达路径。target_id 缺失/类型错 → CommandParseError,
-        # core 回 on_error,不启车。
+        # v1 仅按 target_id 查 POI；残留的 target_pose/label 不参与导航。
+        # 兼容性依据见 nav_executor/docs/adr-0012-v1-poi-targets.md。
         request_id, sub_id = _extract_request_context(payload)
         if request_id is None:
             raise MalformedCommandError("navigate_to 缺少 request_id", None, sub_id)

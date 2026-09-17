@@ -15,7 +15,8 @@ No action, observer or background task starts merely by constructing the runtime
 session explicitly. Numeric defaults retain the previous executor policies.
 The optional named-poses source is read-only; the local POI store is writable.
 The supplied `now` clock must use the pose timestamp time base. Profile/CLI
-binding and parameter-schema ownership are not switched in this step.
+binding belongs to nav_executor/navrun, not this factory. The refactor entry points
+now supply those values; this does not switch production aliases or localization.
 
 The handle exposes `tasks: TaskApi`, `pois: PoiApi`, `poses: PoseSource` and
 observer/shutdown methods. Ingress adapters must only import this public API.
@@ -23,7 +24,8 @@ Nonempty `dock_poi_ids` without `RuntimeConfig.dock` is rejected before file or
 ROS I/O: Dock must never fall back to ordinary snapping. Explicit DockRuntimeConfig
 adds a retained map observer, worker and Spin on the same Nav2Client. The existing
 nav_executor CLI/outer host now binds this policy from an explicit Dock parameter
-file; its multithreaded host shares ROS/WS ingress. Legacy entries are not switched.
+file; its multithreaded host shares ROS/WS ingress. Retained legacy executable paths
+are forwarding shims in the refactor workspace; production remains unchanged.
 
 ## Connection and shutdown ownership
 
@@ -68,8 +70,10 @@ close waiters, late terminal results, shutdown timeouts, construction rollback,
 and repeated cleanup failures without double destruction.
 
 The POI/Dock CLI/WS outer lifecycle is implemented in nav_executor, including
-ROS pose/action ingress and same-process optional WS. Legacy executable/launch
-switching, real-host no-goal checks and physical acceptance remain separate work.
+ROS pose/action ingress and same-process optional WS. Refactor executable/launch
+dispatch and actual no-goal startup/cleanup checks have been exercised separately.
+Complete POI/Dock task execution and physical acceptance are not proved by those
+checks. See [the current Dock decision](adr-0006-dock-thread.md).
 
 ## Explicit Dock assembly
 
@@ -79,12 +83,13 @@ topic, Spin endpoint, immutable footprint polygon, approach distance, xy/yaw
 tolerances, correction count, navigation/Spin/settle deadlines and settle rate/window.
 The inclusive occupancy threshold defaults to the old 50 and bounded pose lookup
 to the old 2 seconds. The workflow retains its 0.05 s sampling period. These are
-explicit library values, not new consumed ROS/profile parameters; later outer
-binding must use robot/mode data (David 25 degrees/zero corrections, not helper defaults).
+explicit library values, not new consumed ROS/profile parameters; the outer binding
+uses robot/mode data. David precise mode uses 25 degrees/zero corrections; standalone
+Dock retains 5 degrees/two corrections. Do not replace either with helper defaults.
 
 Invalid configuration is rejected before repository reads or ROS resources.
 Dock None leaves ordinary resource counts/policies unchanged. A Dock configuration
-with no Dock POI IDs still registers the direct `dock` task action for future rviz
+with no Dock POI IDs still registers the direct `dock` task action for ROS pose
 and action ingress. It takes `{'pose': PoseRecord(...)}` and validates planar values
 before preemption. The old configured-global-frame interpretation of incoming
 coordinates is retained; ingress must not silently transform or reinterpret them.
@@ -105,7 +110,7 @@ alive until worker cleanup succeeds.
 
 Scalar task progress includes the approach-distance offset and old throttling.
 An optional `on_dock_feedback(DockGoal, raw_wrapper, extra_distance)` callback gets
-the complete unmodified feedback on the task loop for future ROS ingress; task ID,
+the complete unmodified feedback on the task loop for the ROS ingress; task ID,
 sub-ID and generation identify the owner. The ROS adapter must preserve all message
 fields when applying the distance offset and only forward to its matching active
 goal. This API does not create an extra Dock action client or server.

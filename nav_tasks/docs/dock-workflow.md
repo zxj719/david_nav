@@ -3,15 +3,17 @@
 `skills.docking.workflow.DockWorkflow` extracts the synchronous two-stage sequence
 from the existing node. It starts no ROS resources, worker or motion owner. A
 managed DockWorker executes it off the asyncio/ROS callback thread and
-bridges DockMotionPort to the same Nav2Client used by ordinary navigation. The old
-node/entry remain unchanged. The public runtime now supports explicit DockRuntimeConfig;
-the nav_executor outer CLI/host still refuses Dock until ingress wiring is finished.
-The current components are not a complete Dock deployment.
+bridges DockMotionPort to the same Nav2Client used by ordinary navigation. The public
+runtime supports explicit DockRuntimeConfig; nav_executor supplies ROS pose/action
+ingress, an optional WS connection and the multithreaded callback host. Retained
+executables now forward to this assembly in the refactor workspace. This is not
+a production deployment or evidence of complete physical Dock acceptance.
 
 DockConfig requires all policy explicitly: approach distance, DockTolerance,
 SettleSpec, navigation/spin/settle timeouts. David uses its existing robot/mode
-settings (0.5 m approach, 0.10 m/25 degrees acceptance, zero yaw retries); the
-helper's historical 0.087 rad/two-retry defaults must not silently replace them.
+precise-mode settings (0.5 m approach, 0.10 m/25 degrees acceptance, zero yaw retries).
+Standalone Dock separately retains 5 degrees/two retries; the helper's historical
+0.087 rad/two-retry defaults must not silently replace explicit mode values.
 The unchanged SettleSpec uses 0.05 rad/s over a continuous 0.4 s window, sampled
 at 0.05 s. These software observations are not proof of physical stopping.
 
@@ -40,11 +42,11 @@ result while silently abandoning unresolved motion.
 
 The workflow reproduces old awkward outcomes too: an unsuccessful Spin followed
 by an acceptable measured pose can succeed, even if the port marks that Spin
-canceled. The eventual task owner must fence results during explicit cancellation
-and must join the worker; this component alone does not enforce that cancellation
+canceled. The task owner fences results during explicit cancellation
+and joins the worker; this component alone does not enforce that cancellation
 boundary. No new cancellation policy, retry budget, timeout meaning or frozen
 `[dock]` line is hidden in this extraction. Worker crash, ingress rejection and
-per-action admission/result lines still belong to later runtime adapters.
+per-action admission/result lines belong to the assembled runtime adapters.
 
 Tests extract only the three unchanged legacy workflow/logging methods from AST,
 without importing its ROS node. Seventeen branches at three headings compare
@@ -53,8 +55,8 @@ The actual dock_bench parser must derive identical timelines/verdicts. Additiona
 tests enforce pre-action full-footprint rejection and legacy export identity.
 The managed worker and per-action bridge are now covered by additional tests;
 the public factory now assembles Dock and ordinary POI routing under one manager.
-Optional WS/ROS ingress and complete runtime acceptance remain mandatory before
-the legacy node can be replaced.
+Optional WS/ROS ingress and retained-shim dispatch have separate regression tests;
+their implementation does not replace complete task/physical acceptance.
 
 ## Managed thread and action bridge
 
@@ -70,7 +72,7 @@ as ordinary navigation. They add no POI lookup, snapping or retry. All ROS futur
 are awaited by that one loop; the worker only blocks on its own cross-thread
 answer future, never spins a ROS executor. Raw navigation feedback and the stage's
 approach-distance offset reach a loop-only callback without dropping other fields.
-The eventual ROS ingress must copy/forward those fields exactly as the old node.
+The assembled ROS ingress copies/forwards those fields as the old node did.
 
 Stage readiness/send budgets remain 5/10 seconds, with the workflow's independent
 navigation or Spin-result budget. Deadline audit runs before owned cleanup; frozen
@@ -92,5 +94,6 @@ finish policy can still accept a correct final pose. Explicit task cancellation
 is different: worker pose/sleep/admission guards and the final owner fence prevent
 a successful task result even if the old finish algorithm could have accepted it.
 TaskManager tests cover preemption to ordinary navigation only after real worker
-exit, with no stale arrival. This is fake-action integration, not physical stopping
-or a completed ROS Dock ingress deployment. See ADR-0006 for the thread decision.
+exit, with no stale arrival. This is fake-I/O integration, not physical stopping
+or production deployment. See [ADR-0006](adr-0006-dock-thread.md) for the current
+thread decision, original incident text and implementation links.

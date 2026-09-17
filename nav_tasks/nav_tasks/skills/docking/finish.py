@@ -1,30 +1,7 @@
 """Measure, judge and optionally correct yaw after phase two, without ROS dependencies.
 
-## 这段逻辑为什么要单独拎出来
-
-2026-09-10 dock_bench 首次冒烟（5 轮，3 轮 YAW_NOT_CONVERGED）实测：原来的实现把
-这段逻辑内联在 `dock_navigator.execute_docking` 里，一行 ROS 都绕不开，导致
-**唯一的验证手段是开着车跑**。而它的 bug 恰恰是时序性的（在运动中测量），
-跑一次要 40s、还看天吃饭。抽出来 + 注入 pose/spin 之后，用一个带惯性的假底盘
-就能在毫秒级把这类时序 bug 钉死。
-
-## 修的是什么
-
-原实现在阶段2 的 NavigateToPose 一报 SUCCEEDED 就立刻取 TF 测 eyaw，而此时车仍以
-**0.55 rad/s** 在转（末端 RotateToGoal 满速收朝向的尾巴）：
-
-    25.66 阶段2 SUCCEEDED, 入位实测 eyaw=6.8°   ← 运动中的瞬时值，不是终点
-    25.67 Spin(-6.8°)
-    25.77 Spin#1: SUCCEEDED                     ← 100ms 就"成功"
-    25.77 旋转后 eyaw=13.9°                      ← 惯性又转过去 7°
-    25.88 Spin#2: ABORTED → 失败 eyaw=19.6°
-
-220ms 内两次补偿把误差从 6.8° 推到 19.6°。**nav2 的 `Spin` 用 `abs(relative_yaw)`
-判完成**，对一台还在反向转的车，累计转角绝对值瞬间超过目标量 → 立刻 SUCCEEDED。
-所以"车没停稳时 Spin 在原理上就不可能起作用，重试只会更糟"。
-
-修法：**每次测量之前、每次 Spin 之后，都先等车真正停稳**（见 dock_settle）。
-没停稳就不下发 Spin —— 宁可如实报 `not_settled`，也不做一次注定使误差变大的补偿。
+先等待连续停稳；超时可报告最后位姿，但不能据此继续 Spin 补偿。
+背景与线程所有权见 nav_tasks/docs/adr-0006-dock-thread.md。
 """
 
 from __future__ import annotations
