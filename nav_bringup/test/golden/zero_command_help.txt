@@ -1,0 +1,12 @@
+usage: zero_command.py [-h] --topic TOPIC [--discovery-sec DISCOVERY_SEC]
+
+Bounded zero-only shutdown helper invoked by the owning startup supervisor.
+There is deliberately no velocity argument. Publishing a zero Twist is an
+attempt to stop, not evidence that a physical robot stopped. The supervisor
+must own navigation before invoking this helper; rejected startup must not
+publish into somebody else's graph. Imports do not initialize ROS.
+
+options:
+  -h, --help            show this help message and exit
+  --topic TOPIC
+  --discovery-sec DISCOVERY_SEC
