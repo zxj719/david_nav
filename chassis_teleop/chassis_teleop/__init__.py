@@ -1,1 +1,1 @@
-"""Bounded keyboard command state and explicitly owned terminal input."""
+"""有界键盘命令状态和显式持有的终端输入接口."""

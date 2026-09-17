@@ -1,4 +1,7 @@
-"""Guarded keyboard runtime with standalone and explicit delegated ownership."""
+"""带启动保护的键盘运行层，区分独立锁与显式委托的资源所有权.
+
+保护检查不是实体安全确认；本模块不启动或停止定位栈，不拥有真实底盘驱动。
+"""
 
 import argparse
 from dataclasses import asdict
@@ -26,21 +29,27 @@ from nav_bringup.navrun.keyboard_channel import KeyboardChannel, KeyboardOwnerLo
 
 
 class KeyboardNode(Node):
-    """Declare parameters first; create no command publisher before explicit arming.
+    """先声明并校验参数，在显式 arm 前不创建命令发布者.
 
     Attributes:
         cmd_publisher: 仅在显式 arm 后创建的 Twist 发布者；此前为 None。
         config: 启动参数解析出的遥控配置。
-        discovery_sec: 发布者发现等待窗口（秒）。
+        discovery_sec: 发布者发现窗口，单位秒。
         guard_topics: 启动前检查发布者冲突的已解析命令话题。
         state: 纯按键意图及失活超时状态。
     """
 
     def __init__(self, **kwargs: Any) -> None:
-        """Load startup parameters without publishing or reading a terminal.
+        """加载启动参数，不发布速度也不读取终端.
+
+        输出话题会加入冲突检查列表并去重；这里只构造状态，尚未做图发现。
 
         Args:
-            **kwargs: Standard ROS node keyword arguments.
+            **kwargs: 传给 ROS Node 的标准关键字参数。
+
+        Raises:
+            ValueError: 键盘参数、冲突话题列表或发现时长不合法。
+            Exception: ROS 节点、参数或话题名解析失败；不承诺部分构造回滚。
         """
         super().__init__('chassis_teleop', **kwargs)
         defaults = asdict(TeleopConfig())
@@ -64,23 +73,27 @@ class KeyboardNode(Node):
         self.cmd_publisher = None
 
     def arm(self) -> None:
-        """Create output only after the caller's lock, TTY and graph checks pass.
+        """创建命令输出，要求调用方事先完成锁、终端与图发现检查.
+
+        本方法不重复验证这些外部前置条件，也不发布第一条命令。
 
         Raises:
-            RuntimeError: The output has already been armed.
+            RuntimeError: 已经创建过命令发布者。
+            Exception: ROS 发布者创建失败。
         """
         if self.cmd_publisher is not None:
             raise RuntimeError('keyboard output already armed')
         self.cmd_publisher = self.create_publisher(Twist, self.config.cmd_vel_topic, 10)
 
     def handle_key(self, key: str) -> str:
-        """Handle one complete event and immediately publish zero for a stop key.
+        """处理一个完整按键事件，停车键立即触发一次零速尝试.
 
         Args:
-            key: Complete terminal key or escape sequence.
+            key: 完整终端字符或转义序列；运动时间取当前单调时钟。
 
         Returns:
-            motion, stop, quit or ignored, for the foreground loop.
+            motion、stop、quit 或 ignored，供前台循环处理；
+            quit 本身不在此发布退出零速。
         """
         event = self.state.handle_key(key, time.monotonic())
         if event == 'stop':
@@ -88,10 +101,13 @@ class KeyboardNode(Node):
         return event
 
     def publish_current_command(self) -> None:
-        """Publish a deadman-protected command after arming, never before it.
+        """在已启用输出后发布带按键失活保护的当前命令.
+
+        只设置 Twist 的前向与偏航分量，其它分量为零；发送成功不代表硬件执行。
 
         Raises:
-            RuntimeError: The guard has not armed output.
+            RuntimeError: 尚未创建命令发布者。
+            Exception: 取样或 ROS 发布失败。
         """
         if self.cmd_publisher is None:
             raise RuntimeError('keyboard output is not armed')
@@ -100,7 +116,10 @@ class KeyboardNode(Node):
         self.cmd_publisher.publish(message)
 
     def publish_zero(self) -> None:
-        """Attempt a stop only when this runtime has already armed its own publisher."""
+        """仅在已持有发布者时尝试一次零速，未启用的输出保持无发布者.
+
+        发布 Exception 转为警告，不等待硬件停车确认；日志设施自身错误不在此捕获。
+        """
         if self.cmd_publisher is not None:
             try:
                 self.cmd_publisher.publish(Twist())
@@ -108,7 +127,10 @@ class KeyboardNode(Node):
                 self.get_logger().warning(f'Unable to publish keyboard stop: {error}')
 
     def publish_stop_burst(self) -> None:
-        """Preserve the five-zero shutdown burst without touching a rejected command graph."""
+        """已启用输出时沿用五次零速退出尝试，不触碰未启用的命令图.
+
+        每次尝试后均阻塞 0.02 秒，包括最后一次；不据此认定实体已经停稳。
+        """
         if self.cmd_publisher is not None:
             for _ in range(5):
                 self.publish_zero()
@@ -119,16 +141,24 @@ def run_keyboard(
     node: KeyboardNode, keyboard: TerminalKeyboard, stopped: threading.Event,
     channel: Optional[KeyboardChannel] = None,
 ) -> None:
-    """Guard and operate one keyboard while the caller holds its navigation lease.
+    """在调用方持有导航租约时执行启动保护和键盘前台循环.
+
+    先检查发布者冲突，委托模式再通知 ready 并最多等待 30 秒的启用许可。
+    轮询前后检查监督者所有权；函数自身不负责最终零速、关终端或销毁节点，
+    这些由外层生命周期处理。
 
     Args:
-        node: Unarmed keyboard node owned by the caller.
-        keyboard: Open terminal owned by the caller.
-        stopped: INT/TERM flag; no signal handler publishes or destroys ROS objects.
-        channel: Optional inherited supervisor socket, validated along with its lease.
+        node: 调用方持有且尚未 arm 的键盘节点。
+        keyboard: 调用方已打开的终端读取器。
+        stopped: INT/TERM 停止标记，信号处理器本身不发布或销毁 ROS 对象。
+        channel: 可选的监督者通道，与其继承租约共同校验。
 
     Raises:
-        KeyboardOwnerLost: Delegated activation fails or the supervisor disconnects.
+        KeyboardOwnerLost: 委托启用失败、等待超时或监督者所有权丢失。
+        CommandConflict: 启动发布者检查失败。
+        TerminalUnavailable: 终端读取失败或断开。
+        KeyboardInterrupt: 启动等待期间收到停止请求或 ROS 已关闭。
+        Exception: ROS、时钟或其它调用失败，交给外层清理。
     """
     def spin(duration: float) -> None:
         if stopped.is_set() or not rclpy.ok():
@@ -166,14 +196,20 @@ def run_keyboard(
 
 
 def main(args: Optional[Sequence[str]] = None) -> int:
-    """Run a standalone keyboard with exclusive lock and startup publisher checks.
+    """持有独占导航锁运行独立键盘入口，并检查启动发布者冲突.
+
+    正常启动在 arm 前完成锁、终端和图发现检查；运行中的同类异常也会映射为
+    返回码 2，因此仅凭返回 2 不能推断整个进程从未创建过发布者。
 
     Args:
-        args: Optional ROS arguments; None uses the command line.
+        args: 可选 ROS 参数；None 使用进程命令行。
 
     Returns:
-        Zero after normal quit/signals, two for lock, TTY, graph or configuration
-        rejection. A rejected startup never creates a command publisher.
+        正常退出、信号或已处理的 ROS 关闭返回零；
+        锁、终端、图发现、配置或操作系统错误打印后返回 2。
+
+    Raises:
+        Exception: 不属于上述已处理类别的运行或清理错误。
     """
     try:
         with RunLock():
@@ -184,19 +220,23 @@ def main(args: Optional[Sequence[str]] = None) -> int:
 
 
 def managed_main(args: Optional[Sequence[str]] = None) -> int:
-    """Run only with inherited lease, owner socket and terminal capabilities.
+    """使用继承的锁租约、监督者通道与终端描述符运行委托键盘.
 
-    This internal entry is not an environment-based lock bypass. The selected
-    descriptor must carry the existing exclusive flock for DEFAULT_LOCK_PATH;
-    merely opening that path fails validation. All three passed descriptors
-    belong to this entry and are closed on return. The supervisor must retain
-    its own lease and restore the terminal after draining the keyboard process.
+    这不是基于环境变量绕过锁：锁描述符必须携带 DEFAULT_LOCK_PATH 的既有
+    独占 flock，仅打开路径不足以通过检查。参数解析及三个不同非标准描述符的
+    初检在接管前完成；通过初检进入 try 后，finally 尝试关闭三个传入描述符。
+    监督者仍应保留自己的租约，并在键盘进程结束后恢复终端。
 
     Args:
-        args: Explicit internal capability arguments followed by ROS arguments.
+        args: 显式内部描述符参数及后续 ROS 参数；None 使用命令行。
 
     Returns:
-        Zero for a normal quit or signal; two for rejected delegation or owner loss.
+        正常退出或信号返回零；捕获的委托、终端、图发现、配置、系统错误或
+        所有权丢失打印后返回 2。
+
+    Raises:
+        SystemExit: 参数解析处理帮助或拒绝非法的描述符参数。
+        Exception: 未被此入口捕获的运行或清理错误。
     """
     parser = argparse.ArgumentParser(description='Supervisor-owned keyboard entry')
     for name in ('lock', 'control', 'tty'):
@@ -227,19 +267,23 @@ def _run(
     args: Optional[Sequence[str]], channel: Optional[KeyboardChannel] = None,
     tty_fd: Optional[int] = None,
 ) -> int:
-    """持有键盘节点的 ROS 与信号生命周期，在正常退出和故障时清理自有资源.
+    """持有键盘节点的 ROS 与信号生命周期，清理成功创建的自有资源.
+
+    ROS 初始化位于 try/finally 之外，失败直接传播。初始化成功后才安装临时
+    信号处理器并构造节点；终端上下文成功进入后，键盘循环终止会先尝试零速。
+    节点变量尚未赋值时不做节点级销毁，最终仍尝试关闭 ROS 并恢复已记录的处理器。
 
     Args:
         args: 传给 rclpy 的 ROS 参数；None 使用进程参数。
-        channel: 可选的监督者控制通道，调用方持有并负责最终关闭。
-        tty_fd: 可选的已授权终端描述符；键盘对象只复制并关闭自己的副本。
+        channel: 可选监督者通道，调用方持有并负责最终关闭。
+        tty_fd: 可选已授权终端描述符；键盘对象只复制并关闭自己的副本。
 
     Returns:
         正常结束、键盘中断或 ROS 外部关闭时返回零。
 
     Raises:
-        Exception: 初始化、键盘运行、停止突发或清理失败；终端上下文退出、
-            节点销毁、ROS 关闭及信号处理器恢复按 finally 嵌套顺序尝试。
+        Exception: 未处理的初始化、键盘运行、零速尝试或清理错误；
+            清理错误也会传播，不承诺实体停车。
     """
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     previous = {}
