@@ -1,6 +1,6 @@
-"""Run directory layout for navigation runs.
+"""定义导航运行记录的目录布局与标识，不启动导航进程.
 
-Every navigation run gets a self-describing directory under a runs root::
+每次运行在显式根目录下建立独立目录（PLAN §13.2）::
 
     <root>/
     ├── latest -> <run_id>
@@ -14,8 +14,9 @@ Every navigation run gets a self-describing directory under a runs root::
         ├── metrics/
         └── bag/
 
-A run id is ``<YYYYmmdd_HHMMSS>_<mode>_<short git sha>`` (refactor plan §13.2),
-so lexical order is chronological order.
+标识为 <YYYYmmdd_HHMMSS>_<mode>_<short git sha>，按本地日历时间命名，
+不编码时区或微秒；名称排序不能证明跨时区/时钟回拨时的真实先后。
+这些是受信任根目录上的创建助手，不替代只读入口的描述符安全检查。
 """
 
 from __future__ import annotations
@@ -43,21 +44,21 @@ _SUBDIRECTORIES = (
 
 
 def default_runs_root() -> Path:
-    """Return the default runs root.
+    """解析默认记录根路径，不创建目录或验证用途.
 
     Returns:
-        ``$NAV_RUNS_ROOT`` when set, otherwise ``~/nav_runs``.
+        设置 NAV_RUNS_ROOT 时取其值，否则取 ~/nav_runs；展开用户目录符号。
     """
     return Path(os.environ.get('NAV_RUNS_ROOT', '~/nav_runs')).expanduser()
 
 
 @dataclass(frozen=True)
 class RunDirectory:
-    """Paths inside one run directory.
+    """表示一条运行记录的路径集合，不在构造时创建或校验目录.
 
     Attributes:
-        root: Directory that contains all runs.
-        run_id: Name of this run's directory.
+        root: 存放运行记录的根目录，由调用方选择并信任。
+        run_id: 此次记录目录名；直接构造不会自行验证名称。
     """
 
     root: Path
@@ -65,65 +66,65 @@ class RunDirectory:
 
     @property
     def path(self) -> Path:
-        """Path: The run directory."""
+        """Path: 本次记录目录路径，不证明目录存在或运行仍活跃."""
         return Path(self.root) / self.run_id
 
     @property
     def manifest(self) -> Path:
-        """Path: The run manifest, ``manifest.yaml``."""
+        """Path: 运行清单 manifest.yaml 的路径."""
         return self.path / 'manifest.yaml'
 
     @property
     def code_diff(self) -> Path:
-        """Path: Uncommitted code changes, ``code.diff``."""
+        """Path: 版本差异记录 code.diff 的路径，不保证包含未跟踪文件内容."""
         return self.path / 'code.diff'
 
     @property
     def events(self) -> Path:
-        """Path: The event timeline, ``events.jsonl``."""
+        """Path: 事件时间线 events.jsonl 的路径."""
         return self.path / 'events.jsonl'
 
     @property
     def summary(self) -> Path:
-        """Path: The human readable summary, ``summary.md``."""
+        """Path: 人工可读摘要 summary.md 的路径."""
         return self.path / 'summary.md'
 
     @property
     def logs(self) -> Path:
-        """Path: Process logs directory."""
+        """Path: 进程日志目录路径."""
         return self.path / 'logs'
 
     @property
     def metrics(self) -> Path:
-        """Path: Metrics directory, for example ``resources.csv``."""
+        """Path: 资源等度量文件的目录路径."""
         return self.path / 'metrics'
 
     @property
     def bag(self) -> Path:
-        """Path: Rosbag directory."""
+        """Path: 录制输出目录路径，不表示已经录制."""
         return self.path / 'bag'
 
     @property
     def params_inputs(self) -> Path:
-        """Path: Configuration inputs copied verbatim."""
+        """Path: 原样保存的配置输入目录路径."""
         return self.path / 'params' / 'inputs'
 
     @property
     def params_rendered(self) -> Path:
-        """Path: Parameter files rendered for the launch."""
+        """Path: 为启动生成的参数文件目录路径."""
         return self.path / 'params' / 'rendered'
 
     @property
     def params_effective(self) -> Path:
-        """Path: Parameters dumped from running nodes."""
+        """Path: 运行节点参数转储目录路径，不表示转储已经成功."""
         return self.path / 'params' / 'effective'
 
     @property
     def started_at(self) -> datetime.datetime:
-        """datetime.datetime: Naive local start time parsed from the run id.
+        """datetime.datetime: 从完整运行 ID 提取的不带时区本地日历时间.
 
         Raises:
-            ValueError: If the run id does not follow the run id format.
+            ValueError: ID 格式不完整匹配，或其日期时间字段不可解析。
         """
         match = RUN_ID_RE.fullmatch(self.run_id)
         if match is None:
@@ -132,19 +133,20 @@ class RunDirectory:
 
 
 def make_run_id(mode: str, git_sha: Optional[str], now: datetime.datetime) -> str:
-    """Build a run id.
+    """按秒制日历时间、模式及提交短哈希构造运行 ID.
+
+    不对时间做时区转换或碰撞消解；同一秒、模式、提交可能生成同名记录。
 
     Args:
-        mode: Run mode such as ``tour`` or ``precise``; lowercase letters,
-            digits and underscores only.
-        git_sha: Commit hash of the code being run, or ``None`` when unknown.
-        now: Local start time of the run.
+        mode: 只含小写字母、数字或下划线的完整模式名。
+        git_sha: 七至四十位小写十六进制提交哈希，未知时为 None。
+        now: 用于名称的日历时间，只保留到秒的字段。
 
     Returns:
-        ``<YYYYmmdd_HHMMSS>_<mode>_<first 7 characters of git_sha or nogit>``.
+        <YYYYmmdd_HHMMSS>_<mode>_<前七位哈希或nogit> 形式的标识。
 
     Raises:
-        ValueError: If ``mode`` or ``git_sha`` has an invalid format.
+        ValueError: mode 或 git_sha 不能完整匹配允许格式。
     """
     if not _MODE_RE.fullmatch(mode):
         raise ValueError(f'invalid run mode {mode!r}')
@@ -158,18 +160,23 @@ def make_run_id(mode: str, git_sha: Optional[str], now: datetime.datetime) -> st
 
 
 def create_run_directory(root: Union[str, Path], run_id: str) -> RunDirectory:
-    """Create the run directory tree and point ``latest`` at it.
+    """创建运行目录树并更新 latest，不复用已有运行目录.
+
+    先完整校验 ID 格式，再创建根及子目录；不在此校验日期字段的日历有效性。
+    子目录或 latest 操作失败可能留下部分目录，不提供整次创建的事务回滚。
+    根目录由调用方信任，本助手不实现逐级无链接打开或多创建者锁。
 
     Args:
-        root: Runs root; created if missing.
-        run_id: Name of the new run directory.
+        root: 显式记录根，不存在时递归创建。
+        run_id: 完整匹配命名格式的运行 ID。
 
     Returns:
-        The created run directory.
+        已创建的运行路径对象。
 
     Raises:
-        ValueError: If ``run_id`` is not a valid run id.
-        FileExistsError: If a run with the same id already exists.
+        ValueError: run_id 不完整匹配允许格式。
+        FileExistsError: 同名路径已存在或并发创建冲突。
+        OSError: 根/子目录创建或 latest 更新失败。
     """
     if not RUN_ID_RE.fullmatch(run_id):
         raise ValueError(f'not a run id: {run_id!r}')
@@ -185,10 +192,16 @@ def create_run_directory(root: Union[str, Path], run_id: str) -> RunDirectory:
 
 
 def update_latest_link(run: RunDirectory) -> None:
-    """Atomically point ``<root>/latest`` at a run.
+    """通过临时相对链接与替换操作更新 latest，原子性仅限最终替换.
+
+    使用同一 PID 命名临时路径，调用方应串行执行；不 fsync 或回滚前面的目录创建。
+    本函数不验证 run_id 或目标是否存在，不应直接接收未经校验的外部路径。
 
     Args:
-        run: The run that becomes the latest one.
+        run: 调用方已校验且持有的运行路径对象。
+
+    Raises:
+        OSError: 临时路径清理、建链或替换失败，临时链接可能仍在。
     """
     link = Path(run.root) / LATEST_LINK_NAME
     temporary = Path(run.root) / f'.{LATEST_LINK_NAME}.{os.getpid()}'
@@ -199,14 +212,19 @@ def update_latest_link(run: RunDirectory) -> None:
 
 
 def list_runs(root: Union[str, Path]) -> List[RunDirectory]:
-    """List the run directories under a runs root, oldest first.
+    """列出根下真实运行目录，按完整 ID 字典序从小到大返回.
+
+    忽略符号链接和不匹配名称，不读取清单、验证日历日期或证明运行存活。
+    没有目录扫描预算或固定描述符，不替代面向不可信记录的只读入口。
 
     Args:
-        root: Runs root. A missing root yields an empty list.
+        root: 显式根目录；缺失或不是目录时返回空列表。
 
     Returns:
-        Runs whose directory names are valid run ids, sorted chronologically.
-        The ``latest`` link and unrelated entries are ignored.
+        名称完整匹配的运行路径对象列表；排序不是跨时区的绝对时间排序。
+
+    Raises:
+        OSError: 目录枚举或元数据读取失败。
     """
     root_path = Path(root)
     if not root_path.is_dir():

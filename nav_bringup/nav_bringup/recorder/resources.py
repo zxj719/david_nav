@@ -1,13 +1,9 @@
-"""Per-process CPU and memory sampling for navigation runs.
+"""采样指定进程树与系统的 CPU/内存，并追加到 resources.csv.
 
-:class:`ResourceSampler` periodically samples every process in the process
-trees of a run (for example a ``ros2 launch`` process and its children) plus a
-whole-system row, and appends them to ``metrics/resources.csv``.
-:func:`summarize_resources` aggregates that file for the run summary
-(refactor plan §13.2, §15).
-
-Process CPU percentages follow ``psutil``: 100 means one fully used core. The
-system row reports overall CPU usage from 0 to 100 and used memory.
+ResourceSampler 每轮重新发现根与后代，系统行在前，进程消失/无权限等会跳过。
+进程 CPU 沿用 psutil 的每核口径，100 表示一核；系统行使用全机百分比。
+汇总按进程名称合并各行，均值不是同一时刻所有同名进程的总 CPU。
+时间是墙钟，RSS 与系统已用内存以 MiB 表示，采样不是原子宿主快照。
 """
 
 from __future__ import annotations
@@ -30,15 +26,15 @@ _BYTES_PER_MB = 1024 * 1024
 
 @dataclass(frozen=True)
 class ProcessSample:
-    """Resource usage of one process at one instant.
+    """表示一轮资源观察中的进程或系统行，不自行校验数值.
 
     Attributes:
-        stamp: Wall-clock time in seconds since the epoch.
-        pid: Process id; 0 for the whole-system row.
-        name: Process name, or :data:`SYSTEM_ROW_NAME`.
-        cpu_percent: CPU usage since the previous sample.
-        rss_mb: Resident memory in MiB; used system memory for the system row.
-        num_threads: Thread count; 0 for the system row.
+        stamp: 墙钟秒数，同轮共用一个读到的时间。
+        pid: 进程号，系统行用零。
+        name: 进程名称，系统行用 __system__。
+        cpu_percent: 由采样后端给出的 CPU 百分比，进程与系统口径不同。
+        rss_mb: 进程 RSS 的 MiB；系统行是全机已用内存 MiB。
+        num_threads: 线程数，系统行用零。
     """
 
     stamp: float
@@ -50,7 +46,11 @@ class ProcessSample:
 
 
 class ResourceSampler:
-    """Samples the resource usage of process trees into a CSV file."""
+    """表示向一个 CSV 追加进程树资源观察的采样器.
+
+    缓存后端进程对象以获得跨轮 CPU 变化，不提供多线程同步或全进程树原子快照。
+    调用方负责单一写者、停止与异常管理；本对象不启动线程或信号进程。
+    """
 
     def __init__(
         self,
@@ -59,14 +59,13 @@ class ResourceSampler:
         clock: Callable[[], float] = time.time,
         psutil_module: Any = psutil,
     ) -> None:
-        """Create a sampler.
+        """绑定进程发现、输出与观察端口，不立即查询系统或创建 CSV.
 
         Args:
-            root_pids: Returns the pids whose process trees are sampled. It is
-                called on every sample so late-starting processes are included.
-            csv_path: Output CSV file; created with a header on first write.
-            clock: Time source, replaceable in tests.
-            psutil_module: ``psutil`` or a test double with the same interface.
+            root_pids: 每轮提供根 PID 的回调，允许纳入后启动的进程。
+            csv_path: 追加目标，首次空文件写表头，父目录由外层准备。
+            clock: 墙钟时间端口，测试可替换。
+            psutil_module: psutil 或等接口假件，提供进程和系统观察。
         """
         self._root_pids = root_pids
         self._csv_path = Path(csv_path)
@@ -81,17 +80,22 @@ class ResourceSampler:
 
     @property
     def csv_path(self) -> Path:
-        """Path: The CSV file samples are appended to."""
+        """Path: 资源样本 CSV 的追加路径."""
         return self._csv_path
 
     def sample(self) -> List[ProcessSample]:
-        """Take one sample and append it to the CSV file.
+        """观察系统及当前进程树，追加本轮样本并更新进程缓存.
 
-        CPU percentages are measured since the previous call, so the first
-        sample of a newly seen process reports 0.
+        后端的非阻塞 CPU 统计依赖此前观察；真实 psutil 新对象首轮值通常无代表性。
+        进程消失、无权限或僵尸错误会跳过该项，系统端口和其它异常继续传播。
+        CSV 写入失败时内存缓存可能已更新、部分行可能已写入，不能回滚本轮。
 
         Returns:
-            The samples written, system row first.
+            实际交给追加器的样本列表，系统行在前，进程按发现次序去重。
+
+        Raises:
+            OSError: CSV 状态检查、打开或写入失败。
+            Exception: 根 PID、时钟或观察后端发生未被隔离的错误。
         """
         stamp = self._clock()
         memory = self._psutil.virtual_memory()
@@ -128,11 +132,17 @@ class ResourceSampler:
         return samples
 
     def run(self, stop_event: threading.Event, interval_sec: float = 1.0) -> None:
-        """Sample until ``stop_event`` is set.
+        """在调用线程重复采样，停止事件可唤醒间隔等待，不抢占正在采样的调用.
+
+        不是定频调度：每轮采样完成后再等待 interval_sec；采样异常会直接终止循环。
+        本函数不验证间隔，调用方应传合理的正值并管理执行线程。
 
         Args:
-            stop_event: Set it to stop sampling; the current wait ends at once.
-            interval_sec: Seconds between samples.
+            stop_event: 设置后不再开始下一轮；已设置时不会采样。
+            interval_sec: 每轮完成后的等待秒数，默认一秒。
+
+        Raises:
+            Exception: sample 或等待端口失败，不在此吞掉或自动重试。
         """
         while not stop_event.is_set():
             self.sample()
@@ -192,14 +202,14 @@ class ResourceSampler:
 
 @dataclass(frozen=True)
 class ProcessStats:
-    """Aggregated usage of one process name over a run.
+    """表示同名采样行的算术统计，不代表按 PID 或同时刻汇总.
 
     Attributes:
-        name: Process name, or :data:`SYSTEM_ROW_NAME`.
-        samples: Number of samples aggregated.
-        cpu_avg: Mean CPU percentage.
-        cpu_peak: Maximum CPU percentage.
-        rss_peak_mb: Maximum resident memory in MiB.
+        name: 进程名称或系统行名称。
+        samples: 纳入统计的行数，不是唯一进程数。
+        cpu_avg: 所有行 CPU 百分比的算术平均，不按时间间隔加权。
+        cpu_peak: 单行 CPU 百分比最大值。
+        rss_peak_mb: 单行内存 MiB 最大值。
     """
 
     name: str
@@ -211,11 +221,11 @@ class ProcessStats:
 
 @dataclass(frozen=True)
 class ResourceSummary:
-    """Aggregated resource usage of a run.
+    """表示一次 CSV 汇总结果，不深冻结内部列表.
 
     Attributes:
-        system: Statistics of the whole-system rows, or ``None`` without samples.
-        processes: Statistics per process name, by descending peak CPU.
+        system: 系统行统计，没有系统样本时为 None。
+        processes: 按 CPU 峰值降序、同峰按名字排序的同名进程统计列表。
     """
 
     system: Optional[ProcessStats] = None
@@ -223,14 +233,22 @@ class ResourceSummary:
 
 
 def summarize_resources(csv_path: Union[str, Path]) -> ResourceSummary:
-    """Aggregate a resources CSV file.
+    """读取整个资源 CSV 并按名称合并，不再次采样或按时间计算并发总量.
+
+    不限制文件大小、不校验非有限数值，不隔离损坏行；解析或数值错误直接传播。
+    同名不同 PID 的行进入同一组，结果不是单进程身份连续性的证明。
 
     Args:
-        csv_path: File written by :class:`ResourceSampler`. A missing file
-            yields an empty summary.
+        csv_path: 资源 CSV 路径，缺失或不是文件时为空汇总。
 
     Returns:
-        The aggregated usage.
+        系统行和排序后的进程名统计；CPU 均值为行均值，RSS 为单行峰值。
+
+    Raises:
+        OSError: CSV 无法打开或读取。
+        UnicodeError: 文件不是有效 UTF-8。
+        KeyError: 缺少必要列。
+        ValueError: 数值文本无法转换。
     """
     path = Path(csv_path)
     if not path.is_file():
@@ -246,16 +264,17 @@ def summarize_resources(csv_path: Union[str, Path]) -> ResourceSummary:
 
 
 def _aggregate(name: str, rows: List[Dict[str, str]]) -> ProcessStats:
-    """按已有资源采样行计算均值和峰值，不再次查询进程.
+    """按同名资源采样行计算算术均值和峰值，不再次查询进程.
 
-    调用方须提供非空且可转数值的行；CPU 为采样百分比，RSS 字段单位为 MB。
+    调用方须提供非空且可转数值的行；CPU 为采样百分比，RSS 字段单位为 MiB。
+    不按时间加权，不按 PID 区分，也不将同一时刻的多个进程 CPU 相加。
 
     Args:
         name: 汇总结果中使用的进程名称。
         rows: 已读取的非空 CSV 记录，含 cpu_percent 与 rss_mb。
 
     Returns:
-        样本数、CPU 平均值/峰值和 RSS 峰值组成的 ProcessStats。
+        样本行数、CPU 平均值/峰值和 RSS 峰值组成的 ProcessStats。
 
     Raises:
         KeyError: 必需列不存在。

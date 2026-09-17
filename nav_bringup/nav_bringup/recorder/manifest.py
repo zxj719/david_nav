@@ -1,9 +1,8 @@
-"""Run manifest: what code, configuration and environment a run used.
+"""记录运行使用的代码、配置指纹和选定环境信息（PLAN §13.2）.
 
-The manifest answers "what exactly was running" for every navigation run
-(refactor plan §13.2): git state, package versions, ROS environment, the
-command line, and content hashes of input files such as the map and the
-point-of-interest file.
+清单包含 git 查询、Python 分发版本、选定 ROS 环境、原始命令及输入文件哈希。
+这些信息分次观察，不是宿主状态或代码树的原子快照，也不证明进程实际启动。
+命令及调用方提供的数据不自动脱敏；存储位置和访问权限由外层负责。
 """
 
 from __future__ import annotations
@@ -42,16 +41,22 @@ def run_command(
     cwd: Optional[Union[str, Path]] = None,
     timeout_sec: float = 10.0,
 ) -> Tuple[int, str]:
-    """Run a command and capture its standard output.
+    """同步执行参数列表并捕获输出，返回码非零不抛命令失败异常.
+
+    不经 shell；stderr 被捕获但不返回。超时行为委托 subprocess.run，
+    不提供整个子进程树的所有权回收或可抢占初始化期限。
 
     Args:
-        argv: Program and arguments.
-        cwd: Working directory, or ``None`` for the current directory.
-        timeout_sec: Seconds before the command is abandoned.
+        argv: 程序名及参数序列。
+        cwd: 工作目录，None 表示继承当前目录。
+        timeout_sec: 传给 subprocess.run 的超时秒数。
 
     Returns:
-        ``(return_code, stdout)``. A missing program yields ``(127, '')`` and a
-        timeout yields ``(124, '')``.
+        退出码和 stdout；找不到程序/目录为 (127, '')，超时为 (124, '')。
+
+    Raises:
+        OSError: 缺失以外的进程创建或执行系统错误。
+        UnicodeError: 文本输出解码失败。
     """
     try:
         completed = subprocess.run(
@@ -71,14 +76,14 @@ def run_command(
 
 @dataclass(frozen=True)
 class GitInfo:
-    """Git state of the code a run uses.
+    """表示分次命令采集的 git 状态，不是代码树一致性快照.
 
     Attributes:
-        repository: Repository top-level directory, or ``None`` outside git.
-        branch: Current branch name, ``HEAD`` when detached, or ``None``.
-        commit: Full commit hash, or ``None``.
-        dirty: Whether tracked or untracked changes exist.
-        changed_files: Number of entries reported by ``git status --porcelain``.
+        repository: 仓库根目录文本，不在仓库时为 None。
+        branch: 分支名、分离状态的 HEAD 或 None。
+        commit: 完整提交哈希或 None。
+        dirty: 状态查询输出是否含非空行，不证明失败的查询对应干净仓库。
+        changed_files: porcelain 输出非空行数，不等同所有变更文件的完整计数。
     """
 
     repository: Optional[str]
@@ -89,15 +94,17 @@ class GitInfo:
 
 
 def collect_git_info(repo_dir: Union[str, Path], runner: CommandRunner = run_command) -> GitInfo:
-    """Collect the git state of a directory.
+    """通过注入命令端口采集仓库根、分支、提交及变更行数.
+
+    仅仓库根查询的退出码决定是否按“非仓库”返回；其余查询沿用输出内容，
+    不把非零退出独立标记为错误。因此空状态输出不能单独证明仓库干净。
 
     Args:
-        repo_dir: Any directory inside the repository.
-        runner: Command runner, replaceable in tests.
+        repo_dir: 要查询的仓库内路径。
+        runner: 可替换命令端口，不在此固定环境或快照。
 
     Returns:
-        The git state. All fields are empty when the directory is not inside a
-        repository.
+        GitInfo；根查询失败时文本字段为 None、dirty 为 False、计数为零。
     """
     def git(*args: str) -> Tuple[int, str]:
         return runner(['git', '-C', str(repo_dir), *args])
@@ -123,18 +130,21 @@ def write_code_diff(
     destination: Union[str, Path],
     runner: CommandRunner = run_command,
 ) -> bool:
-    """Write the uncommitted changes of a repository to a file.
+    """将状态行与 git diff HEAD 文本写入差异制品，不导出整个工作树.
 
-    The file lists ``git status --porcelain`` as comments followed by
-    ``git diff HEAD``, so the exact code of a dirty run can be reconstructed.
+    未跟踪文件只记录名称，不保存其内容；二进制差异或查询失败也不保证可重建。
+    不检查命令退出码、不固定两次查询快照；目标写入非原子且可能覆盖原内容。
 
     Args:
-        repo_dir: Any directory inside the repository.
-        destination: File to write.
-        runner: Command runner, replaceable in tests.
+        repo_dir: 仓库内路径。
+        destination: 由外层选定的可写制品路径，父目录须已存在。
+        runner: 可替换命令端口。
 
     Returns:
-        ``True`` if the repository had changes and the file was written.
+        状态存在非空行并完成写入时为 True，否则为 False 且不写目标。
+
+    Raises:
+        OSError: 目标无法写入或注入端口发生系统错误。
     """
     _, status = runner(['git', '-C', str(repo_dir), 'status', '--porcelain'])
     entries = [line for line in status.splitlines() if line.strip()]
@@ -149,13 +159,18 @@ def write_code_diff(
 
 
 def sha256_file(path: Union[str, Path]) -> Optional[str]:
-    """Hash a file.
+    """按块读取当前文件内容的 SHA-256，不锁文件或固定目录身份.
+
+    普通路径判断会跟随符号链接；读期间文件可能改变，不能保证与其它制品同一快照。
 
     Args:
-        path: File to hash.
+        path: 调用方已选择的输入文件。
 
     Returns:
-        The hex SHA-256 digest, or ``None`` if the file does not exist.
+        十六进制摘要；路径缺失或不是文件时为 None。
+
+    Raises:
+        OSError: 已存在文件无法打开或读取。
     """
     file_path = Path(path)
     if not file_path.is_file():
@@ -168,14 +183,14 @@ def sha256_file(path: Union[str, Path]) -> Optional[str]:
 
 
 def collect_versions(distributions: Sequence[str] = VERSIONED_DISTRIBUTIONS) -> Dict[str, str]:
-    """Report the Python version and installed package versions.
+    """读取当前解释器及已安装分发包的版本元数据，不导入目标包.
 
     Args:
-        distributions: Distribution names to look up.
+        distributions: 要查询的分发名称序列。
 
     Returns:
-        Mapping of ``python`` and each distribution name to its version string,
-        or ``not installed``.
+        python 与分发名称到版本文本的映射，未安装项为 not installed；
+        元数据版本不证明实际加载路径、ABI 或运行可用性。
     """
     versions = {'python': platform.python_version()}
     for name in distributions:
@@ -190,14 +205,14 @@ def collect_environment(
     environ: Mapping[str, str],
     keys: Sequence[str] = ENVIRONMENT_KEYS,
 ) -> Dict[str, Optional[str]]:
-    """Pick the environment variables that affect a ROS run.
+    """按显式键集合复制环境值，不自动记录全部环境或隐藏敏感值.
 
     Args:
-        environ: Environment mapping, typically ``os.environ``.
-        keys: Variable names to record.
+        environ: 通常为 os.environ 的环境映射。
+        keys: 要写入清单的变量名，外层须确保适合记录。
 
     Returns:
-        Mapping of each key to its value, or ``None`` when unset.
+        每个指定键到原始值的字典，未设置时为 None。
     """
     return {key: environ.get(key) for key in keys}
 
@@ -217,28 +232,30 @@ def build_manifest(
     alias: Optional[str] = None,
     linked: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Assemble the manifest of a run that is starting.
+    """汇总启动清单并读取输入文件指纹，不写文件或启动命令.
+
+    包含主机名、原始命令和调用方提供的环境；不自动脱敏或完整验证输入类型。
+    外层映射复制但嵌套对象可能共享，文件哈希分次读取而非同一原子快照。
 
     Args:
-        run_id: Run directory name.
-        mode: Run mode.
-        command: Command line being run.
-        started_at: Start time; naive values are taken as local time.
-        git: Git state of the code.
-        versions: Output of :func:`collect_versions`.
-        environment: Output of :func:`collect_environment`.
-        files: Named input files to fingerprint, for example ``map_yaml``.
-        robot: Robot profile name, if known.
-        site: Site profile name, if known.
-        alias: Shell alias that started the run, if known.
-        linked: State of separately started processes linked to the run, by
-            name (see :mod:`nav_bringup.recorder.linked_process`); left out of
-            the manifest when empty.
+        run_id: 运行目录名称。
+        mode: 运行模式。
+        command: 准备执行的命令行。
+        started_at: 启动时间，无时区值按本地时间解释，文本省略微秒。
+        git: 预先采集的 git 状态。
+        versions: 预先采集的版本映射。
+        environment: 选定的环境映射。
+        files: 名称到输入文件路径的映射，缺失文件的摘要为 None。
+        robot: 已知时填写的机器人档案名称。
+        site: 已知时填写的场地档案名称。
+        alias: 已知时填写的启动 alias。
+        linked: 独立进程的关联观察，空值不写该字段，非空只复制外层映射。
 
     Returns:
-        A manifest ready for :func:`write_manifest`. ``ended_at``,
-        ``duration_sec``, ``exit_code`` and ``exit_reason`` stay ``None``
-        until :func:`finalize_manifest`.
+        可交给 write_manifest 的清单，结束时间、时长、退出码和原因为 None。
+
+    Raises:
+        OSError: 某个可见输入文件无法读取。
     """
     fingerprints = {
         name: {'path': str(path), 'sha256': sha256_file(path)}
@@ -274,16 +291,23 @@ def finalize_manifest(
     exit_code: Optional[int],
     exit_reason: str,
 ) -> Dict[str, Any]:
-    """Return a copy of a manifest completed with the end of the run.
+    """浅复制清单并补结束时间与退出字段，不写原始外层映射.
+
+    嵌套值仍共享；若开始时间为字符串则计算时长，否则保留已有时长字段。
+    允许负时长，不验证进程已退出或所有资源已释放；由监督者决定何时完成。
 
     Args:
-        manifest: Manifest produced by :func:`build_manifest`.
-        ended_at: End time; naive values are taken as local time.
-        exit_code: Exit status of the supervised command, or ``None`` if unknown.
-        exit_reason: Short reason, for example ``ctrl_c`` or ``nav2_exited``.
+        manifest: 待补结束字段的清单。
+        ended_at: 结束时间，无时区值按本地时间解释。
+        exit_code: 被监督命令退出码，未知为 None。
+        exit_reason: 监督者给出的简短退出原因。
 
     Returns:
-        The finalized manifest; the input is not modified.
+        新的外层字典，结束文本到秒、时长按毫秒精度舍入。
+
+    Raises:
+        ValueError: 字符串开始时间不能解析。
+        TypeError: 开始/结束时间的时区形式无法相减。
     """
     finalized = dict(manifest)
     ended = _aware(ended_at)
@@ -298,27 +322,38 @@ def finalize_manifest(
 
 
 def write_manifest(path: Union[str, Path], manifest: Mapping[str, Any]) -> None:
-    """Write a manifest as YAML.
+    """以 YAML 覆盖写入清单，不进行原子替换或 fsync.
+
+    打开目标时即截断，序列化或写入失败可能留下部分内容；外层负责目录与所有权。
 
     Args:
-        path: Destination file.
-        manifest: Manifest to write.
+        path: 目标文件，父目录须已存在。
+        manifest: 要序列化的映射，不自动验证完整 schema。
+
+    Raises:
+        OSError: 文件打开、写入或关闭失败。
+        yaml.YAMLError: 数据无法由安全 YAML 表示器序列化。
     """
     with Path(path).open('w', encoding='utf-8') as handle:
         yaml.safe_dump(dict(manifest), handle, allow_unicode=True, sort_keys=False)
 
 
 def read_manifest(path: Union[str, Path]) -> Dict[str, Any]:
-    """Read a manifest written by :func:`write_manifest`.
+    """读取 YAML 并要求顶层为映射，不验证清单身份或完整 schema.
+
+    读取没有大小/深度预算，会按普通路径跟随链接；安全记录浏览应使用受限读取入口。
 
     Args:
-        path: Manifest file.
+        path: 外层已选择并信任的清单文件。
 
     Returns:
-        The manifest mapping.
+        解析得到的原始字典，不补默认字段或核对 run_id。
 
     Raises:
-        ValueError: If the file does not contain a YAML mapping.
+        ValueError: 顶层不是映射。
+        OSError: 无法打开或读取文件。
+        UnicodeError: 文件不是有效 UTF-8。
+        yaml.YAMLError: YAML 无法解析。
     """
     with Path(path).open('r', encoding='utf-8') as handle:
         data = yaml.safe_load(handle)
