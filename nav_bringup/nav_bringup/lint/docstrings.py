@@ -27,6 +27,9 @@ over ten physical definition lines, including nested functions/private classes.
 It excludes double-underscore names and does not judge prose quality or detect
 non-obvious short functions. Those still require review under SPEC 5.3.
 
+``check_long_paths`` 另行覆盖所有命名、所有作用域的长函数，包括双下划线
+方法和普通名字的嵌套定义；只检查非空说明，不替代公共分节或语义审查。
+
 Example:
     violations = check_paths([Path('my_pkg')])
     assert not violations, format_violations(violations)
@@ -164,7 +167,68 @@ def check_private_paths(paths: Iterable[Union[str, Path]]) -> List[Violation]:
     return violations
 
 
+def check_long_source(source: str, path: str = '<string>') -> List[Violation]:
+    """检查全部作用域内超过十个物理定义行的函数是否有非空说明.
+
+    同步、异步、嵌套函数及所有类方法均检查，不按名称筛选。
+    定义跨度包含空行、注释、多行签名，不含装饰器或末尾注释。
+    这里只检查说明存在，不判断短函数复杂性或说明内容是否准确。
+
+    Args:
+        source: 只解析、不执行的 Python 源码。
+        path: 用于诊断的文件路径。
+
+    Returns:
+        按源码位置排序的缺失说明列表。
+
+    Raises:
+        SyntaxError: 源码不是有效的 Python。
+    """
+    tree = ast.parse(source, filename=path)
+    violations = []
+    for name, node in _all_functions(tree):
+        if node.end_lineno - node.lineno + 1 > 10 and not (ast.get_docstring(node) or '').strip():
+            violations.append(Violation(
+                path, node.lineno, name, 'missing docstring for function over 10 lines'))
+    return sorted(violations, key=lambda item: item.line)
+
+
+def check_long_paths(paths: Iterable[Union[str, Path]]) -> List[Violation]:
+    """递归检查指定源码的所有长函数，不导入被检查模块.
+
+    Args:
+        paths: 文件或目录；目录扫描忽略 test_ 文件，显式测试文件仍检查。
+
+    Returns:
+        按文件路径及源码位置排序的违规列表。
+
+    Raises:
+        SyntaxError: 某个文件不是有效的 Python。
+        OSError: 无法读取待检查的文件。
+    """
+    violations = []
+    for file_path in sorted(_iter_python_files(paths)):
+        violations.extend(check_long_source(
+            file_path.read_text(encoding='utf-8'), str(file_path)))
+    return violations
+
+
 def _private_functions(node: ast.AST, prefix: str = '') -> Iterator[tuple[str, FunctionNode]]:
+    """保持原单下划线函数筛选规则，遍历逻辑由全作用域迭代器共享.
+
+    Args:
+        node: 待遍历的语法节点。
+        prefix: 外层限定名前缀。
+
+    Yields:
+        单下划线开头、非双下划线的函数限定名和节点。
+    """
+    for name, function in _all_functions(node, prefix):
+        if function.name.startswith('_') and not function.name.startswith('__'):
+            yield name, function
+
+
+def _all_functions(node: ast.AST, prefix: str = '') -> Iterator[tuple[str, FunctionNode]]:
     """遍历全部语法子树并保留类与函数限定名，不执行任何源码.
 
     Args:
@@ -172,16 +236,15 @@ def _private_functions(node: ast.AST, prefix: str = '') -> Iterator[tuple[str, F
         prefix: 外层类与函数的点分名称前缀。
 
     Yields:
-        单下划线私有函数的限定名与 AST 节点，包括异步和嵌套定义。
+        所有函数的限定名与 AST 节点，包括异步、嵌套和双下划线定义。
     """
     if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
         name = prefix + node.name
-        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name.startswith('_') and not node.name.startswith('__')):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             yield name, node
         prefix = name + '.'
     for child in ast.iter_child_nodes(node):
-        yield from _private_functions(child, prefix)
+        yield from _all_functions(child, prefix)
 
 
 def format_violations(violations: Sequence[Violation]) -> str:
