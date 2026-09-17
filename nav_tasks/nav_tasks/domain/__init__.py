@@ -1,1 +1,1 @@
-"""Pure navigation domain contracts."""
+"""提供不依赖 ROS 和传输层的导航领域契约."""

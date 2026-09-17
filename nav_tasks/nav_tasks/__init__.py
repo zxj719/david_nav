@@ -1,3 +1,3 @@
-"""nav_tasks contracts; importing the package starts no nodes, threads or processes."""
+"""提供 nav_tasks 包标识；导入本包不启动节点、线程或进程."""
 
 __version__ = '0.1.0'

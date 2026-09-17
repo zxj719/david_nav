@@ -1,4 +1,8 @@
-"""Transport-independent requests, outcomes and immutable task observations."""
+"""定义不依赖传输的任务请求、结果和冻结观察值.
+
+数据类本身不执行任务、不验证字段，也不深冻结外部传入的可变载荷。
+状态和事件描述软件所有权/后端结果，不能单凭它们证明实机到达或停稳。
+"""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -8,7 +12,7 @@ from nav_tasks.domain.types import PoseRecord, StoredPoi
 
 
 class NavStatus(str, Enum):
-    """Terminal result of one navigation attempt, not an asyncio cancellation.
+    """表示单次导航尝试的后端或技能终态，不表示 asyncio 清理完成.
 
     Attributes:
         CANCELED: 后端报告取消，不等于 asyncio 协程已清理。
@@ -23,7 +27,7 @@ class NavStatus(str, Enum):
 
 @dataclass(frozen=True)
 class NavOutcome:
-    """Terminal status and human-readable failure detail from a backend or skill.
+    """保存后端或技能给出的终态与可读说明，不独立验证目标到达.
 
     Attributes:
         detail: 失败或终态的可读说明。
@@ -35,13 +39,17 @@ class NavOutcome:
 
     @property
     def succeeded(self) -> bool:
-        """Whether this attempt reached its target successfully."""
+        """判断保存的状态是否等于 SUCCEEDED，不重新测量位置或停稳.
+
+        Returns:
+            status 与 NavStatus.SUCCEEDED 比较的布尔结果。
+        """
         return self.status == NavStatus.SUCCEEDED
 
 
 @dataclass(frozen=True)
 class NavGoal:
-    """One navigation target and request identity used only for correlation.
+    """保存单次导航目标和用于关联反馈的请求标识，不自行下发动作.
 
     Attributes:
         poi: 本次导航目标 POI。
@@ -56,7 +64,9 @@ class NavGoal:
 
 @dataclass(frozen=True)
 class TaskCompletion:
-    """One post-cleanup receipt, separate from legacy progress/terminal wire events.
+    """表示管理器释放任务所有权后交付的回执，区别于旧线协议终态事件.
+
+    管理器按清理契约交付回执；单独构造该数据类不会执行清理或核验物理停车。
 
     Attributes:
         generation: 区分重复任务标识的所有权代次。
@@ -73,10 +83,10 @@ class TaskCompletion:
 
 @dataclass(frozen=True)
 class SpinGoal:
-    """Signed relative yaw and Nav2's own execution allowance, both in SI units.
+    """保存有符号相对旋转角和发给 Nav2 服务端的执行预算.
 
-    The allowance is sent to the server, not a client cleanup deadline. A skill
-    may separately impose its attempt deadline and must then await cancellation.
+    预算不是客户端清理期限；技能可另设尝试期限，超时后仍须等待取消收尾。
+    本类只保存字段，不执行旋转或验证预算合法性。
 
     Attributes:
         target_yaw: 有符号相对旋转角（弧度），不是绝对地图朝向。
@@ -89,7 +99,7 @@ class SpinGoal:
 
 @dataclass(frozen=True)
 class DockGoal:
-    """Planar Dock target and owner identity for complete feedback correlation.
+    """保存 Dock 目标位姿及完整反馈关联所需的所有权标识.
 
     Attributes:
         generation: 关联当前任务所有权的代次。
@@ -106,11 +116,13 @@ class DockGoal:
 
 @dataclass(frozen=True)
 class ResolvedGoal:
-    """A navigable POI and whether it differs from the original anchor.
+    """保存解析器选定的 POI 和是否使用吸附结果的标记.
+
+    此值对象不自行验证路径可达性或比较原始锚点；可行性检查由解析器负责。
 
     Attributes:
-        poi: 已选定的可导航 POI。
-        used_snap: 是否使用了区别于原始锚点的吸附目标。
+        poi: 由解析器选定的目标 POI；数据类本身不证明可达。
+        used_snap: 解析器是否标记使用了吸附结果，本类不自行计算差异。
     """
 
     poi: StoredPoi
@@ -118,7 +130,7 @@ class ResolvedGoal:
 
 
 class PreemptPolicy(str, Enum):
-    """Ingress-selected admission policy; implicit motion preemption is forbidden.
+    """表示入站明确选择的任务准入策略，枚举本身不执行取消或抢占.
 
     Attributes:
         ALLOW: 允许在完成旧任务清理后接纳新任务。
@@ -130,7 +142,9 @@ class PreemptPolicy(str, Enum):
 
 
 class TaskState(str, Enum):
-    """Motion ownership state independent of transport connectivity.
+    """表示与传输连接独立的任务运动所有权状态.
+
+    状态由管理器维护；IDLE 或 CLOSED 不能单独用作实机静止的传感器证明。
 
     Attributes:
         ABORTING: 正在取消并等待清理。
@@ -151,12 +165,12 @@ class TaskState(str, Enum):
 
 @dataclass(frozen=True)
 class TaskRequest:
-    """Motion request; adapters translate their wire values before admission.
+    """保存适配器提交的运动请求，冻结字段不等于复制或深冻结 payload.
 
-    Payload decoding is synchronous and completes before an existing task is
-    preempted. Decoders must return a detached immutable domain object. Directory
-    updates and POI marking are administrative operations, not motion requests.
-    Source is opaque ingress metadata preserved in events; empty retains legacy use.
+    管理器在抢占旧任务前同步调用注册解码器；解码器按契约应返回独立的不可变
+    领域对象，但该数据类和注册表不会自动深复制或验证其不可变性。
+    目录更新和 POI 标记属于管理操作，不是运动请求。source 是原样保留的
+    入站元数据，空值保持旧行为。
 
     Attributes:
         action: 注册处理器对应的动作名称。
@@ -177,7 +191,9 @@ class TaskRequest:
 
 @dataclass(frozen=True)
 class TaskSnapshot:
-    """Read-only ownership observation; generations distinguish reused task IDs.
+    """保存任务所有权观察值，用代次区分重复使用的任务标识.
+
+    这是软件状态快照，不证明真实目标到达、测量新鲜度或物理停稳。
 
     Attributes:
         generation: 用于区分重复标识的所有权代次。
@@ -200,7 +216,7 @@ class TaskSnapshot:
 
 
 class EventKind(str, Enum):
-    """Domain event categories, translated to wire frames by an ingress adapter.
+    """定义领域事件分类，由入站适配器转换为各自的线协议帧.
 
     Attributes:
         FAILED: 任务失败事件。
@@ -215,7 +231,9 @@ class EventKind(str, Enum):
 
 @dataclass(frozen=True)
 class TaskEvent:
-    """Correlated event with legacy progress semantics and opaque ingress source metadata.
+    """保存关联任务代次的领域事件、旧进度语义和不解释内容的来源标签.
+
+    该对象不是序列化线协议帧，也不表示已向外部服务器送达。
 
     Attributes:
         detail: 终态或失败说明。

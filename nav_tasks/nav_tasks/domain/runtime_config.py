@@ -1,4 +1,8 @@
-"""Explicit runtime values, independent of CLI, profiles and ROS parameter APIs."""
+"""保存显式运行时配置值，不依赖 CLI、档案解析器或 ROS 参数 API.
+
+冻结数据类没有构造后校验；类型注解不是运行时验证。加载器、组装工厂和
+策略对象分别负责其边界检查，不应把成功构造这些值对象当作配置已通过验收。
+"""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,10 +10,11 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class DockRuntimeConfig:
-    """Explicit Dock wiring and robot policy; no helper default selects David tuning.
+    """保存显式 Dock 接线和机器人策略，构造器不自动选择 David 调参或验证数值.
 
-    The navigation rotation frame is independent of RuntimeConfig.robot_base_frame,
-    which retains the POI capture frame. All geometry and finish policy are required.
+    此处 robot_base_frame 是导航旋转中心帧，与 RuntimeConfig.robot_base_frame
+    保留的 POI 捕获帧分别配置。核心几何与停稳策略需显式提供；个别字段保留
+    声明的默认值。停稳阈值描述采样角速度判断，不等于整个车身的物理静止证明。
 
     Attributes:
         approach_dist: 目标朝向后方的预备点距离（米）。
@@ -50,7 +55,7 @@ class DockRuntimeConfig:
 
 @dataclass(frozen=True)
 class DockNodeConfig:
-    """Validated legacy ROS ingress names and the shared Dock runtime settings.
+    """保存旧 ROS 入站名称及共享 Dock 运行时配置，不自行执行验证.
 
     Attributes:
         action_name: 对外提供的 Dock 动作名称。
@@ -65,13 +70,12 @@ class DockNodeConfig:
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    """Task-service assembly configuration supplied by a robot-aware outer root.
+    """保存由了解机器人配置的外层提供的任务服务组装参数.
 
-    Robot-specific frames, topics, action names and storage paths are required;
-    this type does not guess a robot profile or modify localization wiring.
-    Optional numeric defaults retain the old executor's policies. Dock IDs require
-    explicit DockRuntimeConfig so an incomplete assembly cannot silently navigate
-    them with ordinary snapping/retry. Dock None creates no Dock resources.
+    帧、话题、动作和存储路径需显式传入；不猜测机器人档案或修改定位接线。
+    可选数值默认值保留旧执行器策略。值对象本身不校验 Dock IDs 与 dock 的组合：
+    组装工厂拒绝缺少显式 Dock 配置的 Dock IDs，避免退回普通吸附/重试路径；
+    dock 为 None 时工厂不创建 Dock 资源。
 
     Attributes:
         action_name: 普通导航后端的动作名称。
