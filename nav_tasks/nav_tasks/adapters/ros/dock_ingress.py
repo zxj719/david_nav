@@ -120,16 +120,20 @@ class DockIngress:
             entry.inbox.put_nowait(None)
 
     async def close(self) -> None:
-        """Seal admission and settle only this ingress's owned tasks, retaining ROS callbacks.
+        """封闭入口并等待自有任务收尾，保留 ROS 资源供回调继续完成.
 
-        Canceling this waiter does not cancel owned cleanup. Retryable task cleanup
-        errors keep the request and its action callback pending, never report a
-        terminal result as if motion stopped. The host must keep spinning.
-        After this completes, quiesce the executor before calling destroy.
+        取消外层等待者不会取消已托管的收尾任务；并发调用加入同一活跃任务。
+        已终止但未确认 closed 的收尾可由后续调用重新尝试；重试不丢弃仍保留
+        的入口记录，也不绕过其失败。成功后才由宿主静默 executor，再 destroy。
+
+        Raises:
+            RuntimeError: 在非所有者事件循环调用。
+            asyncio.CancelledError: 等待者或入口收尾任务被取消；不能据此销毁资源。
+            Exception: 入口任务收尾失败，宿主须保留所有者和 ROS 回调并重试。
         """
         self._check_loop()
         self.stop()
-        if self._close_task is None:
+        if self._close_task is None or (self._close_task.done() and not self._closed):
             self._close_task = self._supervisor.spawn(self._close(), 'close-dock-ingress')
         await asyncio.shield(self._close_task)
 
