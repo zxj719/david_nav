@@ -1,4 +1,8 @@
-"""Independent read-only interface probe, suitable for navcfg subprocess integration."""
+"""用于 navcfg 子进程集成的独立只读接口检查入口.
+
+只观察定位、底盘与可选点云接口，不选择或启动提供方。
+命令行帮助沿用独立的兼容文案，不以本模块的中文说明改变既有 CLI 输出。
+"""
 
 from __future__ import annotations
 
@@ -16,22 +20,33 @@ from nav_perception_iface.configuration import load_contract_profile
 from nav_perception_iface.contracts import check_contracts
 
 
+# 保留已发布的帮助文案，避免翻译源码说明时改变 CLI 输出。
+_CLI_DESCRIPTION = (
+    'Independent read-only interface probe, suitable for navcfg subprocess integration.')
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Wait for manual localization, then report actual interface evidence as JSON.
+    """等待人工定位，再把当前接口证据与检查结论报告为 JSON.
+
+    只在纯输入检查后加载 ROS 探针，定位未就绪时不开始数据订阅。
+    有候选报告时在探针退出和信号处理器恢复后输出；清理失败可覆盖候选，
+    缺依赖等未处理异常路径不保证一定输出 JSON。等待提示写入标准错误。
 
     Args:
-        argv: CLI arguments, or process arguments when omitted. --profile and
-            optional --mode are explicit files; no provider is selected or started.
+        argv: 命令行参数；省略时使用进程参数。profile 和可选 mode 为显式文件，
+            不选择或启动任何接口提供方。
 
     Returns:
-        Zero for satisfied contracts, one for contract errors, two for operational
-        errors, three for bounded pending localization, or 128+signal on interruption.
-        Stdout contains one versioned JSON report; waiting hints go to stderr.
+        0 表示契约满足，1 表示契约错误，2 表示已捕获的操作错误，
+        3 表示有界等待后定位仍未就绪；中断为 128 加信号编号。
+        报告 status 为 ready 仍可能含错误并返回 1，不能只看 status 判成功。
 
     Raises:
-        ImportError: The explicitly requested ROS runtime dependencies are unavailable.
+        ImportError: 所需 ROS 运行依赖不可用。
+        SystemExit: 参数解析处理帮助或拒绝非法命令行。
+        Exception: 未被捕获的运行异常、信号恢复或最终输出失败。
     """
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=_CLI_DESCRIPTION)
     parser.add_argument('--profile', type=Path, required=True)
     parser.add_argument('--mode', type=Path)
     parser.add_argument('--sample-sec', type=float, default=2.0)

@@ -1,4 +1,7 @@
-"""Pure planar localization health observations; never own motion or localization."""
+"""纯平面的导航定位健康观察，不拥有运动接口或定位提供方.
+
+这里只比较调用方给出的位姿证据；不据不一致结果归责某个提供方，也不自动停车。
+"""
 
 from collections import deque
 from dataclasses import dataclass
@@ -12,13 +15,13 @@ def _finite(value):
 
 @dataclass(frozen=True)
 class HealthPolicy:
-    """Navigation-side warning policy; automatic stopping is uncommissioned TODO-H1.
+    """导航侧健康告警策略，自动停车仍是未启用的 TODO-H1.
 
     Attributes:
-        max_tf_age_sec: Maximum age/future skew for paired transform/odometry samples.
-        max_divergence_m: Strict displacement residual threshold in metres.
-        divergence_window_sec: Maximum comparison window in ROS-clock seconds.
-        action: Only warn is commissioned; stop must not silently change behavior.
+        max_tf_age_sec: 位姿样本允许的最大历史年龄与未来偏差，单位 ROS 秒。
+        max_divergence_m: 位移向量残差的严格超限阈值，单位米。
+        divergence_window_sec: 配对观察的最长比较窗口，单位 ROS 秒。
+        action: 只接受 warn；即使报告等级为 error 也不自动触发停车。
     """
 
     max_tf_age_sec: float = 0.5
@@ -27,10 +30,11 @@ class HealthPolicy:
     action: str = 'warn'
 
     def __post_init__(self) -> None:
-        """Reject invalid policy before allocating observation resources.
+        """在分配观察资源前校验策略，不接受隐式开启停车行为.
 
         Raises:
-            ValueError: Thresholds are not positive finite numbers or action is not warn.
+            ValueError: 阈值不是正的有限 int/float，或 action 不是 warn。
+            OverflowError: 超大整数无法转换为有限性检查所需的浮点数。
         """
         if any(not _finite(value) or value <= 0 for value in (
                 self.max_tf_age_sec, self.max_divergence_m, self.divergence_window_sec)):
@@ -41,13 +45,13 @@ class HealthPolicy:
 
 @dataclass(frozen=True)
 class PoseSample:
-    """One planar pose of the same robot reference point in either coordinate system.
+    """同一机器人参考点在某个坐标系中的一条平面位姿样本.
 
     Attributes:
-        stamp: ROS-clock source timestamp in seconds.
-        x: Position in metres in that source's coordinate system.
-        y: Position in metres in that source's coordinate system.
-        yaw: Heading in radians in that source's coordinate system.
+        stamp: 数据源的 ROS 时钟时间戳，单位秒。
+        x: 在该来源坐标系中的位置，单位米。
+        y: 在该来源坐标系中的位置，单位米。
+        yaw: 在该来源坐标系中的朝向，单位弧度；不在这里归一化。
     """
 
     stamp: float
@@ -56,10 +60,13 @@ class PoseSample:
     yaw: float
 
     def __post_init__(self) -> None:
-        """Validate observations before they enter a history or diagnostic message.
+        """在样本进入历史或诊断前检查各字段为有限内置数值.
+
+        不限制时间戳正负，也不对角度进行范围截取。
 
         Raises:
-            ValueError: Any value is nonnumeric or nonfinite.
+            ValueError: 字段不是有限 int/float，包括拒绝 bool。
+            OverflowError: 超大整数无法进行浮点有限性检查。
         """
         if not all(_finite(value) for value in (self.stamp, self.x, self.y, self.yaw)):
             raise ValueError('pose sample values must be finite numbers')
@@ -67,12 +74,13 @@ class PoseSample:
 
 @dataclass(frozen=True)
 class HealthReport:
-    """An observation, not a stop request or a provider-fault attribution.
+    """一份健康观察结果，不是停车请求或提供方故障归责.
 
     Attributes:
-        severity: info, warn or error; compatible with NavEvent.
-        code: Stable event/diagnostic status name.
-        values: Finite numerical evidence, copied into outbound observations.
+        severity: info、warn 或 error，与 NavEvent 等级约定一致。
+        code: 稳定的事件或诊断状态名称。
+        values: 数值证据映射；本数据类本身不验证有限性或复制、冻结映射内容，
+            正常观察路径由 HealthMonitor 构造已检查的证据。
     """
 
     severity: str
@@ -81,17 +89,17 @@ class HealthReport:
 
 
 class HealthMonitor:
-    """Compare paired pose increments in a bounded, caller-loop-confined history.
+    """在调用方单线程循环内保存有界配对历史并比较位移增量.
 
     Attributes:
         policy: 采样新鲜度、历史窗口和位移残差告警策略。
     """
 
     def __init__(self, policy: HealthPolicy) -> None:
-        """Bind policy without ROS, clocks, threads, subscribers or commands.
+        """保存策略并创建最多 4096 条的历史，不创建 ROS、时钟、线程或命令接口.
 
         Args:
-            policy: Validated warning policy.
+            policy: 已校验的只告警策略。
         """
         self.policy = policy
         self._history = deque(maxlen=4096)
@@ -99,33 +107,37 @@ class HealthMonitor:
 
     @property
     def history_size(self) -> int:
-        """int: Number of retained paired observations, never more than 4096."""
+        """返回当前保留的配对观察数，最多 4096 条.
+
+        Returns:
+            当前历史长度，不修改或清理历史窗口。
+        """
         return len(self._history)
 
     def sample(
         self, now: float, localized: bool, map_pose: Optional[PoseSample],
         wheel_pose: Optional[PoseSample],
     ) -> HealthReport:
-        """Evaluate fresh paired poses; stale data and clock jumps reset comparison.
+        """比较新鲜配对位姿的位移增量，过期或时钟异常会重置比较历史.
 
-        At the oldest retained pair, align the wheel axes using the heading
-        difference. Compare both displacement vectors in that fixed orientation,
-        not their absolute positions or scalar path lengths. The wheel pose is
-        already integrated chassis odometry, transformed to the navigation point.
-        Short startup windows are evaluated as soon as two pairs exist. This
-        detects inconsistency, not which provider is correct or whether to stop.
+        以窗口内最早一对的朝向差固定对齐轮式坐标轴，再比较两个位移向量，
+        不比较绝对位置或标量路程。轮式位姿已由调用方积分并变换到同一导航参考点。
+        两样本分别检查年龄，不要求源时间戳相等；历史按本次 now 计时。
+        第一对也返回零残差的当前状态，尚不能据此声称已有完整窗口或一致性证据。
 
         Args:
-            now: Current ROS/simulation time in seconds, not an elapsed-wall clock.
-            localized: Whether the configured map-to-odometry transform is available.
-            map_pose: Latest map-to-navigation-point pose, or None.
-            wheel_pose: Latest integrated wheel pose of that same point, or None.
+            now: 当前 ROS 或仿真时间，单位秒，不是单调墙钟。
+            localized: 配置的全局帧到里程计帧变换是否可用，必须是 bool。
+            map_pose: 最近的全局帧到导航参考点位姿，无证据时为 None。
+            wheel_pose: 同一参考点的最近轮式积分位姿，无证据时为 None。
 
         Returns:
-            Finite evidence and the most urgent currently evaluable health status.
+            有限数值证据及按现有优先顺序可判定的健康状态；残差严格超过阈值
+            才报告 error，不归责数据源也不请求停车。同一 now 会替换上一对样本。
 
         Raises:
-            ValueError: Current time or localization availability has an invalid type.
+            ValueError: 当前时间不是有限内置数值，或定位可用性不是 bool。
+            OverflowError: 超大整数时间无法进行浮点有限性检查。
         """
         if not _finite(now) or type(localized) is not bool:
             raise ValueError('health time must be finite and localization state boolean')

@@ -1,4 +1,7 @@
-"""Disposable read-only sampling of localization, chassis and optional cloud contracts."""
+"""临时采样定位、底盘和可选点云接口的只读探针.
+
+持有自己的 ROS 上下文、节点和订阅，不持有接口提供方，也不创建运动发布者。
+"""
 
 from __future__ import annotations
 
@@ -22,32 +25,35 @@ from nav_perception_iface.contracts import check_contracts, InterfaceSnapshot
 
 
 class ContractProbe:
-    """Observe interfaces without owning their providers or publishing commands.
+    """观察接口但不控制提供方、发布命令或初始化定位的临时探针.
 
     Attributes:
-        profile: A private snapshot of the effective configuration.
-        data_topics: Required message topics, excluding the chassis command input.
-        buffer: 本对象使用的 TF 缓冲区。
+        profile: 有效配置的深拷贝，与调用方的后续修改分离。
+        data_topics: 必需数据话题及类型，不包括只查询订阅者的底盘命令输入。
+        buffer: 本对象使用的 TF 缓冲区；进入上下文前为 None。
         chassis_required: 是否检查底盘数据和命令订阅者。
-        cloud: 可选的点云输入话题；关闭点云检查时为 None。
+        cloud: 可选点云输入话题；关闭点云检查时为 None。
         command: 只检查订阅者的底盘命令话题；不创建该话题的发布者。
-        context: 本对象持有的私有 ROS 上下文。
+        context: 本对象持有的私有 ROS 上下文；未创建时为 None。
         executor: 只驱动本对象节点的执行器；未创建时为 None。
-        frames: 本次检查使用的 map/odom/body/nav_base 坐标系绑定。
+        frames: 本次检查使用的 map、odom、body 和 nav_base 坐标系绑定。
         listener: 本对象持有的 TF 监听器；未创建时为 None。
         node: 本对象持有的只读观察节点；未创建时为 None。
         scan_target: 点云投影目标坐标系；未启用点云检查时为 None。
     """
 
     def __init__(self, profile: Mapping[str, Any], chassis_required: bool = True) -> None:
-        """Validate the entire contract without initializing ROS or opening hardware.
+        """校验契约输入和话题绑定，不初始化 ROS 或打开硬件.
+
+        复制档案并以空快照检查所需配置；只完成本接口所需校验，不是全档案校验。
+        命令、点云和里程计话题的冲突按去除前导斜杠后的名称比较。
 
         Args:
-            profile: Mode-merged robot configuration.
-            chassis_required: Whether to check chassis data and command subscribers.
+            profile: 已按模式合并的机器人配置。
+            chassis_required: 是否检查底盘数据和命令订阅者，必须是 bool。
 
         Raises:
-            ValueError: A required configuration field or topic binding is invalid.
+            ValueError: 必需字段、开关或话题绑定无效，包括私有或替换模板话题名称。
         """
         if type(chassis_required) is not bool:
             raise ValueError('chassis_required must be boolean')
@@ -82,10 +88,14 @@ class ContractProbe:
         self._cloud_frame = self._cloud_stamp = None
 
     def __enter__(self) -> 'ContractProbe':
-        """Create a private context and TF listener, but no data subscriptions yet.
+        """创建私有上下文和 TF 监听器，尚不创建里程计或点云数据订阅.
 
         Returns:
-            This initialized observer; data sampling starts only after localization.
+            已初始化的观察器；数据订阅要等 sample 显式确认定位后才创建。
+
+        Raises:
+            BaseException: 创建失败后先尝试 close，再传播错误；
+                清理自身失败可能覆盖原错误。
         """
         try:
             self.context = Context()
@@ -103,17 +113,28 @@ class ContractProbe:
 
     def __exit__(self, exc_type: Optional[Type[BaseException]],
                  exc_value: Optional[BaseException], traceback: Any) -> None:
-        """Release this observer without signaling another ROS process.
+        """释放本观察器资源，不向其它 ROS 进程发送信号.
 
         Args:
-            exc_type: Active exception type, if any.
-            exc_value: Active exception, if any.
-            traceback: Active traceback, if any.
+            exc_type: 当前上下文异常类型，若无异常则为 None。
+            exc_value: 当前上下文异常对象。
+            traceback: 当前上下文异常回溯。
+
+        Raises:
+            Exception: close 释放资源失败；可能覆盖原上下文异常。
         """
         self.close()
 
     def close(self) -> None:
-        """Destroy the private executor, listener, node and context, including partial setup."""
+        """按执行器、监听器、节点与上下文的顺序尝试释放已创建资源.
+
+        执行器关闭失败会跳过同层的监听器注销，但 finally 仍尝试节点和上下文清理。
+        执行器、监听器、节点的引用在各自释放调用前清空，不承诺失败后可完整重试，
+        也不把重复调用无操作当作全部资源已确认释放。
+
+        Raises:
+            Exception: 资源释放失败；后续 finally 中的异常可能覆盖较早异常。
+        """
         try:
             if self.executor is not None:
                 executor, self.executor = self.executor, None
@@ -131,10 +152,12 @@ class ContractProbe:
                     self.context.shutdown()
 
     def spin(self, duration_sec: float) -> None:
-        """Process callbacks for at most the supplied bounded wall-clock interval.
+        """在自己的执行器上处理一次回调等待，不驱动其它节点.
+
+        等待超时不是回调执行耗时的硬上界。
 
         Args:
-            duration_sec: Maximum poll duration.
+            duration_sec: 传给 spin_once 的等待超时，单位秒；由调用方保证有效。
         """
         self.executor.spin_once(timeout_sec=duration_sec)
 
@@ -160,10 +183,10 @@ class ContractProbe:
             return False
 
     def localized(self) -> bool:
-        """Check global-to-odometry TF without requiring or initializing a pose.
+        """只读检查全局帧到里程计帧的 TF 是否可查询，不设置初始位姿.
 
         Returns:
-            Whether the user-owned localization transform is presently queryable.
+            当前变换可用性；不另外校验新鲜度，不代表其余接口契约已经满足。
         """
         return self._has_transform(self.frames['map'], self.frames['odom'])
 
@@ -215,22 +238,24 @@ class ContractProbe:
              for topic in self.data_topics}, self._cloud_frame)
 
     def sample(self, duration_sec: float, stopped: Callable[[], bool]) -> InterfaceSnapshot:
-        """Collect fresh messages only after localization, releasing every subscription.
+        """在定位已可查询后创建临时订阅，采样并尝试释放本次订阅.
 
-        Subscribers use volatile best-effort depth-one QoS: reliable and best-effort
-        publishers are supported, but retained pre-localization samples cannot pass.
-        Only topic presence and the latest cloud header are kept, not payload data.
+        使用 volatile、best-effort、depth-one QoS，兼容可靠和尽力投递发布者，
+        不请求保留的历史样本；只记录本次收到的话题与最新点云头，不保存负载。
+        这不证明消息源时间新鲜，也不排除发布方重放旧数据。
 
         Args:
-            duration_sec: Finite positive wall-clock sampling window.
-            stopped: Caller-owned interruption predicate, checked at each bounded poll.
+            duration_sec: 有限正单调时钟采样窗口，单位秒。
+            stopped: 调用方持有的中断检查，在创建订阅和轮询时调用。
 
         Returns:
-            Actual data, endpoint and TF evidence from this window. Cloud TF is
-            queried at the latest received cloud's stamp, not an unrelated latest TF.
+            本次收到的数据、端点和 TF 证据；提前停止可返回不完整快照，由调用方判断。
+            点云 TF 使用最后收到点云的源时间戳，不用无关的最新 TF 代替。
 
         Raises:
-            ValueError: The sampling window is invalid or localization is not ready.
+            ValueError: 窗口无效或开始采样时定位尚未可查询。
+            Exception: 订阅创建、观察或释放失败；finally 逐个释放，
+                某次释放抛异常会中断后续释放，不保证每个订阅均确认销毁。
         """
         if (type(duration_sec) not in (int, float) or not math.isfinite(duration_sec)
                 or duration_sec <= 0):

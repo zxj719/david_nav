@@ -73,7 +73,9 @@ def string_value(profile: Mapping[str, Any], key: str) -> str:
 
 
 def scan_configuration(profile: Mapping[str, Any]) -> ScanConfiguration:
-    """从有效档案构造点云节点参数，保留原节点所有数值与类型.
+    """从档案构造并校验点云节点参数，数值字段统一转换为 float.
+
+    即使 enabled 为 False 也校验全部接口字段，不以关闭状态跳过参数检查。
 
     Args:
         profile: 模式合并后的机器人档案。
@@ -127,7 +129,8 @@ def load_scan_configuration(
         不修改输入文件的扫描配置。
 
     Raises:
-        ValueError: YAML、档案结构或覆盖值无效。
+        ValueError: YAML、档案结构或覆盖值无效；启用覆盖不会绕过档案校验。
+        OSError: 无法读取显式档案文件。
     """
     try:
         profile = yaml.safe_load(path.read_text(encoding='utf-8'))
@@ -142,18 +145,21 @@ def load_scan_configuration(
 
 
 def load_contract_profile(profile_path: Path, mode_path: Optional[Path] = None) -> Dict[str, Any]:
-    """Read frozen configuration inputs for the independent interface checker.
+    """读取显式契约检查档案并深合并可选模式，不隐式选择机器人或写回文件.
+
+    两个输入文档要求整数 schema_version 为 1；模式 profile 缺失或为 None
+    视为空覆盖。映射递归合并，其它值整体替换；这里不是完整参数 schema 校验。
 
     Args:
-        profile_path: Explicit robot profile or already merged profile file.
-        mode_path: Optional version-one mode overlay, as frozen by the supervisor.
+        profile_path: 显式机器人档案或已合并的有效档案文件。
+        mode_path: 可选的版本一模式文件，其 mode 必须是非空字符串。
 
     Returns:
-        New mode-merged profile; source files are never written or implicitly selected.
+        新的模式合并档案；原输入文件不被修改。
 
     Raises:
-        ValueError: A document is not a version-one mapping or its overlay is invalid.
-        OSError: An explicit input is unavailable.
+        ValueError: YAML 无效、文档不是版本一映射，或模式名称、覆盖结构无效。
+        OSError: 无法读取显式输入文件。
     """
     def read(path):
         try:

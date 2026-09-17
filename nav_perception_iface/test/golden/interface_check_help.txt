@@ -1,0 +1,15 @@
+usage: nav_interface_check [-h] --profile PROFILE [--mode MODE]
+                           [--sample-sec SAMPLE_SEC]
+                           [--wait-timeout WAIT_TIMEOUT] [--no-chassis]
+
+Independent read-only interface probe, suitable for navcfg subprocess
+integration.
+
+options:
+  -h, --help            show this help message and exit
+  --profile PROFILE
+  --mode MODE
+  --sample-sec SAMPLE_SEC
+  --wait-timeout WAIT_TIMEOUT
+  --no-chassis          explicit standalone diagnostic without a driver
+                        contract

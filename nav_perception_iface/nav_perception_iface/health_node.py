@@ -1,4 +1,7 @@
-"""Five-hertz navigation-side health observer; no IMU, motion or provider control."""
+"""五赫兹导航侧健康观察节点，不读取 IMU，也不控制运动或定位提供方.
+
+只订阅配置的轮式里程计并查询 TF，发布诊断与只告警策略的事件。
+"""
 
 import json
 import math
@@ -54,17 +57,17 @@ def _yaw(value):
 
 
 class LocalizationMonitor(Node):
-    """Own only TF/odometry observation and diagnostic publication on one ROS node."""
+    """仅持有 TF、里程计观察与诊断发布资源的导航节点."""
 
     def __init__(self) -> None:
-        """Read ROS parameters, validate warn-only policy, and create bounded observations.
+        """读取显式 ROS 参数，校验只告警策略并创建有界观察资源.
 
-        All frame/topic names come from prepared robot configuration. A failed
-        construction destroys its own node; it never touches a provider process.
+        帧与话题名称来自准备好的机器人配置。父类构造之后的资源创建失败会尝试
+        销毁自己的节点，不触碰定位提供方；清理失败可能覆盖原创建错误。
 
         Raises:
-            ValueError: A required name is missing or health policy is invalid.
-            RuntimeError: ROS entities cannot be constructed.
+            ValueError: 必需名称为空或健康策略不合法。
+            Exception: ROS 实体创建或本节点清理失败。
         """
         super().__init__('localization_monitor')
         self._closed = False
@@ -235,7 +238,14 @@ class LocalizationMonitor(Node):
             self._next_failure = time.monotonic() + 5.0
 
     def destroy_node(self) -> None:
-        """Seal callbacks and remove only owned observation resources."""
+        """封闭回调，注销自有 TF 监听器并调用父类销毁节点.
+
+        即使注销失败，finally 仍调用父类销毁；仅在整个路径未抛异常时设置已销毁标志，
+        但不核对父类的返回值。失败后的再次调用不等于全部资源已成功释放的证明。
+
+        Raises:
+            Exception: 监听器注销或父类节点销毁失败。
+        """
         if self._destroyed:
             return
         self._closed = True
@@ -249,13 +259,20 @@ class LocalizationMonitor(Node):
 
 
 def main(args: Optional[Sequence[str]] = None) -> int:
-    """Run the navigation-side observer, with no automatic provider or motion control.
+    """运行导航侧只读观察器，不自动控制定位提供方或运动.
+
+    主体错误只输出异常类型；finally 尝试销毁本节点并关闭本进程 ROS 上下文，
+    不信号或关闭其它进程。
 
     Args:
-        args: Standard ROS arguments; None uses process arguments.
+        args: 标准 ROS 参数；None 使用进程参数。
 
     Returns:
-        Zero for normal shutdown, two for configuration/runtime failure.
+        正常结束、键盘中断或外部 ROS 关闭返回零；
+        主体中捕获的配置或运行错误返回 2。
+
+    Raises:
+        Exception: 最终清理失败，可能覆盖主体的返回码。
     """
     node = None
     try:
