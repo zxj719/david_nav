@@ -56,13 +56,22 @@ async def await_rclpy_future(future: FutureLike) -> Any:
     wrapped: concurrent.futures.Future = concurrent.futures.Future()
 
     def completed(source: FutureLike) -> None:
+        """从完成线程转交结果或取消异常，迟到时仍取出源异常.
+
+        只更新本地桥接 Future，不取消源对象。外层等待者已取消时，
+        本地 InvalidStateError 被消费；普通异常和 asyncio.CancelledError
+        都转交等待者，不让后一种异常因属于 BaseException 而逃逸完成线程。
+
+        Args:
+            source: 已完成的源 Future，可用取消标志或异常表达取消。
+        """
         # Always retrieve a late source exception, even if nobody awaits it now.
         try:
             if getattr(source, 'cancelled', lambda: False)():
                 wrapped.cancel()
                 return
             result = source.result()
-        except Exception as error:
+        except (Exception, asyncio.CancelledError) as error:
             with contextlib.suppress(concurrent.futures.InvalidStateError):
                 wrapped.set_exception(error)
             return

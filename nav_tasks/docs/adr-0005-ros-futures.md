@@ -20,6 +20,15 @@ for the legacy threaded dock caller. Canceling an asyncio waiter does not cancel
 the source ROS future, which may still deliver the handle needed for cleanup.
 Late source errors are retrieved even after a waiter has gone away.
 
+A source can also store asyncio.CancelledError as its exception without setting
+its canceled flag. The callback now forwards that exception through the same
+local bridge as ordinary exceptions; it must not escape the completing thread
+or leave a registered waiter pending. An abandoned waiter still causes the late
+source error to be retrieved without canceling the source or writing into an
+already-completed local bridge. Five standard-library-only cases cover ready,
+loop-thread, worker-thread and abandoned-waiter completion. This is a Future
+notification fix, not proof of motion cleanup or physical stopping.
+
 The action session receives feedback through `loop.call_soon_threadsafe`; all
 ownership and user feedback callbacks run on the one task loop. This is not an
 R6 executor-thread architecture switch: the old runtime spin loop is untouched.
