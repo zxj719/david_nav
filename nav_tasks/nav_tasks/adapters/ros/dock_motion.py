@@ -1,4 +1,4 @@
-"""Blocking worker facade marshaling stages onto the sole Nav2 action owner loop."""
+"""把阻塞 Dock 阶段请求交给唯一 Nav2 动作所有者循环的跨线程适配器."""
 
 import asyncio
 from concurrent.futures import Future
@@ -18,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class _DockMotion:
-    """One worker's blocking port; all backend operations run on the owning loop."""
+    """为单个 Dock 工作线程提供阻塞端口，后端动作始终在所有者循环执行."""
 
     def __init__(
         self, backend: Nav2Client, frame: str, stop: threading.Event,
@@ -26,6 +26,23 @@ class _DockMotion:
         feedback: Callable[[object, float], None] | None,
         server_timeout: float, send_timeout: float,
     ) -> None:
+        """在所有者循环记录共享后端与线程桥接依赖，不启动动作或线程.
+
+        保存参数而不重复验证；预算及端口适用性由外层工作线程所有者负责。
+
+        Args:
+            backend: 仅在此 asyncio 循环调用的共享 Nav2 后端。
+            frame: 解释导航平面位姿的目标帧。
+            stop: 工作线程与循环共享的协作停止事件。
+            supervisor: 持有阶段任务强引用的循环监督器。
+            logger: 冻结日志接收器。
+            feedback: 可选循环线程原始反馈与后续距离回调。
+            server_timeout: 服务就绪预算，单位为秒。
+            send_timeout: 目标接收预算，单位为秒。
+
+        Raises:
+            RuntimeError: 当前没有运行中的 asyncio 循环。
+        """
         self._loop = asyncio.get_running_loop()
         self._loop_thread = threading.get_ident()
         self._backend = backend
@@ -43,37 +60,52 @@ class _DockMotion:
     def navigate(
         self, pose: PlanarPose, label: str, timeout_sec: float, extra_distance: float,
     ) -> DockActionResult:
-        """Block the worker until the shared navigation stage has settled.
+        """阻塞工作线程等待共享导航阶段的软件收尾结果.
+
+        此端口不查 POI 或吸附，也不驱动 ROS；跨线程等待没有独立期限，
+        外层必须保持所有者循环与 ROS 回调存活。
 
         Args:
-            pose: Global-frame planar target, without snapping.
-            label: Frozen stage label.
-            timeout_sec: Result budget after admission.
-            extra_distance: Approach distance for complete feedback forwarding.
+            pose: 配置全局帧下的平面目标，单位为米与弧度。
+            label: 冻结的阶段日志标签。
+            timeout_sec: 接收目标后的结果预算，不含独立清理预算。
+            extra_distance: 导航反馈附加的后续阶段距离，单位为米。
 
         Returns:
-            Settled stage result; cleanup exceptions are never converted to False.
+            单次阶段结果，不等于整个 Dock 成功或实体停稳。
+
+        Raises:
+            RuntimeError: 从所有者循环线程调用会死锁，或循环已关闭。
+            BaseException: 后端或清理异常经跨线程 Future 传播，不转换成普通失败。
         """
         return self._call('navigate', pose, label, timeout_sec, extra_distance)
 
     def spin(
         self, yaw: float, label: str, time_allowance_sec: float, timeout_sec: float,
     ) -> DockActionResult:
-        """Block for a signed rotation through the same backend and action slot.
+        """通过同一后端与动作槽位阻塞等待一次有符号旋转.
 
         Args:
-            yaw: Signed relative angle.
-            label: Frozen correction label.
-            time_allowance_sec: Nav2 server allowance.
-            timeout_sec: Independent local result budget.
+            yaw: 相对旋转角，单位为弧度，不归一化或裁剪。
+            label: 冻结的补偿阶段日志标签。
+            time_allowance_sec: Nav2 服务端时间额度。
+            timeout_sec: 独立的本地结果预算，不是跨线程等待总期限。
 
         Returns:
-            Settled result, without treating angular feedback as remaining meters.
+            阶段结果；不把旋转反馈误作剩余米数，不自行检查停稳。
+
+        Raises:
+            RuntimeError: 从所有者循环线程调用，或循环已关闭。
+            BaseException: 目标验证、动作或清理异常经跨线程 Future 传播。
         """
         return self._call('spin', SpinGoal(yaw, time_allowance_sec), label, timeout_sec, 0)
 
     def request_cancel(self) -> None:
-        """Fence future stages and cancel the active stage from the owner loop."""
+        """在所有者循环设置停止屏障，并请求取消尚未结束的本地阶段.
+
+        即使取消审计日志抛出普通异常，finally 仍取消阶段。只发起请求，
+        不等待后端终态或工作线程退出；线程约束由调用方遵守，不在此检查。
+        """
         self._stop.set()
         stage = self._stage
         if stage is not None and not stage.done() and not self._cancel_logged:

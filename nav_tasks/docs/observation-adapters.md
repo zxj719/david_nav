@@ -22,8 +22,9 @@ thread after motion consumers have stopped. Close seals callbacks before removin
 only owned subscriptions; repeated successful close is a no-op and failed removal
 retains its handle for retry. Partial grid construction removes the first
 subscription if the second fails. The assembly root remains responsible for
-node cleanup if construction and cleanup both fail. No localization process is
-ever destroyed by these methods.
+retaining and retrying the RuntimeAssemblyError cleanup handle if both creation
+and rollback fail; external node cleanup must not bypass owned handles. No
+localization process is ever destroyed by these methods.
 
 ## Compatibility choices
 
@@ -53,6 +54,27 @@ adapters, GridGoalResolver and YAML storage; only node, messages, TF buffer and
 action I/O are fakes. This proves port composition in memory, not DDS discovery,
 real TF timing, robot stopping or complete runtime teardown.
 
-Production and legacy runtime entry points remain unchanged. CLI/help, concrete
-assembly ownership, WS lifecycle, shared Dock/Spin, event production and the
-remaining P6/P7 work still need integration before an entry-point switch.
+The refactor runtime now assembles these adapters with WS lifecycle, shared
+Dock/Spin, event production and compatibility entry shims; see
+[runtime ownership](runtime.md). Production is not deployed by this integration.
+Remaining P6/P7 gates and physical acceptance are separate from the in-memory
+composition and no-goal lifetime checks.
+
+## Snapshot and teardown limits
+
+The ordinary grid adapter stores incoming message references until snapshot time;
+successive snapshots may therefore observe mutations to the same input message.
+The converted cell list is copied but the resulting GridMapView is itself mutable.
+Dock instead copies its retained map at callback time, including origin rotation.
+Neither policy synchronizes map and costmap timestamps or adds freshness checks.
+
+Only TF lookup failures are normalized. Field decoding after a successful lookup
+can raise directly; Dock does not turn such malformed responses into a logged
+missing-pose result. Capture uses independent map/odometry times, and cached
+odometry records are detached from the original message. New pure tests preserve
+these boundaries rather than introducing a new input-validation policy.
+
+Grid close removes subscriptions in order and stops at the first failure. Already
+removed handles are not retried, while failed and unattempted handles remain owned.
+Callbacks are sealed even if removal fails. The lifecycle owner must serialize
+close calls and keep the external node alive until cleanup succeeds.

@@ -76,9 +76,9 @@ completion or early node destruction. None of these receipts proves physical
 braking/settling beyond the existing motion and observation contracts.
 
 The nav_executor outer console now wires this multithreaded sequence and optional
-WS in one process; a full explicit Dock parameter file is required. Legacy
-node/entry points remain unchanged. Current tests use actual
+WS in one process; a full explicit Dock parameter file is required. Compatibility
+entry shims also use the refactor runtime; production remains undeployed. Tests use actual
 callback threads, manager, DockWorker, runtime and protocol adapter with fake ROS
 constructors/clients/futures only; no ROS graph, action goals or velocity commands
-are published. Real host/no-goal lifetime verification and manual motion acceptance
-are separate gates.
+are published by these fake-I/O tests. Installed host/no-goal lifetime verification
+has separate evidence and does not replace manual motion acceptance.

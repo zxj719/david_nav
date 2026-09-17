@@ -1,4 +1,4 @@
-"""Navigation-owned TF/odometry observations; never controls localization."""
+"""读取导航侧 TF 和里程计观察，不控制或修改定位栈."""
 
 import threading
 from typing import Callable
@@ -18,11 +18,10 @@ def _stamp(stamp: object) -> float:
 
 
 class TfPoseSource:
-    """Read injected TF buffer and one depth-10 odometry subscription.
+    """借用 TF 缓冲区并持有一个深度十里程计订阅.
 
-    Node, TF buffer/listener and executor are owned by the composition root.
-    The only resource owned here is the created odometry subscription. Callback
-    snapshots are protected across ROS threads; no worker or spin is started.
+    节点、TF listener、缓冲区与 executor 均由装配根持有。回调缓存受锁保护，
+    不启动工作线程或 spin；唯一自有 ROS 资源是里程计订阅。
     """
 
     def __init__(
@@ -31,18 +30,24 @@ class TfPoseSource:
         session_id: Callable[[], str], odometry_type: type | None = None,
         latest_time: Callable[[], object] | None = None,
     ) -> None:
-        """Inject ROS resources and explicit configured frame/topic names.
+        """注入既有 ROS 资源及显式帧名和话题，仅创建里程计订阅.
+
+        未注入消息或时间类型时惰性导入；不检查帧名的完整配置约束，
+        不改接定位输出、不创建 TF listener，也不启停定位。
 
         Args:
-            node: Node used only to create/destroy this subscription.
-            tf_buffer: Existing buffer used for latest-time lookups.
-            robot_base_frame: Exact configured robot observation frame.
-            odom_topic: Existing odometry topic, not automatically rewired.
-            map_frame: Global TF target and empty-header fallback.
-            odom_frame: Odometry TF source and empty-message-frame fallback.
-            session_id: Existing session identity supplier.
-            odometry_type: Optional fake message class; lazily import ROS otherwise.
-            latest_time: Optional latest-time factory; default is rclpy Time.
+            node: 创建和销毁本订阅所用的外部节点。
+            tf_buffer: 用于最新时刻查询的既有缓冲区。
+            robot_base_frame: 精确配置的机器人观察帧，不与 Dock 旋转中心混称。
+            odom_topic: 既有里程计话题，不自动改接。
+            map_frame: 全局 TF 目标与空 header 帧的后备值。
+            odom_frame: 里程计 TF 源与空消息帧的后备值。
+            session_id: 当前会话标识提供者。
+            odometry_type: 可选测试消息类；省略时导入 ROS 消息。
+            latest_time: 可选最新时刻构造器；默认 rclpy Time。
+
+        Raises:
+            Exception: 类型导入或订阅创建失败。
         """
         if odometry_type is None:
             from nav_msgs.msg import Odometry
@@ -114,14 +119,18 @@ class TfPoseSource:
             raise PoseUnavailableError(str(error)) from error
 
     def current_map_pose(self) -> PoseRecord:
-        """Read the latest configured global-from-robot pose.
+        """读取最新全局帧到配置机器人观察帧的位姿.
+
+        保留 TF header 帧和时间，空帧才使用配置值；保留旧四元数计算与高度，
+        不增加有限性、归一化或新鲜度检查。成功查询后的解析异常不包装成查询失败。
 
         Returns:
-            Pose retaining TF header frame/stamp and legacy quaternion arithmetic.
+            新建 PoseRecord，距离为米、yaw 为弧度、时间为秒。
 
         Raises:
-            PoseUnavailableError: TF lookup failed; its cause and message are retained.
-            ClosedError: Observation resources are closing or closed.
+            PoseUnavailableError: 最新时刻构造或 TF 查询失败，保留原异常原因。
+            ClosedError: 观察源正在关闭或已关闭。
+            Exception: 查询成功后的字段读取或数值转换失败。
         """
         transform = self._lookup(self._robot_frame)
         position = transform.transform.translation
@@ -131,18 +140,19 @@ class TfPoseSource:
             _yaw(transform.transform.rotation), _stamp(transform.header.stamp))
 
     async def capture_for_poi(self) -> CapturedPose:
-        """Capture latest map and odometry observations with existing session identity.
+        """采集独立的最新地图和缓存里程计样本，并关联当前会话标识.
 
-        As before, map and odometry are latest independent samples, not a new
-        timestamp-synchronization policy. Administrative freshness checks remain
-        in PoiCommands.
+        协程内部没有异步等待，也不等待下一帧里程计。样本时间不对齐、不在此
+        校验新鲜度；POI 管理端另行执行自己的校验。里程计在回调时转换为记录，
+        不会因原消息后续修改而变化。
 
         Returns:
-            Detached immutable pose observations.
+            不可变位姿记录及会话标识组成的采集结果，不保证跨来源同一时刻。
 
         Raises:
-            PoseUnavailableError: TF lookup failed or no odometry was received.
-            ClosedError: Observation resources are closing or closed.
+            PoseUnavailableError: TF 查询失败或尚无里程计。
+            ClosedError: 观察源正在关闭或已经关闭。
+            Exception: TF 解析或会话标识回调失败。
         """
         map_pose = self.current_map_pose()
         with self._lock:
@@ -152,35 +162,46 @@ class TfPoseSource:
         return CapturedPose(map_pose, odom_pose, self.current_slam_session_id())
 
     def current_slam_session_id(self) -> str:
-        """Read the externally supplied session identifier.
+        """确认观察源仍开放后读取外部提供的定位会话标识.
+
+        不查询、重启或更改定位进程，不校验回调返回值。
 
         Returns:
-            Current localization session identity.
+            外部提供的当前会话标识。
+
+        Raises:
+            ClosedError: 观察源已封闭。
+            Exception: 会话标识提供者失败。
         """
         self._check_open()
         return self._session_id()
 
     def current_map_from_odom(self) -> Transform2D:
-        """Read latest global-from-odometry transform without changing localization.
+        """读取最新全局帧到里程计帧的平面变换，不改变定位接线.
+
+        只提取 x/y 和旧算法 yaw，不返回时间戳，也不增加新鲜度或有限性检查。
 
         Returns:
-            Planar transform retaining the legacy yaw calculation.
+            当前平面 Transform2D。
 
         Raises:
-            PoseUnavailableError: Lookup failed, with original cause retained.
-            ClosedError: Observation resources are closing or closed.
+            PoseUnavailableError: 最新时刻构造或 TF 查询失败，保留原异常原因。
+            ClosedError: 观察源正在关闭或已经关闭。
+            Exception: 查询成功后的字段或数值转换失败。
         """
         transform = self._lookup(self._odom_frame).transform
         return Transform2D(float(transform.translation.x), float(transform.translation.y),
                            _yaw(transform.rotation))
 
     def close(self) -> None:
-        """Seal callbacks and destroy only the subscription owned by this adapter.
+        """封闭回调并销毁唯一自有里程计订阅，失败句柄可重试.
 
-        Failed destruction is retryable; no node/buffer/executor is destroyed.
+        不销毁节点、缓冲区、listener 或 executor；外层需先停止使用这些资源。
+        持锁只保护封闭标志，生命周期调用仍须由外层顺序安排。
 
         Raises:
-            RuntimeError: The node reports failure to remove the subscription.
+            RuntimeError: 节点明确返回 False 表示订阅删除失败。
+            Exception: 节点销毁抛错，订阅句柄与封闭状态保留。
         """
         with self._lock:
             self._closed = True

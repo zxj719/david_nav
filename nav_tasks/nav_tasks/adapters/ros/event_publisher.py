@@ -1,4 +1,4 @@
-"""Owned observation publishers on the caller's node, with no extra ROS participant."""
+"""在外部节点持有导航观察发布器，不增加 ROS 节点或执行线程."""
 
 import json
 import logging
@@ -14,13 +14,13 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class NavigationEvents:
-    """Serialize loop/worker observations independently of motion and frozen WS events."""
+    """串行化循环及工作线程观察，与运动控制和冻结 WS 事件分离."""
 
     def __init__(self, *, now: Callable[[], float] = time.time) -> None:
-        """Create an empty owner before allocating ROS handles.
+        """创建空观察所有者、生产者身份与序号，不分配 ROS 句柄.
 
         Args:
-            now: Unix wall-clock source, independent of ROS/simulation time.
+            now: Unix 墙钟秒数来源，独立于 ROS 或仿真时钟，发布时验证有限性。
         """
         self._now = now
         self._identity = uuid.uuid4().hex
@@ -35,19 +35,19 @@ class NavigationEvents:
         self._sealed = False
 
     def open(self, node: object, *, dock: bool = False) -> None:
-        """Allocate depth-ten reliable/volatile publishers on an already-owned node.
+        """在现有节点创建可靠、易失、深度十的观察发布器.
 
-        Retain this owner and call close even if opening the second publisher
-        fails. ROS topic remapping applies normally; no extra parameters or node
-        are introduced. Open/close belong to the assembly lifecycle.
+        创建第二个发布器失败时，仍须保留本对象并调用 close。
+        只在完整打开后允许发布；不新增节点或参数，正常应用 ROS 名称重映射。
+        open/close 由外层按生命周期顺序调用，不允许关闭后重新打开。
 
         Args:
-            node: Caller-owned node kept alive until close succeeds.
-            dock: Also publish the separate SPEC R7 private JSON surface.
+            node: 外部持有的节点，存活到 close 成功。
+            dock: 同时创建 SPEC R7 的节点私有 JSON 观察出口。
 
         Raises:
-            RuntimeError: The owner was already opened or sealed.
-            Exception: Construction failed; any completed handles remain owned.
+            RuntimeError: 已持有节点或已封闭。
+            Exception: 导入或创建失败，已创建句柄仍由本对象持有。
         """
         if self._node is not None or self._sealed:
             raise RuntimeError('observation owner cannot be reopened')
@@ -63,23 +63,29 @@ class NavigationEvents:
         self._opened = True
 
     def task(self, name: str, data: Mapping[str, object]) -> None:
-        """Publish one manager-loop observation without affecting the task result.
+        """同步发布任务循环的观察，不改变任务控制结果或冻结事件格式.
+
+        失败、故障及清理失败标为 error，其余为 info；编码/发布普通异常
+        在下层记录后丢弃，不持久化、不重试或等待 DDS 确认。日志本身仍可能失败。
 
         Args:
-            name: Lifecycle type, separate from legacy TaskEvent kinds.
-            data: Detached correlation/state payload, not arbitrary request contents.
+            name: 生命周期名称，与旧 TaskEvent 种类分离。
+            data: 调用方提供的关联/状态映射，不应包含任意请求正文。
         """
         failed = name in ('task_failed', 'task_fault', 'task_cleanup_failed')
         severity = 'error' if failed else 'info'
         self._publish('tasks', name, severity, data)
 
     def dock(self, goal: DockGoal, name: str, data: Mapping[str, object]) -> None:
-        """Dual-write one correlated Dock measurement from its existing owned worker.
+        """把带任务身份的 Dock 测量写入全局观察及可选私有 JSON 出口.
+
+        复制顶层数据并覆盖任务/子任务/代次字段；no_pose 或 clear 为 False
+        使用 warn。两次发布独立失败，共享事件 ID 和墙钟时间，不形成交付事务。
 
         Args:
-            goal: Immutable task/generation identity, never an action to send.
-            name: Workflow event, for example measured or after_spin.
-            data: Unrounded workflow values in metres/radians/seconds.
+            goal: 不可变任务与代次身份，不会被当作动作下发。
+            name: 工作流事件名，例如 measured 或 after_spin。
+            data: 未舍入的观测数据，距离/角度/时间单位为米、弧度、秒。
         """
         if not isinstance(name, str) or not name.strip() or not isinstance(data, Mapping):
             _LOGGER.warning('Invalid Dock observation name or data')
@@ -94,15 +100,14 @@ class NavigationEvents:
         self._publish('dock', 'dock_' + name, severity, values, dock_name=name)
 
     def close(self) -> None:
-        """Seal emission and release handles after the task manager and worker settle.
+        """封闭事件发布，并在任务管理器和 Dock 工作线程收尾后销毁自有句柄.
 
-        Publication and destruction share a lock. Failed destruction retains its
-        handle for retry, while successfully destroyed handles are not retried.
-        The caller must keep the node alive and not abandon this owner on failure.
+        发布与销毁共享锁。先私有、后全局，首个失败中断后续销毁；成功项清除，
+        失败项及尚未尝试项保留供重试。外部节点必须继续存活，不在这里销毁。
 
         Raises:
-            RuntimeError: ROS did not confirm a publisher was destroyed.
-            Exception: Destruction failed; the remaining handles stay owned.
+            RuntimeError: 节点以假值表示发布器未被销毁。
+            Exception: 销毁抛错，封闭状态与剩余句柄保持。
         """
         with self._lock:
             self._sealed = True

@@ -1,10 +1,9 @@
-"""ROS Dock ingress for one loop-owned manager, without another motion client.
+"""为循环内任务管理器提供 Dock 话题和动作入口，不另建运动客户端.
 
-The host must use a MultiThreadedExecutor with at least two callback threads.
-Synchronous action execution waits on an internal concurrent future, never spins
-ROS and never runs the blocking Dock workflow itself. The runtime's DockWorker
-owns that workflow. Stop/close retain ROS resources; destroy follows successful
-host executor quiescence, including rclpy's result-publication callback tail.
+宿主必须提供至少两个回调线程的 MultiThreadedExecutor。同步动作执行
+回调等待内部 Future，不 spin ROS，也不自行运行阻塞 Dock 策略。
+stop/close 保留 ROS 资源；宿主确认 executor 静止（含结果发布尾部）
+之后才可 destroy。
 """
 
 import asyncio
@@ -31,6 +30,19 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class _Entry:
+    """保存一个 Dock 入口的任务身份、观察队列和所有权释放凭据.
+
+    Attributes:
+        task_id: 本入口生成的唯一任务标识。
+        handle: 动作句柄，话题入口为 None。
+        settled: 等待核心所有权释放凭据的 Future，不是 ROS 结果 Future。
+        inbox: 内部唤醒队列，无容量上限，不把消息数量当作完成证据。
+        snapshot: 提交后的准入快照，含代次；提交完成前可为 None。
+        cancel_requested: 入口已记录的取消请求，尚不证明运动停止。
+        failure: 观察或反馈失败标志，触发自有任务清理。
+        task: 本入口执行任务，失败时可能连同记录保留供关闭审查。
+    """
+
     task_id: str
     handle: object
     settled: asyncio.Future
@@ -42,20 +54,25 @@ class _Entry:
 
 
 class DockIngress:
-    """Own topic/action adapters, marshaling all task state to their asyncio loop."""
+    """持有 Dock 话题与动作适配器，把任务状态操作交给唯一 asyncio 循环."""
 
     def __init__(
         self, tasks: object, config: DockNodeConfig, *, cleanup_retry_sec: float = 1.0,
     ) -> None:
-        """Create an empty adapter owner before opening caller-owned ROS resources.
+        """在当前循环构造空入口所有者，并校验配置，不分配 ROS 资源.
+
+        校验运行策略、非空话题/动作名及正重试间隔；不裁剪或改写名字。
+        tasks 的完整接口约定由装配方提供，不在这里逐项验证。
 
         Args:
-            tasks: Public TaskApi implementation on the current running event loop.
-            config: Explicit validated ingress names and Dock policy.
-            cleanup_retry_sec: Delay between failed owned-task cancellation attempts.
+            tasks: 属于当前运行循环的公共 TaskApi 实现。
+            config: 显式 DockNodeConfig，含入口名称和工作流策略。
+            cleanup_retry_sec: 自有任务取消失败后的正间隔，单位为秒，拒绝布尔值。
 
         Raises:
-            ConfigError: Configuration or cleanup retry interval is invalid.
+            ConfigError: 配置类型、已检查策略或重试间隔无效。
+            RuntimeError: 没有运行中的 asyncio 循环。
+            Exception: 配置转换等未归一化异常。
         """
         if not isinstance(config, DockNodeConfig):
             raise ConfigError('Dock ingress requires DockNodeConfig')
@@ -81,17 +98,17 @@ class DockIngress:
         self._close_task = None
 
     def open(self, node: object) -> None:
-        """Create the old depth-one goal subscription and reentrant action service.
+        """在外部节点创建深度一目标订阅与可重入动作服务.
 
-        The caller retains this owner if either construction stage fails. No node,
-        executor, TF listener or action client is created by this adapter.
+        只有两步都成功才允许准入；部分构造失败需保留本对象并按
+        close、宿主静止、destroy 顺序收尾。不创建节点、executor、TF 或动作客户端。
 
         Args:
-            node: Caller-owned ROS node kept alive until destroy succeeds.
+            node: 外部持有的 ROS 节点，至少存活到 destroy 成功。
 
         Raises:
-            RuntimeError: Open was already attempted, or the owner is closing.
-            Exception: Construction failed; close/quiesce/destroy completed stages.
+            RuntimeError: 跨循环调用、已有节点或入口正在关闭。
+            Exception: 导入或资源构造失败；保留已完成阶段进行清理。
         """
         self._check_loop()
         if self._node is not None or self._closing:
@@ -113,7 +130,13 @@ class DockIngress:
         self._opened = True
 
     def stop(self) -> None:
-        """Seal admission immediately and wake owned requests without destroying ROS resources."""
+        """立即封闭入口并唤醒已有请求，但不等待取消也不销毁 ROS 资源.
+
+        只允许在所有者循环调用；重复调用仍会给每个入口队列加入唤醒标记。
+
+        Raises:
+            RuntimeError: 不在持有入口的运行循环。
+        """
         self._check_loop()
         self._closing = True
         for entry in self._entries.values():
@@ -138,16 +161,15 @@ class DockIngress:
         await asyncio.shield(self._close_task)
 
     def destroy(self) -> None:
-        """Release ROS resources only after close AND successful host executor quiescence.
+        """在入口已关闭且宿主 executor 已静止后释放自有 ROS 资源.
 
-        The host guarantees no rclpy callback tails or queued goal callbacks remain.
-        This method cannot prove that host invariant and must not replace executor
-        shutdown. A failed stage is retained for retry; the external node is never
-        destroyed here.
+        本方法只检查 closed，不能证明没有回调尾部或排队目标；该前置条件
+        由宿主保证。顺序销毁动作服务与订阅，失败会中断后续步骤并保留句柄
+        供重试；成功项不重复，外部节点不在这里销毁。
 
         Raises:
-            RuntimeError: Close has not completed or subscription destruction failed.
-            Exception: ROS destruction failed; retain this owner and retry.
+            RuntimeError: 跨循环、尚未关闭或订阅销毁明确返回 False。
+            Exception: ROS 销毁失败，必须保留所有者和剩余资源。
         """
         self._check_loop()
         if not self._closed:
@@ -162,12 +184,20 @@ class DockIngress:
         self._pending_cancels.clear()
 
     def on_feedback(self, goal: DockGoal, raw: object, extra_distance: float) -> None:
-        """Forward complete legacy feedback only for the matching live action generation.
+        """只为身份、代次和活动状态匹配的动作入口转发完整兼容反馈.
+
+        保留位姿、耗时、预计剩余时间与恢复次数，只为剩余距离加后续阶段米数。
+        话题入口、关闭/取消/失败或已收尾入口不发布。构造或发布反馈的普通异常
+        标记入口失败并唤醒清理，不立即宣布动作已结束。
 
         Args:
-            goal: Loop-thread worker identity, including admission generation.
-            raw: Original NavigateToPose feedback wrapper, not modified here.
-            extra_distance: Remaining later-stage distance added to this stage's value.
+            goal: 循环线程中的任务、子任务与准入代次身份。
+            raw: 原始 NavigateToPose 反馈包装，不修改其字段。
+            extra_distance: 加到当前阶段剩余距离的后续阶段米数。
+
+        Raises:
+            RuntimeError: 跨事件循环调用。
+            Exception: 状态查询或异常日志本身失败；发布异常通常在内部隔离。
         """
         self._check_loop()
         entry = self._entries.get(goal.request_id)

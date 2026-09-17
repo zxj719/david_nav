@@ -1,4 +1,4 @@
-"""Owned blocking Dock thread, joined before task cancellation or replacement completes."""
+"""持有同步 Dock 工作线程，取消或替换完成前等待其实际退出."""
 
 import asyncio
 from concurrent.futures import Future
@@ -22,11 +22,22 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class _WorkerStopped(Exception):
-    """Cooperative cancellation at a worker's pose, sleep or admission boundary."""
+    """表示工作线程在位姿读取、等待或阶段边界观察到协作停止请求."""
 
 
 @dataclass
 class _WorkerAttempt:
+    """保存一次 Dock 工作线程及异步收尾的可变所有权记录.
+
+    Attributes:
+        stop: 后续阶段与工作线程边界共享的停止事件。
+        motion: 本线程的阻塞端口，动作仍交由循环内共享后端执行。
+        thread: 非守护工作线程，可能尚未启动或启动失败。
+        worker: 等待结果并确认线程退出的受监督任务。
+        cleanup: 可共享、失败后可重试的后台清理任务。
+        settled: 已确认软件清理结束，不是额外的物理停稳证明。
+    """
+
     stop: threading.Event
     motion: _DockMotion
     thread: threading.Thread
@@ -36,14 +47,12 @@ class _WorkerAttempt:
 
 
 class DockWorker:
-    """Run synchronous Dock policy without granting its thread motion ownership.
+    """在受管线程运行同步 Dock 策略，不把后端动作所有权交给该线程.
 
-    Construct and call lifecycle methods on the TaskManager event loop. The
-    shared Nav2Client stays on that loop; no second ROS executor or client is
-    constructed here. Pose/map/logger callbacks must be worker-safe. Canceling
-    an asyncio caller requests cooperative thread cancellation and joins owned
-    cleanup, including repeated cancellation. A stuck callback cannot be forcibly
-    stopped: ownership stays held until it returns and the thread really exits.
+    构造和生命周期调用属于 TaskManager 的 asyncio 循环；共享 Nav2Client
+    留在同一循环，不另建 ROS executor 或客户端。位姿、地图、日志及观察回调
+    必须适于工作线程。execute 等待者反复取消不能放弃线程清理；阻塞回调
+    无法被强制停止，必须保留所有权和所需资源直到真实线程退出。
     """
 
     def __init__(
@@ -56,24 +65,29 @@ class DockWorker:
         on_raw_feedback: Callable[[DockGoal, object, float], None] | None = None,
         on_event: Callable[[DockGoal, str, Mapping[str, object]], None] | None = None,
     ) -> None:
-        """Bind explicit Dock policy and worker-safe ports without starting any thread.
+        """绑定显式 Dock 策略与工作线程端口，构造时不启动线程.
+
+        这里只校验帧真值及两个接收预算，不替代完整 workflow_config 校验；
+        也不验证回调的线程安全或目标几何有效性。
 
         Args:
-            backend: Sole Nav2 client shared with ordinary navigation and Spin.
-            global_frame: Configured target frame; no robot literal is supplied here.
-            config: Explicit workflow policy, including stage and settle budgets.
-            pose_fn: Worker-safe navigation-base pose source.
-            approach_check: Worker-safe full-footprint static-map admission check.
-            logger: Worker-safe frozen log sink.
-            server_timeout_sec: Legacy readiness budget, independently injectable in tests.
-            send_timeout_sec: Legacy admission budget, independently injectable in tests.
-            now_fn: Optional deterministic monotonic clock for finish tests.
-            sleep_fn: Optional test sleeper; production uses interruptible Event.wait.
-            on_raw_feedback: Optional complete feedback observer with task/generation identity.
-            on_event: Optional worker-thread observation sink with immutable task identity.
+            backend: 与普通导航及旋转共享的唯一 Nav2 客户端。
+            global_frame: 解释平面目标的配置帧，不进行 TF 转换。
+            config: 显式工作流策略，包含阶段、补偿与停稳预算。
+            pose_fn: 可在工作线程读取导航旋转中心位姿的回调。
+            approach_check: 可在工作线程执行完整轮廓静态图检查的回调。
+            logger: 可在工作线程使用的冻结日志接收器。
+            server_timeout_sec: 有限非负就绪预算，拒绝布尔值。
+            send_timeout_sec: 有限非负接收预算，拒绝布尔值。
+            now_fn: 可选单调时钟，用于确定性的入位测量测试。
+            sleep_fn: 可选测试等待器；默认以停止事件执行可中断等待。
+            on_raw_feedback: 可选完整反馈观察器，附带任务和代次身份。
+            on_event: 可选工作线程同步观察器，附带任务身份。
 
         Raises:
-            ConfigError: A frame or admission budget is invalid.
+            ConfigError: 空帧或已检查的接收预算无效。
+            RuntimeError: 没有运行中的 asyncio 循环。
+            Exception: 未归一化的转换异常，例如超大整数转浮点溢出。
         """
         if not global_frame:
             raise ConfigError('Dock global_frame must be nonempty')
@@ -99,24 +113,27 @@ class DockWorker:
 
     @property
     def busy(self) -> bool:
-        """Whether a worker or failed/unresolved cleanup still owns this facade."""
+        """读取是否仍持有工作线程或未解决清理，不等同于实体运动状态."""
         return self._active is not None
 
     async def dock(
         self, goal: DockGoal, on_feedback: Callable[[float], None],
     ) -> NavOutcome:
-        """Implement the pure Dock port while retaining full feedback for ROS ingress.
+        """适配领域 Dock 端口，并为 ROS 入口保留完整动作反馈.
+
+        只从目标取 x/y/yaw，按本实例的配置帧解释，不转换 goal.pose.frame_id。
+        普通反馈先加阶段一的后续距离，再调用可选完整反馈观察器。
 
         Args:
-            goal: Immutable pose and owner identity; coordinates use configured Dock frame.
-            on_feedback: Loop-thread distance callback, including the stage-one offset.
+            goal: 带位姿和任务、子任务、代次身份的目标。
+            on_feedback: 循环线程中的剩余米数回调，含后续阶段距离。
 
         Returns:
-            Complete measured Dock outcome, never intermediate approach arrival.
+            整个工作流的测量结论，不把预备点到达当作 Dock 成功。
 
         Raises:
-            Exception: Worker or motion cleanup failed and remains owned.
-            asyncio.CancelledError: Explicit cancellation after owned cleanup.
+            asyncio.CancelledError: 显式取消并等待持有的清理后传播。
+            Exception: 工作线程或动作清理失败，未解决的所有权继续保留。
         """
         def feedback(raw, extra):
             on_feedback(float(raw.feedback.distance_remaining) + float(extra))
@@ -132,21 +149,25 @@ class DockWorker:
         self, goal: PlanarPose, on_feedback: Callable[[object, float], None] | None = None,
         *, on_event: Callable[[str, Mapping[str, object]], None] | None = None,
     ) -> NavOutcome:
-        """Run one blocking workflow and fence any verdict after cancellation starts.
+        """运行一次阻塞工作流，停止屏障一旦设置就不再返回成功判定.
+
+        以非守护线程执行，结果 Future 完成后还需确认线程退出。调用方取消时
+        反复屏蔽等待者取消以加入同一清理；清理自身取消或失败仍向外传播。
+        线程启动、工作流或清理异常不能作为安全释放所有权的证据。
 
         Args:
-            goal: Already-decoded planar target; Dock deliberately bypasses snapping.
-            on_feedback: Loop-only complete raw feedback plus approach-distance offset.
-            on_event: Optional synchronous worker-thread observation sink, fenced by this attempt.
+            goal: 已解码的平面目标，刻意不执行普通 POI 吸附。
+            on_feedback: 仅循环线程调用的完整反馈与后续距离回调。
+            on_event: 可选同步工作线程观察器，受当前尝试身份与停止屏障限制。
 
         Returns:
-            Workflow verdict, never success after explicit cancellation has begun.
+            完整工作流结论；显式停止开始后不返回成功。
 
         Raises:
-            BusyError: A prior worker or unresolved cleanup still owns admission.
-            ClosedError: Worker lifecycle admission is sealed.
-            asyncio.CancelledError: Caller canceled after waiting for owned cleanup.
-            Exception: Worker or cleanup failed; retain the owner and retry cancel/close.
+            BusyError: 旧工作线程或未完成清理仍占有准入。
+            ClosedError: 生命周期准入已经封闭。
+            asyncio.CancelledError: 调用方取消并等待清理，或清理任务自身取消。
+            Exception: 启动、工作流或清理失败；保留所有者并重试 cancel/close。
         """
         self._check_loop()
         if self._closed:
@@ -196,20 +217,27 @@ class DockWorker:
             raise
 
     async def cancel(self) -> None:
-        """Fence actions and join the actual worker plus backend cleanup.
+        """封闭当前尝试的后续动作，并等待后端清理和真实工作线程退出.
+
+        不封闭未来尝试准入。等待者取消不取消后台清理，但此方法自身不反复
+        屏蔽等待者取消；execute 的取消路径另有持续加入清理的屏障。
 
         Raises:
-            Exception: Cleanup failed; ownership remains retained for retry.
+            asyncio.CancelledError: 等待者或后台清理取消，资源不能据此销毁。
+            Exception: 跨循环调用或清理失败，未完成所有权保留供重试。
         """
         self._check_loop()
         if self._active is not None:
             await asyncio.shield(self._cleanup_task(self._active))
 
     async def close(self) -> None:
-        """Seal worker admission and settle it without destroying the shared backend.
+        """永久封闭工作线程准入并等待清理，不销毁共享 Nav2 后端.
+
+        失败后仍保持封闭；调用方须保留循环、ROS 回调及工作线程端口资源。
 
         Raises:
-            Exception: Cleanup failed; the runtime must retain resources and retry.
+            asyncio.CancelledError: 等待者或后台清理取消。
+            Exception: 跨循环调用或清理失败，需保留所有者重试。
         """
         self._check_loop()
         self._closed = True

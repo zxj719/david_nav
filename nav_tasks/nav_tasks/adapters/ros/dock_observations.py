@@ -1,4 +1,4 @@
-"""Dock-specific retained static map and bounded navigation-frame TF observations."""
+"""提供 Dock 专用保留静态图快照与导航旋转中心的有界 TF 查询."""
 
 import math
 import threading
@@ -11,11 +11,10 @@ from nav_tasks.skills.docking.ports import DockLogger, PlanarPose
 
 
 class DockObservations:
-    """Own one static-map subscription, sharing the runtime's node and TF buffer.
+    """持有一个静态图订阅，借用运行时节点和 TF 缓冲区.
 
-    Unlike ordinary POI snap observations, Dock uses transient-local reliable
-    depth-one QoS and an immutable full-grid snapshot retaining map-origin yaw.
-    No localization resources, odometry subscription or executor are created.
+    与普通 POI 栅格源不同，使用可靠、瞬态本地、深度一 QoS，并在回调中
+    复制完整不可变栅格及原点 yaw。不创建定位资源、里程计订阅或 executor。
     """
 
     def __init__(
@@ -27,22 +26,28 @@ class DockObservations:
         latest_time: Callable[[], object] | None = None,
         duration: Callable[..., object] | None = None,
     ) -> None:
-        """Create the sole owned subscription with explicit navigation wiring.
+        """根据显式导航接线创建唯一自有地图订阅，不改变定位栈.
+
+        未注入的消息、QoS、时间或 Duration 类型在构造时惰性导入。
+        构造器不替代配置工厂的完整校验；外层须先停止并加入消费者线程再关闭。
 
         Args:
-            node: Caller-owned node, kept alive until worker and observation close.
-            tf_buffer: Caller-owned buffer, safe for reads from the Dock worker.
-            global_frame: Target frame used by the old Dock pose lookup and map guard.
-            robot_base_frame: Navigation rotation center, not the POI capture frame.
-            static_map_topic: Static occupancy source, not a dynamic costmap.
-            footprint: Immutable navigation-frame polygon.
-            occupied_threshold: Inclusive occupied-cell cutoff; unknown remains allowed.
-            logger: Worker-safe sink for the frozen TF-failure line.
-            pose_timeout_sec: Old bounded lookup budget, default two seconds.
-            occupancy_type: Optional fake message type for pure tests.
-            qos: Optional fake QoS for tests; production uses retained depth-one data.
-            latest_time: Optional fake latest-time factory.
-            duration: Optional fake ROS duration factory.
+            node: 外部节点，存活至工作线程与本观察源收尾。
+            tf_buffer: 外部缓冲区，须允许 Dock 工作线程读取。
+            global_frame: TF 目标帧及地图准入要求的帧。
+            robot_base_frame: 导航旋转中心，不是 POI 标记用的另一基座帧。
+            static_map_topic: 静态占用地图来源，不是动态代价图。
+            footprint: 配置提供的不可变导航轮廓，不在此复制。
+            occupied_threshold: 含边界的占用阈值，未知格继续沿用允许策略。
+            logger: 工作线程安全的 TF 失败日志接收器。
+            pose_timeout_sec: TF 查询预算，默认两秒，传给 Duration。
+            occupancy_type: 可选测试消息类型。
+            qos: 可选测试 QoS；默认使用保留数据的深度一配置。
+            latest_time: 可选最新时刻构造器。
+            duration: 可选 ROS Duration 构造器。
+
+        Raises:
+            Exception: 类型导入、时间额度构造或订阅创建失败。
         """
         if occupancy_type is None:
             from nav_msgs.msg import OccupancyGrid
@@ -94,13 +99,17 @@ class DockObservations:
                 self._grid = view
 
     def pose(self) -> PlanarPose | None:
-        """Read the latest navigation rotation center on the blocking worker.
+        """在阻塞工作线程查询最新导航旋转中心的平面位姿.
+
+        保留旧四元数运算，不验证归一化、有限性或时间新鲜度。
+        只捕获查询本身的普通异常；查询成功后的字段解析异常不转为 None。
 
         Returns:
-            Unmodified legacy planar TF arithmetic, or None after a logged lookup failure.
+            x/y/yaw，或查询失败且警告成功记录后的 None。
 
         Raises:
-            ClosedError: Observations are closing; the worker should already be joined.
+            ClosedError: 已开始关闭；工作线程本应先完成退出。
+            Exception: 结果字段解析或失败日志接收器出错。
         """
         with self._lock:
             if self._closed:
@@ -118,16 +127,19 @@ class DockObservations:
         return position.x, position.y, yaw
 
     def check_approach(self, pose: PlanarPose) -> FootprintCheck:
-        """Check the entire footprint using one thread-safe immutable map snapshot.
+        """用同一份不可变静态图快照检查预备点的完整车身轮廓.
+
+        取快照后不持锁做几何计算；无图、错帧、越界或占用按独立 Dock
+        准入策略拒绝，未知格 -1 仍允许，不证明整片区域已知空闲。
 
         Args:
-            pose: Computed approach pose in the configured global frame.
+            pose: 配置全局帧内已计算出的预备位姿，单位为米与弧度。
 
         Returns:
-            Existing missing-map/frame/geometry/occupancy admission verdict.
+            既有地图、帧、几何与轮廓占用的准入判定，不证明实车可达。
 
         Raises:
-            ClosedError: Observations are closing or closed.
+            ClosedError: 观察源正在关闭或已经关闭。
         """
         with self._lock:
             if self._closed:
@@ -137,10 +149,14 @@ class DockObservations:
             grid, self._global_frame, self._footprint, pose, self._threshold)
 
     def close(self) -> None:
-        """Seal callbacks and destroy only this subscription, retaining failures for retry.
+        """封闭地图回调并销毁唯一自有订阅，失败句柄保留供重试.
+
+        外层须先加入工作线程；这里不能中止已经在进行的 TF 查询。
+        不销毁借用的节点、缓冲区或任何定位资源。
 
         Raises:
-            RuntimeError: The node reports unsuccessful subscription removal.
+            RuntimeError: 节点明确返回 False 表示订阅未删除。
+            Exception: 订阅销毁抛错，封闭状态不回退。
         """
         with self._lock:
             self._closed = True
