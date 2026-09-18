@@ -21,7 +21,7 @@ class DockObservations:
         self, node: object, tf_buffer: object, *, global_frame: str,
         robot_base_frame: str, static_map_topic: str,
         footprint: tuple[tuple[float, float], ...], occupied_threshold: int,
-        logger: DockLogger, pose_timeout_sec: float = 2.0,
+        logger: DockLogger, pose_timeout_sec: float = 2.0, map_wait_sec: float = 1.0,
         occupancy_type: type | None = None, qos: object | None = None,
         latest_time: Callable[[], object] | None = None,
         duration: Callable[..., object] | None = None,
@@ -41,6 +41,8 @@ class DockObservations:
             occupied_threshold: 含边界的占用阈值，未知格继续沿用允许策略。
             logger: 工作线程安全的 TF 失败日志接收器。
             pose_timeout_sec: TF 查询预算，默认两秒，传给 Duration。
+            map_wait_sec: 首次静态地图的等待上限，默认一秒。只在快照仍为空时等待，且由 Dock
+                工作线程调用，不会阻塞 ROS 回调线程；等不到仍按原策略拒绝。
             occupancy_type: 可选测试消息类型。
             qos: 可选测试 QoS；默认使用保留数据的深度一配置。
             latest_time: 可选最新时刻构造器。
@@ -73,6 +75,8 @@ class DockObservations:
         self._timeout = duration(seconds=pose_timeout_sec)
         self._latest_time = latest_time
         self._lock = threading.Lock()
+        self._map_wait = float(map_wait_sec)
+        self._map_ready = threading.Event()
         self._closed = False
         self._grid: OccupancyGridView | None = None
         self._subscription = node.create_subscription(
@@ -97,6 +101,7 @@ class DockObservations:
         with self._lock:
             if not self._closed:
                 self._grid = view
+                self._map_ready.set()
 
     def pose(self) -> PlanarPose | None:
         """在阻塞工作线程查询最新导航旋转中心的平面位姿.
@@ -131,6 +136,8 @@ class DockObservations:
 
         取快照后不持锁做几何计算；无图、错帧、越界或占用按独立 Dock
         准入策略拒绝，未知格 -1 仍允许，不证明整片区域已知空闲。
+        首次快照为空时在本线程内有界等待一次首图（默认一秒）：目标可能比锁存地图先到，
+        等到即照常判定，等不到仍然拒绝。
 
         Args:
             pose: 配置全局帧内已计算出的预备位姿，单位为米与弧度。
@@ -145,6 +152,12 @@ class DockObservations:
             if self._closed:
                 raise ClosedError('Dock observations are closed')
             grid = self._grid
+        if grid is None:
+            self._map_ready.wait(self._map_wait)
+            with self._lock:
+                if self._closed:
+                    raise ClosedError('Dock observations are closed')
+                grid = self._grid
         return check_approach_footprint(
             grid, self._global_frame, self._footprint, pose, self._threshold)
 

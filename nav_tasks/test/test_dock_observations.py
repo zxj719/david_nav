@@ -1,6 +1,8 @@
 """Retained map snapshots and Dock TF contracts with no ROS nodes or executors."""
 
 import math
+import threading
+import time
 from types import SimpleNamespace as NS
 
 import pytest
@@ -16,7 +18,7 @@ def _message():
                                        w=math.cos(math.pi / 4)))), data=[0] * 64)
 
 
-def _source():
+def _source(map_wait_sec=0.0):
     state = NS(callback=None, subscription=object(), destroys=0, refuse=False, logs=[])
 
     def subscribe(message_type, topic, callback, qos):
@@ -42,8 +44,33 @@ def _source():
         node, buffer, global_frame='world', robot_base_frame='rotation_center',
         static_map_topic='/fixture_static', footprint=((-0.4, -0.4), (0.4, -0.4), (0, 0.4)),
         occupied_threshold=50, logger=NS(warn=state.logs.append), occupancy_type=object,
-        qos='retained', latest_time=lambda: 'latest', duration=lambda **values: values)
+        qos='retained', latest_time=lambda: 'latest', duration=lambda **values: values,
+        map_wait_sec=map_wait_sec)
     return source, state, buffer
+
+
+def test_late_static_map_is_awaited_once_instead_of_refused():
+    """目标比锁存的静态地图先到时，有界等待一次首图，等到了就照常判定.
+
+    2026-09-18 实机踩到：执行器一连上上位机就下发目标，入位因快照为空直接拒绝。
+    等待发生在 Dock 工作线程，不阻塞 ROS 回调线程。
+    """
+    source, state, _ = _source(map_wait_sec=2.0)
+    pose = (5.5, 14.5, math.pi / 2)
+    threading.Timer(0.2, lambda: state.callback(_message())).start()
+
+    assert source.check_approach(pose).clear
+
+
+def test_absent_static_map_still_refuses_after_the_bounded_wait():
+    """等不到首图仍按原策略拒绝，并且等待有上限."""
+    source, _, _ = _source(map_wait_sec=0.3)
+    started = time.monotonic()
+
+    result = source.check_approach((5.5, 14.5, math.pi / 2))
+
+    assert result.reason == 'static_map_not_received'
+    assert 0.3 <= time.monotonic() - started < 3.0
 
 
 def test_static_map_copy_retains_rotation_and_is_detached_from_ros_message():

@@ -116,8 +116,8 @@ def test_existing_robot_and_precise_mode_render_bind_without_policy_drift(
     assert dock.global_frame == profile['frames']['map']
     assert dock.static_map_topic == profile['nav2']['map_topic']
     assert dock.footprint == tuple(tuple(point) for point in profile['footprint'])
-    assert dock.xy_ok == profile['goal']['xy_tolerance']
-    assert dock.yaw_ok == profile['goal']['yaw_tolerance']
+    assert dock.xy_ok == profile['dock']['xy_ok']
+    assert dock.yaw_ok == profile['dock']['yaw_ok']
     assert dock.max_yaw_retries == 0 and dock.settle_max_rate_rad_s == 0.05
     assert resolved.dock_parameters == rendered['dock_navigator']['ros__parameters']
 

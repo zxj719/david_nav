@@ -66,6 +66,7 @@ def test_prepared_graph_binds_effective_robot_site_and_dock(tmp_path, robot, mod
         assert tasks.dock.robot_base_frame == profile['frames']['nav_base']
         assert tasks.dock.robot_base_frame != tasks.robot_base_frame
         assert tasks.dock.footprint == tuple(tuple(point) for point in profile['footprint'])
-        assert tasks.dock.yaw_ok == profile['goal']['yaw_tolerance']
-        assert tasks.dock.max_yaw_retries == 0
+        assert tasks.dock.yaw_ok == profile['dock']['yaw_ok']
+        assert tasks.dock.xy_ok == profile['dock']['xy_ok']
+        assert tasks.dock.max_yaw_retries == profile['dock']['max_yaw_retries']
         assert tasks.dock.settle_max_rate_rad_s == 0.05
