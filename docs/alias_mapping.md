@@ -14,10 +14,20 @@
 ## 已部署的那一条
 
 ```bash
-alias 20="export ROS_DOMAIN_ID=0;source /opt/ros/humble/setup.bash && source ~/ros2_ws_refactor/install/setup.bash;ros2 run nav_bringup navrun up --mode precise"
+alias 20="export ROS_DOMAIN_ID=0;set -o allexport;source ~/ros2_ws/src/david_nav/config/ros_env.conf;set +o allexport;source /opt/ros/humble/setup.bash && source ~/ros2_ws_refactor/install/setup.bash;ros2 run nav_bringup navrun up --mode precise"
 ```
 
-- 环境与现有 `0` 逐项对齐：同样是 domain 0、同样只 source 一个工作区，区别只在于工作区换成
+## 为什么必须加载 `ros_env.conf`（2026-09-18 实机定位到的故障）
+
+首次实机启动（未加载该文件）时 Nav2 卡在生命周期启动的第一个节点：地图服务器配置成功，但它的 `change_state` 响应发不回管理器（`failed to send response ... client will not receive response`），管理器无限等待，后面的代价地图、规划器、控制器全部没有配置激活，RViz 因此空白。
+
+机制：定位（`3`）与 RViz 都加载了白名单 XML，只在回环与有线网卡上通告；未加载该文件的导航侧会在包括 WiFi 在内的所有网卡上通告。两边的通告集合不对称时，服务的请求方向先配上、响应方向还没配上，响应就被丢掉了。
+
+证据：不加载时 1 次启动卡死；加载后连续 3 次启动分别在 15 / 21 / 18 秒内完成全部激活，`failed to send response` 0 次，全局代价地图正常发布，`map` 到导航基准帧的变换正常，停止后无残留进程。
+
+注意：现有生产 `0` 同样没有加载这个文件（`4` 的 headless 脚本有加载）。这是一处潜在风险，但本次没有改动生产，交由用户决定。
+
+- 环境与现有 `0` 的区别：除了上面这一条（`20` 会加载 DDS 环境文件），其余逐项对齐——domain 0、只 source 一个工作区，区别只在于工作区换成
   `~/ros2_ws_refactor`，入口换成重构后的 `navrun up`。
 - `~/.bashrc` 改动前已备份到 `~/david_nav_backups/20260918_alias20/bashrc.bak`；
   改动前 md5 `695bd38f807e689f084ed249ae855536`，改动后 `113291af807cdd888eed0f9d191caa6b`。
