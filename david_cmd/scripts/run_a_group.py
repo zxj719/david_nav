@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2026 xingjian zhang
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """A 组（A1 死区 / A2 增益 / A4 动态）一键辨识 + 自动生成 md 报告.
 
 判定一律用**轮速计 /odom 的速度值**（linear.x / angular.z），不使用 IMU。
