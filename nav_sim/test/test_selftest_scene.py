@@ -67,7 +67,7 @@ def test_real_bundle_is_private_and_contains_both_cases(tmp_path, robot, mode):
     assert values['static_map_topic'] == prefix + 'map'
     assert values['goal_topic'] == prefix + 'dock_goal'
     assert values['settle_max_rate_rad_s'] == 0.05
-    assert values['xy_ok'] == profile['goal']['xy_tolerance']
+    assert values['xy_ok'] == profile['dock']['xy_ok']
     for item in processes.values():
         if item.ros_node:
             assert ('/tf', prefix + 'tf') in item.remappings
