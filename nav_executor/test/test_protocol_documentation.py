@@ -1,6 +1,7 @@
 """Keep protocol documentation tied to the unchanged codec and wire goldens."""
 
 import ast
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -13,6 +14,8 @@ from nav_tasks.api import PoseRecord, StoredPoi
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCUMENT = ROOT / 'docs/protocol/nav_ws_v1.asyncapi.yaml'
+META_SCHEMA = ROOT / 'docs/protocol/schemas/asyncapi-2.6.0.json'
+META_SCHEMA_SHA256 = 'be227ff668d64da62932c8409daca58fef1f7749f5d386175111f17314595137'
 COMMANDS = ('NavigateTo', 'MarkCurrentPoi', 'AbortNavigation', 'UpdatePoiList')
 EVENTS = ('Progress', 'Arrived', 'Error', 'MarkPoiAck', 'MarkPoiSuccess', 'MarkPoiError')
 
@@ -131,8 +134,7 @@ def _expand(document, value, active=()):
 def test_payloads_and_existing_goldens_with_json_schema():
     """Run a real Draft 7 validator when available; do not substitute a subset checker."""
     jsonschema = pytest.importorskip(
-        'jsonschema',
-        reason='TODO-ASYNCAPI-1: jsonschema is not installed; S4 forbids installation')
+        'jsonschema', reason='python3-jsonschema is declared in package.xml but not installed')
     document = _document()
     validators = {}
     for name in document['components']['messages']:
@@ -152,6 +154,27 @@ def test_payloads_and_existing_goldens_with_json_schema():
         del missing[schema['required'][0]]
         assert not validators[name].is_valid(missing)
         assert not validators[name].is_valid([])
+
+
+def test_document_matches_the_official_asyncapi_meta_schema():
+    """用归档的官方 2.6.0 元 schema 校验整份文档，而不是只核对我们自己挑的字段.
+
+    先核对归档文件的 sha256（来源与固定提交见 docs/protocol/schemas/README.md），
+    再用 draft-07 校验；最后用一份残缺文档确认这个校验器真的会拒绝，不是空转。
+    """
+    jsonschema = pytest.importorskip(
+        'jsonschema', reason='python3-jsonschema is declared in package.xml but not installed')
+    raw = META_SCHEMA.read_bytes()
+
+    assert hashlib.sha256(raw).hexdigest() == META_SCHEMA_SHA256, (
+        'vendored meta schema changed; update docs/protocol/schemas/README.md first')
+    schema = json.loads(raw.decode('utf-8'))
+    assert schema['$schema'] == 'http://json-schema.org/draft-07/schema'
+    jsonschema.Draft7Validator.check_schema(schema)
+    validator = jsonschema.Draft7Validator(schema)
+
+    assert list(validator.iter_errors(_document())) == []
+    assert not validator.is_valid({'asyncapi': '2.6.0'})
 
 
 @pytest.mark.parametrize('relative', [
