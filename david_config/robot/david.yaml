@@ -37,6 +37,12 @@ goal:                               # 到点判定；精确入位等模式在 mo
   xy_tolerance: 0.30                # 目标检查器与 DWB 两处取同一值
   yaw_tolerance: 6.2832             # 2π：不约束朝向
 
+dock:                               # 精准入位（= 生产 precise 启动参数的默认值）
+  approach_dist: 0.5                # m，阶段 1 预备点沿目标航向后退的距离
+  xy_ok: 0.25                       # m，入位达标位置阈值；与 Nav2 的到点容差 goal.xy_tolerance 是两回事
+  yaw_ok: 0.4363                    # rad（25°），达标朝向阈值
+  max_yaw_retries: 0                # 朝向不达标不再重试（最小可执行原地转角约 13.6°）
+
 chassis:
   cmd_topic: /cmd_vel
   odom_topic: /odom

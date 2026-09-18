@@ -127,12 +127,14 @@ def node_parameters(
         output['scan_bridge'] = _node('pointcloud_to_laserscan', scan)
     if options.mode == 'precise':
         dock = {
-            'approach_dist': 0.5, 'max_yaw_retries': 0, 'goal_topic': '/dock_goal',
+            'approach_dist': render.profile_value(profile, 'dock.approach_dist'),
+            'max_yaw_retries': render.profile_value(profile, 'dock.max_yaw_retries'),
+            'goal_topic': '/dock_goal',
             'action_name': 'dock_to_pose', 'nav_timeout_sec': 120.0, 'spin_timeout_sec': 30.0,
             'static_occupied_threshold': 50, 'settle_max_rate_rad_s': 0.05,
             'settle_window_sec': 0.4, 'settle_timeout_sec': 8.0,
-            'xy_ok': render.profile_value(profile, 'goal.xy_tolerance'),
-            'yaw_ok': render.profile_value(profile, 'goal.yaw_tolerance'),
+            'xy_ok': render.profile_value(profile, 'dock.xy_ok'),
+            'yaw_ok': render.profile_value(profile, 'dock.yaw_ok'),
             'robot_base_frame': render.profile_value(profile, 'frames.nav_base'),
             'global_frame': render.profile_value(profile, 'frames.map'),
             'static_map_topic': render.profile_value(profile, 'nav2.map_topic'),

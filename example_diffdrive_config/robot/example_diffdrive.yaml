@@ -13,6 +13,7 @@ frames:
 footprint: [[0.25, 0.2], [0.25, -0.2], [-0.25, -0.2], [-0.25, 0.2]]
 limits: {max_vel_x: 0.1, max_vel_theta: 0.4, max_reverse_vel: 0.1}
 goal: {xy_tolerance: 0.2, yaw_tolerance: 6.2832}
+dock: {approach_dist: 0.5, xy_ok: 0.10, yaw_ok: 0.4363, max_yaw_retries: 0}
 chassis:
   cmd_topic: /demo/command
   odom_topic: /demo/wheel_odom

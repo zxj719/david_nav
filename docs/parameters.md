@@ -47,6 +47,10 @@ No parameters declared.
 |---|---|---|---|---|---|---|
 | `chassis.driver.executable` | `string` | — | default: `null` | — | 驱动包内的可执行文件名；navrun 准备运行参数时必须显式提供，不从机器人名字猜测 | — |
 | `chassis.odom_topic` | `string` | — | **required** | — | 底盘轮式里程计话题（速度平滑器闭环反馈） | — |
+| `dock.approach_dist` | `float` | m | default: `0.5` | range: `0.0 .. inf` | 精准入位阶段 1 的预备点沿目标航向后退的距离 | — |
+| `dock.max_yaw_retries` | `int` | — | default: `0` | range: `0 .. 10` | 朝向不达标时补转的次数；0 表示不补转 | — |
+| `dock.xy_ok` | `float` | m | default: `0.1` | range: `0.0 .. inf` | 精准入位的达标位置阈值；与 Nav2 的到点容差 goal.xy_tolerance 相互独立 | — |
+| `dock.yaw_ok` | `float` | rad | default: `0.4363` | range: `0.0 .. 6.2832` | 精准入位的达标朝向阈值 | — |
 | `executor.reconnect_delay_sec` | `float` | s | default: `3.0` | range: `0.0 .. inf` | 旧 WS 执行器重连等待，映射 --reconnect-delay；其余协议默认保持原值 | — |
 | `footprint` | `list` | m | **required** | — | 机器人轮廓多边形 [[x, y], ...]，在 frames.nav_base 下表达，至少三个点 | — |
 | `frames.map` | `string` | — | **required** | — | 全局地图帧（Nav2 BT、全局代价图） | — |

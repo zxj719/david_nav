@@ -182,6 +182,22 @@ def test_driver_parameters_match_the_wheeltec_launch(profile):
         assert float(defaults[key]) == parameters[key]
 
 
+def test_dock_policy_is_separate_from_the_nav2_goal_checker(profile):
+    """入位达标阈值与 Nav2 到点容差是两个独立的值.
+
+    2026-09-16 生产把入位达标放宽到 0.25 m，而 Nav2 的到点容差仍是 0.10 m。
+    两者一旦被写成同一个值，入位会在实测 0.15 m 这种生产认可的结果上报失败
+    （2026-09-18 实机踩到）。
+    取值来自生产 precise 启动参数的默认值。
+    """
+    dock = profile['dock']
+
+    assert (dock['xy_ok'], dock['yaw_ok']) == (0.25, 0.4363)
+    assert (dock['max_yaw_retries'], dock['approach_dist']) == (0, 0.5)
+    precise_goal = _load(PACKAGE_DIR / 'modes' / 'precise.yaml')['profile']['goal']
+    assert dock['xy_ok'] > precise_goal['xy_tolerance']
+
+
 def test_urdf_equals_the_production_copy():
     """The URDF is byte-identical to the one the bringup launch publishes today."""
     urdf = PACKAGE_DIR / 'urdf' / 'david.urdf'

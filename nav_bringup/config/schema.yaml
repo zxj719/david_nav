@@ -75,6 +75,29 @@ parameters:
     type: string
     required: true
     description: 代价图静态层订阅的栅格地图话题（启动文件可能改写，见 PROGRESS P2.4）
+  dock.approach_dist:
+    type: float
+    unit: m
+    default: 0.5
+    range: [0.0, null]
+    description: 精准入位阶段 1 的预备点沿目标航向后退的距离
+  dock.xy_ok:
+    type: float
+    unit: m
+    default: 0.10
+    range: [0.0, null]
+    description: 精准入位的达标位置阈值；与 Nav2 的到点容差 goal.xy_tolerance 相互独立
+  dock.yaw_ok:
+    type: float
+    unit: rad
+    default: 0.4363
+    range: [0.0, 6.2832]
+    description: 精准入位的达标朝向阈值
+  dock.max_yaw_retries:
+    type: int
+    default: 0
+    range: [0, 10]
+    description: 朝向不达标时补转的次数；0 表示不补转
   chassis.odom_topic:
     type: string
     required: true
