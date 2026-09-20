@@ -179,6 +179,33 @@ def _wait(path: Path, result: Dict[str, Any], timeout: float) -> Dict[str, Any]:
         time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
 
 
+def request_takeover(lock_path: Path, timeout: float, wait_timeout: float) -> Dict[str, Any]:
+    """协作式请当前持有者停止并等待它清理完，绝不强杀、绝不抢锁.
+
+    没有持有者时直接返回 inactive，调用方可以照常启动。持有者若不是按本机制登记的
+    （旧入口、手工启动、或没有协作端点），这里抛错而不是夺锁——让出与否由持有者决定。
+
+    Args:
+        lock_path: 导航租约路径。
+        timeout: 与持有者交换一条请求的总预算（秒）。
+        wait_timeout: 等待其完成清理的额外预算（秒）。
+
+    Returns:
+        终态响应。只有 ``cleanup_complete`` 为 True 才表示持有者确实退干净了；
+        其余情况一律不能当作可以启动。
+
+    Raises:
+        ValueError: 租约不安全、持有者没有可协作端点，或响应不合法。
+        TimeoutError: 通信预算耗尽。
+        OSError: 租约读取或套接字操作失败。
+    """
+    path = Path(lock_path)
+    result = _exchange(path, 'down', timeout)
+    if result['state'] == 'inactive':
+        return result
+    return _wait(path, result, wait_timeout)
+
+
 def run(args: argparse.Namespace) -> int:
     """打印当前受管持有者的状态，或请求并等待协作式清理.
 

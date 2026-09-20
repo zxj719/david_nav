@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -16,6 +17,7 @@ from typing import Any, Dict, Tuple
 
 from nav_bringup.launching.executables import resolve_executable
 from nav_bringup.navcfg import schema
+from nav_bringup.navrun import control_client
 from nav_bringup.navrun.preflight import PreflightError, ProcessInfo
 from nav_bringup.navrun.locking import DEFAULT_LOCK_PATH
 from nav_bringup.navrun.recorded_startup import run_recorded_startup, StartupOptions
@@ -100,8 +102,45 @@ def _plan(args, run_dir):
                    resolve_executable)
 
 
+def take_over(lock_path: Path, budget_sec: float) -> Dict[str, Any]:
+    """启动前请当前持有者协作退出；只等待，不强杀、不删锁、不抢占.
+
+    没有持有者时立即返回。持有者让出之前本函数不会去碰任何资源，因此失败时现场保持原样。
+
+    Args:
+        lock_path: 导航租约路径。
+        budget_sec: 有限且为正的总预算（秒），含交换请求与等待清理。
+
+    Returns:
+        终态响应；``state`` 为 inactive 表示本来就没人持有。
+
+    Raises:
+        ValueError: 预算非法。
+        RuntimeError: 持有者不肯让出——没有协作端点、响应不合法，或预算内没清理完。
+    """
+    if not math.isfinite(budget_sec) or budget_sec <= 0:
+        raise ValueError('--takeover-timeout must be finite and positive')
+    try:
+        result = control_client.request_takeover(
+            lock_path, min(10.0, budget_sec), budget_sec)
+    except (OSError, ValueError, TimeoutError) as error:
+        raise RuntimeError(
+            'takeover refused: the current owner is not a cooperative navrun '
+            '(%s); stop it yourself' % type(error).__name__) from error
+    if result['state'] == 'inactive':
+        return result
+    if not result.get('cleanup_complete'):
+        raise RuntimeError(
+            'takeover incomplete: the owner did not finish cleanup '
+            'within %g s (state=%s)' % (budget_sec, result.get('state')))
+    return result
+
+
 def start(args: argparse.Namespace) -> int:
     """执行已准备好的带记录启动，不修改现网的任何快捷方式.
+
+    给了 ``--takeover`` 时，先请当前持有者协作退出并确认它清理完成，再照常启动；
+    持有者不肯让出就直接失败，不会强杀、不会删锁，也不会两套栈同时在跑。
 
     Args:
         args: 已解析的模式、档案、记录、仓库与严格检查选择子。
@@ -115,6 +154,12 @@ def start(args: argparse.Namespace) -> int:
         OSError: 缺少必需文件、可执行文件，或记录操作不可用。
         RuntimeError: 无法建立归属、主机准备或记录。
     """
+    if getattr(args, 'takeover', False):
+        released = take_over(DEFAULT_LOCK_PATH,
+                             float(getattr(args, 'takeover_timeout', 60.0)))
+        if released['state'] != 'inactive':
+            print('navrun up: took over from run %s (pid %s)'
+                  % (released.get('run_id'), released.get('pid')), file=sys.stderr)
     repo = args.repo or args.source_root
     if repo is None:
         candidate = Path(__file__).resolve().parents[3]

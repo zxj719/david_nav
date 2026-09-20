@@ -107,6 +107,8 @@ python3 tools/nomotion_agent.py /tmp/ws_transcript.jsonl 8101
 navrun down
 ```
 
+锁被别人占着时不要去删 `/tmp/navrun.lock`，也不要 kill：用 `navrun up … --takeover`，它会请当前持有者协作退出、确认它 `cleanup_complete` 之后才接管；对方不肯让出（旧入口、手工启动、或预算内没退完）就直接失败，绝不两套栈同时在跑。
+
 事后核对"确实没动"：运行记录里与目标/入位相关的事件数应为 0；
 收尾只应有设计中的 `stop_zero_sent`。完整证据模板见
 `~/codex_handoff_david_nav_refactor/onsite_acceptance_20260920/README.md`。

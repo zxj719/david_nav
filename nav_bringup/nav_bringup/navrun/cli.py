@@ -117,6 +117,12 @@ def build_parser() -> argparse.ArgumentParser:
     up_parser.add_argument('--no-executor', action='store_true')
     up_parser.add_argument('--composition', action='store_true',
                            help='opt in to the isolated Nav2 component container')
+    up_parser.add_argument(
+        '--takeover', action='store_true',
+        help='ask the current owner to stop cooperatively, then start; never forces')
+    up_parser.add_argument(
+        '--takeover-timeout', type=float, default=60.0,
+        help='seconds allowed for the current owner to finish its cleanup')
     up_parser.add_argument('--dry-run', action='store_true')
     up_parser.add_argument('--strict', action='store_true', help='fail on live check errors')
     up_parser.add_argument('--repo', type=Path, help='repository whose code state is recorded')

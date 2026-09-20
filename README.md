@@ -80,6 +80,7 @@ source /opt/ros/humble/setup.bash && source ~/ros2_ws_refactor/install/setup.bas
 
 navrun up --mode precise --dry-run      # 只预览：不建目录、不起进程、不碰 ROS
 navrun up --mode precise                # 真启动（会起底盘驱动，见 CLAUDE.md 的安全约定）
+navrun up --mode precise --takeover     # 锁被占时先请对方协作退出再接管；不强杀
 navrun up --mode precise --chassis off  # 不起驱动：车物理上不可能动，用于无运动验收
 navrun doctor                           # 只读体检
 navrun ls                               # 列出运行记录（JSON）
