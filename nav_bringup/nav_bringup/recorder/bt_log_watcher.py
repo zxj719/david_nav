@@ -1,10 +1,10 @@
-"""Report behavior tree escape and recovery triggers (refactor plan §10.3).
+"""报告行为树的脱困与恢复触发（方案 §10.3）.
 
-:class:`TriggerReporter` turns ``/behavior_tree_log`` status changes into an
-event in the run's ``events.jsonl``, a line in the terminal and the same line
-in ``logs/navrun.log``. The subscription lives in
-:mod:`nav_bringup.recorder.monitor` (``navrun monitor``), which also supplies
-the robot pose from TF because the tree log carries none.
+:class:`TriggerReporter` 把 ``/behavior_tree_log`` 的状态变化转成运行目录
+``events.jsonl`` 里的一条事件、终端上的一行，以及 ``logs/navrun.log`` 里同样的一行。
+订阅本身在 :mod:`nav_bringup.recorder.monitor`（``navrun monitor``）里，
+机器人位姿也由它从 TF 取来——行为树日志本身不带位姿。
+本模块只做观察与记录：不取消目标、不改变导航行为。
 """
 
 from __future__ import annotations
@@ -20,13 +20,15 @@ LOG_FILE_NAME = 'navrun.log'
 
 
 def status_changes_from_msg(msg: Any) -> List[bt_triggers.StatusChange]:
-    """Convert a ``nav2_msgs/BehaviorTreeLog`` message.
+    """转换一条 ``nav2_msgs/BehaviorTreeLog`` 消息.
+
+    只做字段搬运，不判重、不过滤，也不要求消息来自真实 ROS。
 
     Args:
-        msg: The message, or any object with the same fields.
+        msg: 该消息，或任何具有相同字段的对象。
 
     Returns:
-        The status changes in message order.
+        按消息内顺序排列的状态变化。
     """
     return [
         bt_triggers.StatusChange(
@@ -40,7 +42,11 @@ def status_changes_from_msg(msg: Any) -> List[bt_triggers.StatusChange]:
 
 
 class TriggerReporter:
-    """Write the triggers of status changes to the event log and text sinks."""
+    """把状态变化触发的结果写进事件日志与文本输出.
+
+    不是线程安全的：订阅方需保证串行调用。任一输出端异常都会向上抛出，
+    不会被吞掉当成"已记录"。
+    """
 
     def __init__(
         self,
@@ -51,16 +57,17 @@ class TriggerReporter:
         task_provider: Callable[[], Optional[str]] = lambda: None,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        """Create a reporter.
+        """创建一个触发报告器.
+
+        构造阶段不订阅任何话题、不打开任何文件。
 
         Args:
-            detector: Detector that decides what is reported.
-            event_log: Run event log, or ``None`` to only print lines.
-            sinks: Text streams that receive one line per trigger, for example
-                the terminal and ``logs/navrun.log``.
-            pose_provider: Returns the current robot pose, or ``None``.
-            task_provider: Returns the active task id, or ``None``.
-            clock: Wall-clock time source for the printed lines.
+            detector: 决定什么该被报告的检测器。
+            event_log: 运行事件日志；为 ``None`` 时只打印文本行。
+            sinks: 每个触发各收到一行文本的输出流，例如终端与 ``logs/navrun.log``。
+            pose_provider: 返回当前机器人位姿，取不到时返回 ``None``。
+            task_provider: 返回当前任务 ID，没有时返回 ``None``。
+            clock: 打印行所用的墙钟时间源。
         """
         self._detector = detector
         self._event_log = event_log
@@ -70,13 +77,16 @@ class TriggerReporter:
         self._clock = clock
 
     def handle(self, changes: Sequence[bt_triggers.StatusChange]) -> List[bt_triggers.Trigger]:
-        """Process status changes and report the triggers they fire.
+        """处理状态变化并报告它们触发的项.
+
+        位姿或任务 ID 取不到时照常报告，只是相应字段缺省，
+        因此事件里没有位姿不代表当时机器人没在动。
 
         Args:
-            changes: Status changes, typically one message's worth.
+            changes: 状态变化，通常是一条消息的量。
 
         Returns:
-            The reported triggers.
+            已报告的触发项。
         """
         triggers = self._detector.process(changes)
         for trigger in triggers:

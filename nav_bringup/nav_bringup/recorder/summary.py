@@ -1,8 +1,8 @@
-"""Human readable ``summary.md`` for a finished run.
+"""为一次已结束的运行生成可读的 ``summary.md``.
 
-The summary is written for the people operating the robot, so headings and
-labels are in Chinese; values come straight from the manifest, the event
-timeline and the resource samples (refactor plan §13.2).
+这份摘要写给现场操作机器人的人，因此标题与标签都是中文；数值全部直接取自清单、
+事件时间线与资源采样（方案 §13.2），本模块不做任何推断或补全——
+摘要里没写的，就是这次运行没有记录到的。
 """
 
 from __future__ import annotations
@@ -31,17 +31,20 @@ def render_summary(
     skipped_event_lines: int = 0,
     topics: Optional[TopicsSummary] = None,
 ) -> str:
-    """Render the Markdown summary of a run.
+    """渲染一次运行的 Markdown 摘要.
+
+    纯函数：只读入参，不读文件、不写文件。
 
     Args:
-        manifest: Finalized run manifest.
-        events: Events of the run in file order.
-        resources: Aggregated resource usage.
-        skipped_event_lines: Lines of ``events.jsonl`` that could not be parsed.
-        topics: Aggregated topic rates and TF lag, if the run was monitored.
+        manifest: 已收尾的运行清单。
+        events: 按文件顺序排列的本次运行事件。
+        resources: 聚合后的资源占用。
+        skipped_event_lines: ``events.jsonl`` 中解析失败的行；会如实计入摘要，
+            不静默丢弃。
+        topics: 话题频率与 TF 延迟的聚合结果；未开监控时可缺省。
 
     Returns:
-        Markdown text ending with a newline.
+        以换行结尾的 Markdown 文本。
     """
     git = _mapping(manifest.get('git'))
     environment = _mapping(manifest.get('environment'))
@@ -81,11 +84,13 @@ def render_summary(
 
 
 def write_summary(path: Union[str, Path], text: str) -> None:
-    """Write a rendered summary.
+    """写出已渲染的摘要.
+
+    直接覆盖目标路径，不做备份。
 
     Args:
-        path: Destination, normally the run's ``summary.md``.
-        text: Output of :func:`render_summary`.
+        path: 目标路径，通常是该次运行的 ``summary.md``。
+        text: :func:`render_summary` 的输出。
     """
     Path(path).write_text(text, encoding='utf-8')
 

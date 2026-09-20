@@ -1,7 +1,7 @@
-"""Strict shared-event ingestion, without ROS imports or motion authority.
+"""严格的共享事件接收；不导入 ROS，也不具备任何运动权限.
 
-Transport identity lives in the reserved data.__nav_event member so existing
-five-field JSONL consumers remain compatible. This module never republishes.
+传输身份放在保留字段 data.__nav_event 里，这样原有按五字段解析 JSONL 的消费者
+不受影响。本模块只落盘，从不转发或重新发布任何事件。
 """
 
 from collections import OrderedDict
@@ -18,22 +18,26 @@ MAX_DEPTH = 32
 
 
 class NavEventRecorder:
-    """Validate, deduplicate and append observations on the existing monitor node."""
+    """在既有 monitor 节点上校验、去重并追加观察到的事件.
+
+    去重窗口是有界的内存 LRU：重启、淘汰与部分写盘都可能让同一事件再次落盘，
+    因此不要把它当作"恰好一次"。
+    """
 
     def __init__(
         self, log: EventLog, warn: Callable[[str], None], *, capacity: int = 4096,
         ignored_prefixes: tuple[str, ...] = (),
     ) -> None:
-        """Bind a run's writer and a bounded in-memory deduplication window.
+        """绑定某次运行的写入器与一个有界的内存去重窗口.
 
         Args:
-            log: Existing run event file, not a new recorder process.
-            warn: Diagnostic sink receiving only failure category, never remote payloads.
-            capacity: Maximum remembered event identities; duplicates refresh recency.
-            ignored_prefixes: Own persistent producer namespaces, suppressed to avoid echo writes.
+            log: 已存在的运行事件文件，不是新起的记录器进程。
+            warn: 诊断输出端，只收到失败类别，绝不收到远端报文内容。
+            capacity: 最多记住多少条事件身份；重复出现会刷新其新近度。
+            ignored_prefixes: 自身持久生产者的命名空间，跳过以免把自己的回声写回去。
 
         Raises:
-            ValueError: Capacity or producer namespaces are invalid.
+            ValueError: 容量或生产者命名空间非法。
         """
         if type(capacity) is not int or capacity <= 0:
             raise ValueError('event identity capacity must be a positive integer')
@@ -49,17 +53,16 @@ class NavEventRecorder:
         self._closed = False
 
     def receive(self, message: object) -> bool:
-        """Record one decoded ROS envelope without allowing input to crash the monitor.
+        """记录一条已解码的 ROS 信封，且绝不让输入把 monitor 搞崩.
 
-        Only successful writes enter the LRU cache. A failed callback can therefore
-        be retried by a later duplicate. This is not exactly-once persistence:
-        restarts, eviction and partial filesystem writes remain observable limits.
+        只有写成功的事件才进 LRU：某次回调失败时，后来重复到达的同一事件仍有机会补上。
+        这不是"恰好一次"持久化——重启、缓存淘汰与部分写盘都是可以观察到的边界。
 
         Args:
-            message: NavEvent-like object, with the six generated interface fields.
+            message: 形如 NavEvent 的对象，含生成接口的六个字段。
 
         Returns:
-            True for an appended event; False for duplicate, closed or invalid input.
+            追加成功返回 True；重复、已封存或输入非法返回 False。
         """
         with self._lock:
             if self._closed:
@@ -84,7 +87,10 @@ class NavEventRecorder:
                 return False
 
     def close(self) -> None:
-        """Seal late callbacks after in-flight recording finishes, without deleting data."""
+        """等在途记录写完后封存迟到回调，不删除任何数据.
+
+        封存之后 receive 一律返回 False；已经写进文件的事件不受影响。
+        """
         with self._lock:
             self._closed = True
             self._seen.clear()

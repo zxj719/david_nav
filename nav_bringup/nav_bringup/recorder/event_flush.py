@@ -1,7 +1,7 @@
-"""Bounded final NavEvent publication after the original monitor has been drained.
+"""原 monitor 退干净之后，有界地把最后一段 NavEvent 发出去.
 
-This short-lived helper owns no motion interfaces. Its parent must supervise and
-reap its private process group even if ROS initialization or publication stalls.
+这是个短命的辅助进程，不持有任何运动接口。即使 ROS 初始化或发布卡住，
+也必须由父进程监督并回收它的私有进程组——它自己不会脱管求生。
 """
 
 import argparse
@@ -24,26 +24,25 @@ def publish_tail(
     path: Path, *, timeout_sec: float = 3.0, discovery_sec: float = 0.5,
     warn: Callable[[str], None] = _notice,
 ) -> bool:
-    """Attempt the remaining final timeline through a temporary diagnostic node.
+    """用一个临时诊断节点，尝试把剩下的时间线发完.
 
-    Acquire the same exclusive lease before initializing ROS, so a live monitor
-    cannot overlap this publisher. Reuse persistent IDs and cursor. A bounded
-    discovery window and reliable-writer acknowledgement wait improve delivery,
-    but neither proves subscriber application processing or durable recording.
-    The parent provides an independent deadline for blocking native SDK calls.
+    初始化 ROS 之前先取同一把独占租约，保证不会和仍在运行的 monitor 重叠发布；
+    身份与游标沿用持久化的那一份，不重新生成。有界的发现窗口与可靠写者的确认等待
+    能提高送达率，但既不能证明订阅方处理过，也不能证明对方已持久化。
+    对阻塞在原生 SDK 调用上的情况，由父进程提供独立的兜底期限。
 
     Args:
-        path: Existing run's events.jsonl; never rewritten or removed.
-        timeout_sec: Positive finite overall cooperative budget in seconds.
-        discovery_sec: Initial discovery window, between zero and the total budget.
-        warn: Category-only diagnostic sink; never receives event contents.
+        path: 已存在运行的 events.jsonl；绝不重写或删除它。
+        timeout_sec: 有限且为正的总协作预算，单位秒。
+        discovery_sec: 初始发现窗口，取值在零与总预算之间。
+        warn: 只收类别的诊断输出端，绝不收到事件内容。
 
     Returns:
-        True if the snapshot was processed without warnings and the writer's
-        acknowledgement wait succeeded. This is not a navigation result.
+        快照处理过程无告警且写者确认等待成功时返回 True。
+        这只是发布侧的结果，不是任何导航结论。
 
     Raises:
-        ValueError: A time budget is invalid, before any ROS or file ownership.
+        ValueError: 时间预算非法；该检查发生在取得 ROS 或文件归属之前。
     """
     if (type(timeout_sec) not in (int, float) or not math.isfinite(timeout_sec)
             or timeout_sec <= 0 or type(discovery_sec) not in (int, float)
@@ -119,13 +118,13 @@ def publish_tail(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Run the private final-publisher command using the parent's explicit run path.
+    """按父进程显式给出的运行路径，执行这条私有的末尾发布命令.
 
     Args:
-        argv: Command arguments; None reads process arguments.
+        argv: 命令参数；为 None 时读取本进程参数。
 
     Returns:
-        Zero for a successful publication attempt, one for diagnostics failure.
+        发布尝试成功返回 0，诊断失败返回 1；返回 0 只代表发布侧没有报错。
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-dir', default=os.environ.get('NAVRUN_RUN_DIR'), type=Path)
