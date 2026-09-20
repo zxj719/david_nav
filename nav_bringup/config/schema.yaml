@@ -148,10 +148,6 @@ parameters:
     type: bool
     default: false
     description: 是否结束不属于本导航栈的其它 ROS 栈进程；默认不动
-  preflight.kill_stale_robot_state_publishers:
-    type: bool
-    default: false
-    description: 启动前结束残留的 robot_state_publisher，避免 TF 分裂成两棵树
   localization.process_name:
     type: string
     default: null

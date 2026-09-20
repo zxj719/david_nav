@@ -179,7 +179,6 @@ preflight:
     - moveit_simple_controller_manager
     - david_sdk_bridge/lib/david_sdk_bridge/arm_node
   kill_foreign_stacks: false
-  kill_stale_robot_state_publishers: true
 
 record:
   # Exact legacy light list; do not add full global costmaps or localization clouds here.

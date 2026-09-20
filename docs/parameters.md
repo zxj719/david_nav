@@ -75,7 +75,6 @@ No parameters declared.
 | `preflight.foreign_patterns` | `list[string]` | — | default: `[]` | — | 机械臂或 MoveIt 等外部栈的程序匹配式；默认只告警，即使也命中 kill_patterns | — |
 | `preflight.kill_foreign_stacks` | `bool` | — | default: `false` | — | 是否结束不属于本导航栈的其它 ROS 栈进程；默认不动 | — |
 | `preflight.kill_patterns` | `list[string]` | — | default: `[]` | — | 启动前结束的本导航栈残留进程的命令行匹配式 | — |
-| `preflight.kill_stale_robot_state_publishers` | `bool` | — | default: `false` | — | 启动前结束残留的 robot_state_publisher，避免 TF 分裂成两棵树 | — |
 | `preflight.protected_patterns` | `list[string]` | — | default: `[]` | — | 永不清理的外部程序匹配式；额外保护其启动分支和祖先，定位 process_name 总是自动保护 | — |
 | `record.full_compression` | `string` | — | default: `"none"` | choices: `"none"`, `"zstd"` | full 模式是否使用 zstd 文件压缩；始终使用 sqlite3，不安装 MCAP | — |
 | `record.full_include_hidden` | `bool` | — | default: `false` | — | full 模式是否包含匹配选择器的隐藏话题；David 保留旧 full-bag 行为 | — |

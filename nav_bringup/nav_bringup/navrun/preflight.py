@@ -42,7 +42,6 @@ class _Policy:
     driver: Tuple[str, ...]
     protected: Tuple[str, ...]
     kill_foreign: bool
-    kill_rsp: bool
 
 
 @dataclass(frozen=True)
@@ -116,9 +115,8 @@ def _policy(profile: Mapping[str, Any]) -> _Policy:
     localization = profile.get('localization', {})
     if not all(isinstance(value, Mapping) for value in (preflight, driver, localization)):
         raise ValueError('preflight, chassis.driver and localization must be mappings')
-    switches = [preflight.get(name, False) for name in (
-        'kill_foreign_stacks', 'kill_stale_robot_state_publishers')]
-    if any(type(value) is not bool for value in switches):
+    kill_foreign = preflight.get('kill_foreign_stacks', False)
+    if type(kill_foreign) is not bool:
         raise ValueError('preflight switches must be booleans')
     protected = _patterns(preflight.get('protected_patterns', []), 'protected_patterns')
     provider = localization.get('process_name')
@@ -131,7 +129,7 @@ def _policy(profile: Mapping[str, Any]) -> _Policy:
         _patterns(preflight.get('kill_patterns', []), 'kill_patterns'),
         _patterns(preflight.get('foreign_patterns', []), 'foreign_patterns'),
         _patterns(driver.get('detect_patterns', []), 'detect_patterns'),
-        protected, switches[0], switches[1])
+        protected, kill_foreign)
 
 
 def _command(process: ProcessInfo) -> str:
@@ -338,8 +336,10 @@ def _make_plan(
     for pid, process in sorted(table.items()):
         command = commands[pid]
         foreign = _matches(command, policy.foreign)
+        # 2026-09-20 用户决定：本流程永不结束 robot_state_publisher。
+        # 现场的机械臂 moveit 栈自带一个，误杀会直接打断上层作业；
+        # 重复的 URDF 发布者改由 doctor 的只读检查报告，不再自动处理。
         selected = (_matches(command, policy.kill)
-                    or (policy.kill_rsp and _matches(command, [r'(?:^|/)robot_state_publisher$']))
                     or (start_chassis and pid in drivers)
                     or (policy.kill_foreign and foreign))
         if pid in barriers:

@@ -94,7 +94,6 @@ platform: {jetson: false, maxn: false, jetson_clocks: false}
 preflight:
   kill_patterns: []
   kill_foreign_stacks: false
-  kill_stale_robot_state_publishers: false
 simulation:
   cmd_topic: /demo/command
   odom_topic: /demo/wheel_odom

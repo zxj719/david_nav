@@ -23,7 +23,6 @@ def _profile():
             'kill_patterns': ['navigation_executor.py', 'nav2_controller/controller_server'],
             'foreign_patterns': ['move_group', 'arm_node'],
             'kill_foreign_stacks': False,
-            'kill_stale_robot_state_publishers': True,
         },
         'chassis': {'driver': {'detect_patterns': [
             'wheeltec_robot_node', 'wheeltec_driver_node']}},
@@ -90,7 +89,8 @@ def test_localization_launcher_siblings_and_descendants_are_protected():
     plan = _plan([launcher, provider, sibling, child, unrelated])
     assert plan.targets == (unrelated,)
     assert {200, 201, 202, 203}.issubset(plan.protected_pids)
-    assert any('protected' in warning and '202' in warning for warning in plan.warnings)
+    # RSP 根本不再进入候选，因此连「受保护而保留」的告警都不会出现。
+    assert not any('202' in warning for warning in plan.warnings)
 
 
 def test_shared_desktop_ancestor_does_not_hide_unrelated_navigation():
@@ -136,6 +136,15 @@ def test_external_chassis_subtree_and_its_launch_parent_are_preserved():
     assert {200, 201, 202}.issubset(plan.protected_pids)
 
 
+def test_robot_state_publisher_is_never_a_cleanup_target():
+    """2026-09-20 起本流程永不结束 RSP：现场机械臂栈自带一个，误杀会打断上层作业."""
+    stray = _process(400, ['/opt/ros/humble/lib/robot_state_publisher/robot_state_publisher'])
+    alone = _process(401, ['robot_state_publisher'])
+    plan = _plan([stray, alone])
+    assert not plan.targets
+    assert not any('400' in warning or '401' in warning for warning in plan.warnings)
+
+
 def test_different_user_is_never_a_cleanup_target():
     """A matching name does not grant ownership over another account's process."""
     foreign_uid = _process(201, ['navigation_executor.py'], uid=2000)
@@ -146,7 +155,7 @@ def test_different_user_is_never_a_cleanup_target():
 
 @pytest.mark.parametrize('change', [
     {'kill_patterns': 'executor'}, {'kill_patterns': ['[']},
-    {'kill_foreign_stacks': 'false'}, {'kill_stale_robot_state_publishers': 1},
+    {'kill_foreign_stacks': 'false'},
     {'foreign_patterns': [False]},
 ])
 def test_bad_policy_is_rejected_before_any_cleanup(change):

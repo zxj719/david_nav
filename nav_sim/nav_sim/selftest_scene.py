@@ -169,7 +169,7 @@ def _profile(original, mode, prefix, root):
         enabled=False, cloud_topic=prefix + 'cloud', scan_topic=prefix + 'scan')
     profile['platform'] = {'jetson': False, 'maxn': False, 'jetson_clocks': False}
     profile['preflight'] = {'kill_patterns': [], 'kill_foreign_stacks': False,
-                            'kill_stale_robot_state_publishers': False}
+                            }
     return profile
 
 
