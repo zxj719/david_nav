@@ -75,6 +75,16 @@ Nav2 侧保留的键是 `/lightning/odometry`，目前**无发布者**，是已�
 已改为从参数读 `robot_base_frame`（改配置即可）；生产 `~/ros2_ws/src/david_nav/src/` 下
 还有一份独立实现，里面仍有写死的 `base_footprint`（可视化 marker），改生产侧要单独确认。
 
+**⑨ 同一个终端里混过两个工作区，启动会以奇怪的方式失败。** 2026-09-20 实测：终端若**先 source 过重构、之后又 source 过生产**（例如先跑 `20`、后来又跑过 `0`/`4`），生产的 `david_nav_msgs` 会排在 `PYTHONPATH` 前面，而**生产那份没有 `msg` 子包**；再敲 `20` 也救不回来——ROS 的 setup 脚本发现该前缀已在路径里就不再前置。
+后果：执行器起来后打完配置就死于 `ModuleNotFoundError: No module named david_nav_msgs.msg`，整次启动判为 `executor_launch_exited`、退出码 1。
+判别一条命令：
+
+```bash
+python3 -c "import david_nav_msgs as m; print(m.__file__)"   # 必须落在 ros2_ws_refactor 下
+```
+
+**开一个新终端**（或 `exec bash`）再跑，不要在一个终端里换着跑两个工作区的入口。
+
 ## 3. 怎么不动车也能验
 
 这是 2026-09-20 用过并留档的方法，可直接复用：
