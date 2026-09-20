@@ -1,20 +1,22 @@
 # 重构入口的快捷命令编号
 
 用户决定：**现有快捷命令一律不动**，重构后的入口一律用新编号。原则是"原编号 + 10"；
-其中重构后的 `0` 因为 `10` 已被入位测评台架（dock_bench）占用，用户 2026-09-18 改定为 **`20`**。
+其中重构后的 `0` 因为 `10` 已被入位测评台架（dock_bench）占用，用户 2026-09-18 改定为 **`20`**；
+2026-09-20 用户把 `4` 的重构入口也定为 **`24`**，即实际口径是**原编号 + 20**。
 
 | 现有编号 | 现在是什么 | 重构后编号 | 重构入口命令 | 状态 |
 |---|---|---|---|---|
 | `0` | 精准入位导航（`precise_nav_bringup.launch.py`，含 8101 上位机接口） | **`20`** | `navrun up --mode precise` | **已加入 `~/.bashrc`（2026-09-18）** |
-| `4` | 无界面导览导航 | `14` | `navrun up --mode tour` | 待加 |
+| `4` | 无界面导览导航 | **`24`** | `navrun up --mode tour` | **已加入 `~/.bashrc`（2026-09-20）** |
 | `5` | 底盘（驱动 + 速度适配） | `15` | `navrun up --mode chassis` | 待加 |
 | `5k` | 键盘遥控（PLAN §13.6 的计划编号） | `15k` | `navrun up --mode teleop` | 待加 |
 | `7` / `8` | 控制器调参台架 | `17` | `navrun up --mode bench_slamgt` | 待加 |
 
-## 已部署的那一条
+## 已部署的两条
 
 ```bash
-alias 20="export ROS_DOMAIN_ID=0;set -o allexport;source ~/ros2_ws/src/david_nav/config/ros_env.conf;set +o allexport;source /opt/ros/humble/setup.bash && source ~/ros2_ws_refactor/install/setup.bash;ros2 run nav_bringup navrun up --mode precise"
+alias 20="export ROS_DOMAIN_ID=0;set -o allexport;source ~/ros2_ws/src/david_nav/config/ros_env.conf;set +o allexport;source /opt/ros/humble/setup.bash && source ~/ros2_ws_refactor/install/setup.bash;ros2 run nav_bringup navrun up --mode precise --takeover"
+alias 24="export ROS_DOMAIN_ID=0;set -o allexport;source ~/ros2_ws/src/david_nav/config/ros_env.conf;set +o allexport;source /opt/ros/humble/setup.bash && source ~/ros2_ws_refactor/install/setup.bash;ros2 run nav_bringup navrun up --mode tour --takeover"
 ```
 
 ## 为什么必须加载 `ros_env.conf`（2026-09-18 实机定位到的故障）
@@ -51,3 +53,9 @@ alias 20="export ROS_DOMAIN_ID=0;set -o allexport;source ~/ros2_ws/src/david_nav
 现有 `0` / `4` / `5` 一个字都没改；`20` 出任何问题，直接回去用 `0`。
 要整段撤掉 `20`，删除 `~/.bashrc` 末尾那段带 `2026-09-18` 注释的四行即可，
 或用上面的备份文件覆盖回去。
+
+## 用 `24` 之前要知道的两件事（2026-09-20）
+
+1. `--takeover` 只对**重构版**入口有效：它请的是持有 navrun 租约的那一方。生产的 `0` / `4`不持有该租约，`takeover` 会报 inactive 直接放行。
+2. 但启动前的预检**会**按既有 kill 规则停掉生产导览栈（`launch david_nav 2d_david_nav2_bringup` 及其 nav2 节点）。也就是说 `4` 正在跑时敲 `24`，生产那套会被停掉换成重构版——这是既定设计，不是意外。
+   底盘驱动若由现场单独起着，预检会把它识别为外部驱动并保护，不会停它。
