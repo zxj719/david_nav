@@ -1,4 +1,7 @@
-"""Run-local console forwarding and low-rate resource recording without ROS."""
+"""本次运行内的控制台转发与低频资源记录，全程不依赖 ROS.
+
+只做旁路观察：不订阅话题、不创建节点，因此它的存亡与导航本身无关。
+"""
 
 from __future__ import annotations
 
@@ -12,7 +15,7 @@ from nav_bringup.recorder.run_dir import RunDirectory
 
 
 class StartupObserver:
-    """Own a short-lived recording thread, never a navigation child or ROS context.
+    """持有一个短命的记录线程，既不持有导航子进程，也不持有 ROS 上下文.
 
     Attributes:
         errors: 记录过程中收集的错误说明，不是导航任务终态。
@@ -22,12 +25,13 @@ class StartupObserver:
 
     def __init__(self, run: RunDirectory, terminal: Optional[IO[bytes]],
                  poll: Optional[Callable[[], None]] = None) -> None:
-        """Describe a recorder without starting it or opening output files.
+        """只描述一个记录器，不启动它，也不打开任何输出文件.
 
         Args:
-            run: New directory owned by the startup supervisor.
-            terminal: Optional binary output stream, including redirected stdout.
-            poll: Optional bounded nonblocking control callback on the existing thread.
+            run: 由启动监督器创建并持有的新目录。
+            terminal: 可选的二进制输出流，包括被重定向的标准输出。
+            poll: 可选的有界非阻塞控制回调，跑在既有线程上；它超时或抛异常都会
+                影响采样节奏，实现必须自己保持短小。
         """
         self.run = run
         self.terminal = terminal
@@ -41,12 +45,14 @@ class StartupObserver:
         self._poll = poll
 
     def start(self) -> None:
-        """Start 1 Hz supervisor-tree sampling and forwarding of run-local logs.
+        """启动 1 Hz 的监督进程树采样，并开始转发本次运行的日志.
+
+        采样对象是监督进程这一棵树：不在树内的进程（例如另行启动的定位）不会被采到。
 
         Raises:
-            RuntimeError: This observer has already started.
-            OSError: The exclusive console file cannot be opened.
-            ImportError: The declared psutil dependency is unavailable.
+            RuntimeError: 本观察器已经启动过。
+            OSError: 无法独占打开控制台文件。
+            ImportError: 声明依赖的 psutil 不可用。
         """
         if self._thread is not None:
             raise RuntimeError('observer already started')
@@ -72,10 +78,12 @@ class StartupObserver:
             raise
 
     def close(self) -> None:
-        """Stop sampling, drain final output, and close owned files.
+        """停止采样、把最后的输出排干，并关闭自有文件.
+
+        只关自己的东西：不会停止任何被观察的进程。
 
         Raises:
-            RuntimeError: The observer did not stop within five seconds.
+            RuntimeError: 观察器在五秒内没有停下来。
         """
         if self._thread is None:
             return

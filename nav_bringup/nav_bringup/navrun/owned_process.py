@@ -1,14 +1,15 @@
-"""Linux child groups whose leader PID stays reserved until cleanup is complete.
+"""Linux 子进程组：组长 PID 一直被占住，直到清理真正完成.
 
-Unlike Popen.poll(), waitid(WNOWAIT) observes exit without reaping the leader.
-Its unreaped PID pins the process-group identity even if the command exits
-before its children. No process name, stale PID file or system-wide signal is
-used. Only commands whose descendants stay in their inherited process group
-belong here (including Humble launch ExecuteProcess). Independently detached
-helpers must instead be started and owned separately by the supervisor.
+与 Popen.poll() 不同，waitid(WNOWAIT) 只观察退出而不回收组长。未回收的 PID 把进程组
+身份钉死，即使命令本身先于它的子进程退出，这个组号也不会被系统分配给别人——因此这里
+从不靠进程名、过期 PID 文件或全系统范围的信号去找目标。
 
-The creating thread owns this object exclusively. No other code may wait for
-its child, install SIGCHLD=SIG_IGN, or reap arbitrary children with waitpid(-1).
+只有"后代始终留在继承来的进程组里"的命令才适合用本类（Humble 的 launch ExecuteProcess
+属于这一类）。会把自己脱离出去的辅助进程必须由监督方单独启动、单独持有，
+本类无法回收它们。
+
+本对象由创建它的线程独占：其它代码不得等待它的子进程、不得设置 SIGCHLD=SIG_IGN，
+也不得用 waitpid(-1) 回收任意子进程，否则组长会被别人抢先回收，本类将失去归属证据。
 """
 
 from __future__ import annotations
@@ -23,25 +24,32 @@ from typing import Mapping, Optional, Sequence
 
 
 class OwnedProcess:
-    """One private process group with bounded, idempotent shutdown."""
+    """一个私有进程组，关停过程有界且幂等.
+
+    close() 可重复调用：已完成关停后再调用不会再次向那个组号发信号。
+    """
 
     def __init__(
         self, argv: Sequence[str], environ: Mapping[str, str], log: Path,
         pass_fds: Sequence[int] = (),
     ) -> None:
-        """Start a command with a new session, closed stdin and exclusive output log.
+        """以新会话启动命令，关闭标准输入并独占一份输出日志.
+
+        新会话意味着子进程不再属于终端的前台组：终端 Ctrl-C 不会直接打到它身上，
+        必须由本对象显式发信号。
 
         Args:
-            argv: Exact argument vector, never interpreted by a shell.
-            environ: Explicit inherited environment for the child.
-            log: New output file within the caller-owned run directory.
-            pass_fds: Explicit capabilities for this child only; empty closes all
-                nonstandard descriptors, as before. The parent retains ownership.
+            argv: 精确的参数向量，绝不经过 shell 解释。
+            environ: 显式给子进程继承的环境。
+            log: 调用方自有运行目录里的新输出文件。
+            pass_fds: 只传给这个子进程的显式能力；为空则照旧关闭所有非标准描述符。
+                父进程仍然持有这些描述符的所有权。
 
         Raises:
-            ValueError: The command is empty or contains invalid arguments.
-            RuntimeError: SIGCHLD is ignored and safe child ownership is unavailable.
-            OSError: Opening the log or executing the command fails.
+            ValueError: 参数向量为空，或其中有非字符串、含 NUL 字符的项。
+                空字符串本身是合法参数，只会在 exec 阶段失败并抛 OSError。
+            RuntimeError: SIGCHLD 被设为忽略，无法安全地持有子进程。
+            OSError: 打开日志或执行命令失败。
         """
         if not argv or any(not isinstance(arg, str) or '\0' in arg for arg in argv):
             raise ValueError('expected a nonempty argument vector without NUL')
@@ -61,18 +69,20 @@ class OwnedProcess:
 
     @property
     def pid(self) -> int:
-        """int: The reserved leader PID, not authority after close()."""
+        """int: 被占住的组长 PID；close() 之后它不再构成向该组发信号的依据."""
         return self._process.pid
 
     def poll(self) -> Optional[int]:
-        """Observe the leader status without releasing its process-group identity.
+        """观察组长状态，同时不放开它占住的进程组身份.
+
+        组长已退出不等于整组已退出：它的子进程可能仍在运行，回收要走 close()。
 
         Returns:
-            None while running; exit code, or negative signal number after exit.
+            仍在运行时返回 None；已退出时返回退出码，或负的信号编号。
 
         Raises:
-            RuntimeError: Called by a fork child rather than the creating process.
-            ChildProcessError: Some other code reaped the leader; do not signal it.
+            RuntimeError: 由 fork 出来的子进程调用，而不是创建者本身。
+            ChildProcessError: 组长已被别处回收；此时绝不可再向该组号发信号。
         """
         self._check_owner()
         if self._closed:
@@ -83,25 +93,25 @@ class OwnedProcess:
         return status.si_status if status.si_code == os.CLD_EXITED else -status.si_status
 
     def close(self, timeout_sec: float = 10.0) -> int:
-        """Interrupt the group, allow flushing, kill leftovers, then reap the leader.
+        """中断整组、留出落盘时间、杀掉残余，最后回收组长.
 
-        The leader remains waitable throughout the grace period. Children are
-        still stopped when it has already exited; a completed close never
-        signals that numeric group again. Failed ownership checks abort before
-        signaling. Commands must not detach descendants into another group.
+        宽限期内组长始终可等待；组长已经先行退出时，子进程照样会被停掉。
+        一次完成的 close 之后不会再向那个组号发信号（组号可能已被系统分配给别人）。
+        归属检查不通过时在发信号之前就中止。被托管的命令不得把后代挪到别的进程组，
+        否则那些后代不在本方法的回收范围内。
 
         Args:
-            timeout_sec: Nonnegative finite grace period before SIGKILL.
+            timeout_sec: SIGKILL 之前的宽限期，非负且有限。
 
         Returns:
-            Leader exit status using subprocess conventions.
+            按 subprocess 约定表示的组长退出状态。
 
         Raises:
-            ValueError: The grace period is invalid.
-            RuntimeError: Called by a fork child.
-            ChildProcessError: The leader was reaped outside this object.
-            OSError: The owned group could not be signaled.
-            subprocess.TimeoutExpired: A killed leader is not reapable within five seconds.
+            ValueError: 宽限期非法。
+            RuntimeError: 由 fork 出来的子进程调用。
+            ChildProcessError: 组长被本对象之外的代码回收。
+            OSError: 无法向自有进程组发信号。
+            subprocess.TimeoutExpired: 被杀的组长在五秒内仍不可回收。
         """
         if (type(timeout_sec) not in (int, float) or not math.isfinite(timeout_sec)
                 or timeout_sec < 0):

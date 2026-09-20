@@ -1,21 +1,18 @@
-"""``navrun wrap``: record a run around an existing launch command.
+"""``navrun wrap``：在既有启动命令外面套一层运行记录.
 
-The wrapped command stays in charge (refactor plan §16.2 Phase 1). It keeps
-the terminal's standard input and the wrapper's process group, so Ctrl-C and
-keyboard input reach it exactly as before. Around it the wrapper
+被包裹的命令仍然是主角（方案 §16.2 阶段一）：它保留终端的标准输入和包装器的进程组，
+因此 Ctrl-C 与键盘输入和以前一样直接到它。包装器只在外围做这些事：
 
-1. creates the run directory and writes the manifest and ``code.diff``,
-2. prunes old runs with the retention policy (never the new run),
-3. tees the command's output to the terminal and ``logs/console.log``,
-4. optionally runs ``navrun monitor`` next to the command in its own session,
-   tees its output the same way and stops it after the command exits,
-5. samples CPU and memory of the command and the monitor,
-6. records process and signal events, and
-7. finalizes the manifest and writes ``summary.md`` when the command exits.
+1. 建立运行目录，写清单与 ``code.diff``；
+2. 按保留策略清理旧运行（绝不清理本次新建的这条）；
+3. 把命令输出同时送到终端和 ``logs/console.log``；
+4. 可选地在命令旁边、以独立会话运行 ``navrun monitor``，输出同样分流，命令退出后停掉它；
+5. 采样命令与 monitor 的 CPU 和内存；
+6. 记录进程与信号事件；
+7. 命令退出后收尾清单并写 ``summary.md``。
 
-The wrapper exits with the command's exit status; a command killed by signal
-``N`` yields ``128 + N`` like a shell does. A failing monitor never changes
-that status; it is recorded as a warning event.
+包装器以命令自身的退出状态退出；命令被信号 ``N`` 杀死时按 shell 惯例返回 ``128 + N``。
+monitor 失败绝不改变这个状态，只作为告警事件记录——也就是说记录不全时命令仍算成功。
 """
 
 from __future__ import annotations
@@ -58,25 +55,25 @@ _MONITOR_INTERRUPTED_CODES = (0, -int(signal.SIGINT), 128 + int(signal.SIGINT))
 
 @dataclass(frozen=True)
 class WrapOptions:
-    """Settings of one wrapped run.
+    """一次被包裹运行的设置.
 
     Attributes:
-        command: Program and arguments to run.
-        mode: Run mode used in the run id, for example ``tour``.
-        runs_root: Directory that holds all runs.
-        repo_dir: Repository whose git state is recorded.
-        alias: Shell alias that started the run; ``$NAVRUN_ALIAS`` when unset.
-        robot: Robot profile name, if known.
-        site: Site profile name, if known.
-        files: Named input files to fingerprint in the manifest.
-        sample_interval_sec: Seconds between resource samples.
-        gc: Whether to apply the retention policy before the command starts.
-        retention_policy: Limits used when ``gc`` is enabled.
-        monitor_command: ``navrun monitor`` command to run next to the
-            command, or ``None``; see :func:`monitor_command`.
-        linked: Separately started processes, such as localization, whose
-            state is recorded at start and whose logs are excerpted at the end.
-        event_flush_command: Optional bounded final publisher after monitor cleanup.
+        command: 要运行的程序与参数。
+        mode: 运行模式，构成运行 ID 的一部分，例如 ``tour``。
+        runs_root: 存放所有运行记录的目录。
+        repo_dir: 要记录 git 状态的仓库。
+        alias: 启动本次运行的 shell 别名；未给出时取 ``$NAVRUN_ALIAS``。
+        robot: 已知时的机器人档案名。
+        site: 已知时的场地档案名。
+        files: 需要在清单里记指纹的具名输入文件。
+        sample_interval_sec: 资源采样间隔秒数。
+        gc: 命令启动前是否执行保留策略。
+        retention_policy: 启用 ``gc`` 时使用的上限。
+        monitor_command: 与命令并行运行的 ``navrun monitor`` 命令，或 ``None``；
+            见 :func:`monitor_command`。
+        linked: 另行启动的进程（例如定位），只在开始时记录其状态、结束时摘录其日志，
+            包装器不启动也不停止它们。
+        event_flush_command: monitor 清理之后可选的有界末尾发布命令。
     """
 
     command: Sequence[str]
@@ -98,13 +95,14 @@ class WrapOptions:
 
 @dataclass(frozen=True)
 class WrapResult:
-    """Outcome of a wrapped run.
+    """一次被包裹运行的结果.
 
     Attributes:
-        run: The run directory.
-        exit_code: Status to exit with; ``128 + N`` if the command died from signal N.
-        exit_reason: One of ``completed``, ``failed``, ``killed_by_signal``,
-            ``ctrl_c``, ``terminated`` or ``start_failed``.
+        run: 运行目录。
+        exit_code: 应当用来退出的状态；命令被信号 N 杀死时为 ``128 + N``。
+        exit_reason: ``completed``、``failed``、``killed_by_signal``、``ctrl_c``、
+            ``terminated`` 或 ``start_failed`` 之一；它描述命令怎么结束的，
+            不描述导航任务成没成功。
     """
 
     run: run_dir_lib.RunDirectory
@@ -120,22 +118,21 @@ def monitor_command(
     dump_params: bool = True,
     python: str = sys.executable,
 ) -> List[str]:
-    """Build the ``navrun monitor`` command for a wrapped run.
+    """为一次被包裹运行构造 ``navrun monitor`` 命令.
 
-    The monitor finds the run directory through ``NAVRUN_RUN_DIR``, which the
-    wrapper exports to it.
+    monitor 通过包装器导出的 ``NAVRUN_RUN_DIR`` 找到运行目录。本函数只拼命令，
+    不启动它。
 
     Args:
-        base_frame: Robot frame for pose and TF lag (robot profile ``frames.nav_base``).
-        topics: Topics whose rates are recorded.
-        period_sec: Seconds between ``topics.csv`` samples.
-        ready_action: Action whose server marks the stack as ready, or ``None``.
-        dump_params: Whether to dump effective parameters once ``ready_action``
-            has a server.
-        python: Interpreter that runs ``navrun``.
+        base_frame: 求位姿与 TF 延迟用的机器人帧（机器人档案的 ``frames.nav_base``）。
+        topics: 需要记录频率的话题。
+        period_sec: ``topics.csv`` 的采样间隔秒数。
+        ready_action: 其服务端出现即视为整栈就绪的动作，或 ``None``。
+        dump_params: ``ready_action`` 有服务端之后是否转储实际生效参数。
+        python: 运行 ``navrun`` 的解释器。
 
     Returns:
-        Program and arguments.
+        程序与参数。
     """
     command = [python, '-m', 'nav_bringup.navrun.cli', 'monitor',
                '--base-frame', base_frame, '--period', f'{period_sec:g}']
@@ -155,19 +152,19 @@ def run_wrapped(
     runner: manifest_lib.CommandRunner = manifest_lib.run_command,
     terminal: Optional[IO[bytes]] = None,
 ) -> WrapResult:
-    """Run a command inside a recorded run.
+    """在一条运行记录内执行命令.
+
+    记录失败不会改变命令的退出状态，只会被记为告警。
 
     Args:
-        options: What to run and how to record it.
-        environ: Environment for the manifest and the command; defaults to
-            ``os.environ``.
-        now: Clock for the start and end times, called exactly twice.
-        runner: Command runner for git queries, replaceable in tests.
-        terminal: Binary stream that receives the command's output; defaults
-            to the wrapper's standard output.
+        options: 要运行什么、怎么记录。
+        environ: 清单与命令使用的环境；默认取 ``os.environ``。
+        now: 起止时间所用的时钟，恰好被调用两次。
+        runner: git 查询所用的命令执行器，测试可替换。
+        terminal: 接收命令输出的二进制流；默认是包装器自己的标准输出。
 
     Returns:
-        The run directory, the exit code and the exit reason.
+        运行目录、退出码与结束原因。
     """
     env = dict(os.environ if environ is None else environ)
     started = now()
@@ -242,11 +239,11 @@ def run_wrapped(
 
 
 class _SignalRelay:
-    """Keeps the wrapper alive on signals and forwards termination to the child.
+    """收到信号时让包装器继续活着，并把终止信号转发给子进程.
 
-    SIGINT from a terminal is delivered to the whole foreground process group,
-    so the child already has it; SIGTERM and SIGHUP are sent to the wrapper
-    only and must be forwarded.
+    终端发出的 SIGINT 会送达整个前台进程组，子进程已经收到了，包装器不必重复转发；
+    SIGTERM 与 SIGHUP 只发给包装器，必须由它转发下去。包装器坚持活到收尾写完为止，
+    因此"包装器还在"不代表被包裹的命令还在运行。
     """
 
     def __init__(self) -> None:
