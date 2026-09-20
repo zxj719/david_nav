@@ -1,8 +1,7 @@
-"""Read-only startup planning, using the same bundle and graph as ROS launch.
+"""只读的启动规划，使用与 ROS launch 完全相同的运行包与启动图.
 
-The returned plan is a preview, not authority to mutate the host. Runtime wiring
-remains explicit integration work. In particular,
-successful dry-run validation never claims that hardware was exercised.
+返回的计划只是预览，不构成改动主机的授权；真正的运行期接线仍是显式的集成工作。
+特别地，dry-run 校验通过只说明配置与入口点齐备，从不意味着硬件被动过或验证过。
 """
 
 from __future__ import annotations
@@ -29,19 +28,19 @@ from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
 
 @dataclass(frozen=True)
 class UpRequest:
-    """User selectors independent of ROS resource discovery.
+    """用户选择子，与 ROS 资源发现无关.
 
     Attributes:
-        mode: One of the five launch modes.
-        robot: Robot name, provided by the corresponding name_config package.
-        site: Site directory name within that package; ignored for chassis tools.
-        run_dir: Prospective absolute run directory, not created during planning.
-        chassis: auto, on or off; resolved by a read-only process snapshot.
-        record: Requested light, full or off recording policy.
-        no_executor: Disable WS transport; precise mode retains local Dock ingress.
-        teleop_options: Explicit layout/gears, frozen separately from source files.
-        mode_file: Optional complete mode overlay path; never changes the mode identity.
-        composition: Explicitly opt in to one isolated Nav2 container.
+        mode: 五种启动模式之一。
+        robot: 机器人名，由对应的 name_config 包提供。
+        site: 该包内的场地目录名；底盘类工具忽略。
+        run_dir: 预期的绝对运行目录；规划阶段不会创建它。
+        chassis: auto、on 或 off；auto 由一次只读进程快照决定。
+        record: 请求的记录策略：light、full 或 off。
+        no_executor: 关闭 WS 传输；精准模式仍保留本地入位入口。
+        teleop_options: 显式的键位/档位，与源文件分开冻结。
+        mode_file: 可选的完整模式差异文件路径；不会改变模式身份。
+        composition: 显式选择把 Nav2 放进一个隔离容器。
     """
 
     mode: str
@@ -58,17 +57,20 @@ class UpRequest:
 
 @dataclass(frozen=True)
 class UpPlan:
-    """A validated bundle plus unresolved deployment requirements.
+    """一个已校验的运行包，外加尚未满足的部署条件.
+
+    errors 非空仍然是一个合法的计划对象：它如实列出缺什么，而不是抛异常，
+    以便一次看全所有缺失项。
 
     Attributes:
-        request: Original selectors.
-        bundle: Immutable rendered configuration.
-        graph: Logical nodes/programs selected from the rendered options.
-        preflight: Chassis ownership, cleanup identities and protected processes.
-        platform: Proposed noninteractive platform commands, not executed.
-        executables: Physical process name and resolved installed executable path.
-        errors: Missing dependencies or unfinished binding requirements.
-        recording: Explicit run-local rosbag selection, not started by planning.
+        request: 原始选择子。
+        bundle: 不可变的已渲染配置。
+        graph: 依据已渲染选项选出的逻辑节点/程序。
+        preflight: 底盘归属、待清理身份与受保护进程。
+        platform: 拟执行的非交互平台命令；规划阶段不执行。
+        executables: 物理进程名与解析出的已安装可执行文件路径。
+        errors: 缺失的依赖或尚未完成的绑定要求。
+        recording: 显式选定的本次运行 rosbag；规划阶段不启动它。
     """
 
     request: UpRequest
@@ -116,19 +118,21 @@ def _validate(request: UpRequest) -> None:
 def discover_inputs(
     request: UpRequest, package_share: Callable[[str], Path],
 ) -> BundleInputs:
-    """Select source or installed assets without importing robot package code.
+    """挑选源码或已安装的资源，不导入任何机器人包的代码.
+
+    只解析路径，不读取文件内容，因此返回的路径存在与否要由后续步骤负责。
 
     Args:
-        request: User selectors, validated before any resource lookup.
-        package_share: Read-only resolver returning a package's resource directory.
+        request: 用户选择子，在任何资源查找之前先行校验。
+        package_share: 只读解析器，返回某个包的资源目录。
 
     Returns:
-        Paths consumed by the shared offline bundle renderer. Non-navigation
-        modes do not look up Nav2, plugin, site, map or URDF resources.
+        供共享离线渲染器使用的路径集合。非导航模式不会去找 Nav2、插件、场地、
+        地图或 URDF 资源。
 
     Raises:
-        ValueError: A selector is invalid.
-        LookupError: A required resource package is unavailable.
+        ValueError: 选择子非法。
+        LookupError: 缺少某个必需的资源包。
     """
     _validate(request)
     robot = Path(package_share(request.robot + '_config'))
@@ -151,24 +155,24 @@ def plan_up(
     resolve: Callable[[str, str], str],
     resolve_plugin: Callable[[str, str], str] = resolve_component,
 ) -> UpPlan:
-    """Prepare configuration and check every entry point before host mutations.
+    """在改动主机之前先准备配置并逐个检查入口点.
 
     Args:
-        request: Requested startup selectors.
-        inputs: Resolved configuration paths.
-        catalog: Package-owned parameter schemas.
-        processes: Complete read-only process snapshot.
-        own_pid: Supervisor identity present in the snapshot.
-        resolve: Read-only package/executable resolver, injected by tests.
-        resolve_plugin: Read-only component resource/library resolver.
+        request: 请求的启动选择子。
+        inputs: 已解析的配置路径。
+        catalog: 各包自带的参数 schema。
+        processes: 完整的只读进程快照。
+        own_pid: 快照中本监督进程自己的身份。
+        resolve: 只读的包/可执行文件解析器，测试可注入。
+        resolve_plugin: 只读的组件资源/库解析器。
 
     Returns:
-        Plan containing all missing executable errors, rather than stopping at
-        the first missing component. No cleanup, locks, ROS or writes occur.
+        计划中会列出**全部**缺失可执行文件，而不是遇到第一个就停；
+        过程中不做清理、不加锁、不碰 ROS、不写任何文件。
 
     Raises:
-        ValueError: Invalid inputs, mismatched identity or changing configuration.
-        OSError: A configuration file cannot be read.
+        ValueError: 输入非法、身份不匹配，或配置在读取期间发生变化。
+        OSError: 某个配置文件读不到。
     """
     _validate(request)
     initial_profile = inputs.profile.read_bytes()
@@ -237,13 +241,15 @@ def plan_up(
 
 
 def report_plan(plan: UpPlan) -> Dict[str, Any]:
-    """Serialize a preview without disclosing observed process command lines.
+    """把预览序列化出来，且不泄露观察到的其它进程命令行.
+
+    进程只以身份出现，命令行内容不进报告，避免把别人的参数写进运行记录。
 
     Args:
-        plan: Prepared startup plan.
+        plan: 已准备好的启动计划。
 
     Returns:
-        JSON-compatible report with explicit dry-run and runtime capability flags.
+        JSON 兼容的报告，其中 dry-run 与运行期能力标志都显式给出。
     """
     options = plan.bundle.options
     return {

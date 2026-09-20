@@ -1,9 +1,9 @@
-"""Render an offline, validated launch bundle before any platform or ROS action.
+"""在任何平台或 ROS 动作之前，离线渲染出一个已校验的启动包.
 
-Preparation reads configuration and returns immutable bytes. The separate writer
-only adds missing artifacts to a recorder-owned directory; launch.json is written
-last so a failed write cannot publish a launchable, partially prepared bundle.
-Neither function discovers processes, starts localization, or opens hardware.
+准备阶段只读配置并返回不可变字节；写入由单独的函数完成，且只往记录器自有的目录里
+补齐缺失文件。launch.json 最后写，这样写盘中途失败不会留下一个"看起来可启动"的半成品。
+两者都不做进程发现、不启动定位、不打开任何硬件；校验只覆盖配置本身，
+不证明这台机器上装齐了对应的可执行文件。
 """
 
 from __future__ import annotations
@@ -27,18 +27,18 @@ from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
 
 @dataclass(frozen=True)
 class BundleInputs:
-    """Configuration source paths, independent of source versus installed layout.
+    """配置源文件路径，与"源码布局还是安装布局"无关.
 
     Attributes:
-        profile: Robot profile YAML.
-        mode: Selected mode overlay YAML.
-        nav2_base: Shared Nav2 parameter template; unused in chassis/teleop modes.
-        nav2_bindings: Shared profile-to-Nav2 bindings.
-        bt_templates: Directory of behavior tree templates.
-        bt_bindings: Behavior tree profile bindings.
-        site: Optional site profile; required for navigation modes.
-        urdf: Robot description; required for navigation validation.
-        rviz: Optional RViz configuration, required only when RViz is selected.
+        profile: 机器人档案 YAML。
+        mode: 选定模式的差异 YAML。
+        nav2_base: 共享的 Nav2 参数模板；底盘/遥控模式用不到。
+        nav2_bindings: 档案到 Nav2 的共享绑定表。
+        bt_templates: 行为树模板目录。
+        bt_bindings: 行为树的档案绑定。
+        site: 可选场地档案；导航模式必需。
+        urdf: 机器人描述；导航校验必需。
+        rviz: 可选的 RViz 配置，只有选了 RViz 才必需。
     """
 
     profile: Path
@@ -54,14 +54,14 @@ class BundleInputs:
 
 @dataclass(frozen=True)
 class PreparedBundle:
-    """Validated bytes ready to add to one new run record.
+    """已校验的字节内容，可直接加入某一条新的运行记录.
 
     Attributes:
-        options: Graph choices with profile-owned process and topic bindings.
-        robot: Recorded robot identity.
-        site: Recorded site identity, or none for site-free chassis tools.
-        artifacts: Relative file names paired with immutable file contents.
-        issues: Nonfatal offline validation warnings.
+        options: 启动图选择，含档案给出的进程与话题绑定。
+        robot: 记录下来的机器人身份。
+        site: 记录下来的场地身份；无场地的底盘工具为空。
+        artifacts: 相对文件名与不可变文件内容的配对。
+        issues: 离线校验发现的非致命警告；有警告仍可启动，需人工判断。
     """
 
     options: GraphOptions
@@ -72,7 +72,10 @@ class PreparedBundle:
 
 
 class _Reader:
-    """Snapshot only configuration, and stream hashes of larger read-only assets."""
+    """只把配置完整快照下来，较大的只读资源改为流式取哈希.
+
+    大文件只记哈希不记内容：能证明启动时用的是哪一份，不能据此重建该文件。
+    """
 
     def __init__(self) -> None:
         self.artifacts: Dict[str, bytes] = {}
@@ -281,24 +284,23 @@ def prepare_bundle(
     options: GraphOptions, inputs: BundleInputs, catalog: schema.ParameterCatalog,
     teleop_options: TeleopOptions = TeleopOptions(),
 ) -> PreparedBundle:
-    """Read, bind and validate configuration entirely offline and without writes.
+    """完全离线地读取、绑定并校验配置，过程中不写任何文件.
 
-    The caller resolves chassis auto-detection and executor CLI arguments first.
-    Profile-owned topics, driver identity and startup timing override generic
-    graph defaults. Chassis and teleop never require map, URDF or localization.
+    底盘自动探测与执行器命令行参数由调用方先行解析。档案给出的话题、驱动身份与
+    启动时序覆盖启动图的通用默认值。底盘与遥控模式从不要求地图、URDF 或定位。
 
     Args:
-        options: Desired graph switches and final absolute run directory.
-        inputs: Explicit configuration source paths.
-        catalog: Aggregated package schemas used by offline validation.
-        teleop_options: Explicit keyboard overrides; never modify source snapshots.
+        options: 期望的启动图开关与最终的绝对运行目录。
+        inputs: 显式的配置源路径。
+        catalog: 离线校验所用的聚合包 schema。
+        teleop_options: 显式的键盘覆盖项；不会改动源文件快照。
 
     Returns:
-        Immutable file contents and resolved options, suitable for dry-run inspection.
+        不可变的文件内容与已解析选项，可直接用于 dry-run 审阅。
 
     Raises:
-        ValueError: If configuration is malformed, inconsistent or incomplete.
-        OSError: If a required input cannot be read.
+        ValueError: 配置格式错误、彼此不一致或缺项。
+        OSError: 某个必需输入读不到。
     """
     build_graph(options)
     overrides = teleop_options.values(options.mode)
@@ -356,19 +358,19 @@ def prepare_bundle(
 
 
 def write_bundle(bundle: PreparedBundle) -> None:
-    """Add prepared artifacts to an existing, newly created run record.
+    """把已准备好的文件加入一条已存在且刚创建的运行记录.
 
-    Existing files and symlinked destinations are rejected before any write.
-    A disk failure may leave diagnostic partial artifacts, but never launch.json.
-    The caller owns the run directory and its single-instance lock throughout.
+    已存在的文件与指向别处的软链在写入之前就被拒绝，因此本函数不会覆盖任何东西。
+    写盘失败可能留下用于诊断的半成品，但绝不会留下 launch.json。
+    整个过程中运行目录与其单实例锁都由调用方持有。
 
     Args:
-        bundle: Previously validated contents for this run's exact directory.
+        bundle: 之前已校验、面向本次运行确切目录的内容。
 
     Raises:
-        ValueError: If a destination is unsafe or artifacts are malformed.
-        FileExistsError: If any artifact already exists, including a broken symlink.
-        OSError: If a directory or exclusive file write fails.
+        ValueError: 目标位置不安全，或内容格式错误。
+        FileExistsError: 任一目标文件已存在，包括断掉的软链。
+        OSError: 创建目录或排他写文件失败。
     """
     build_graph(bundle.options)
     root = Path(bundle.options.run_dir)

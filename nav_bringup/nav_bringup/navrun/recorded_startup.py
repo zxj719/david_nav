@@ -1,8 +1,8 @@
-"""Lock-scoped recorded startup, including partial failures and cleanup retries.
+"""在锁的作用域内记录并执行启动，含部分失败与清理重试.
 
-Host operations and command binding are explicit callbacks: importing this module
-does not configure hardware, discover ROS, clean DDS, or start a process. The live
-CLI supplies these bindings explicitly; tests substitute private or fake adapters.
+对主机的操作和命令绑定都是显式回调：仅仅导入本模块不会配置硬件、不做 ROS 发现、
+不清理 DDS、也不启动任何进程。真实 CLI 显式提供这些绑定，测试换成私有或假的适配器。
+记录是尽力而为的证据，不是事务：已经生效的主机改动只会被记录，不会被自动回滚。
 """
 
 from __future__ import annotations
@@ -39,18 +39,18 @@ from nav_bringup.recorder.events import EventLog, read_events
 
 @dataclass(frozen=True)
 class StartupOptions:
-    """Run identity and recording destinations selected by the outer CLI.
+    """由外层 CLI 选定的运行身份与记录去处.
 
     Attributes:
-        mode: Launch mode and run-id component.
-        robot: Expected robot identity in the prepared bundle.
-        site: Expected site, or none for chassis tools.
-        runs_root: Absolute root for new run records and retention.
-        repo_dir: Explicit repository to fingerprint, never an implicit production path.
-        lock_path: Navigation lease; tests must use a private path.
-        command: Original user-facing invocation to record.
-        gc: Apply retention before launch, preserving this incomplete run.
-        retention_policy: Limits for previously completed records.
+        mode: 启动模式，同时作为运行 ID 的组成部分。
+        robot: 已备好的运行包里应当出现的机器人身份。
+        site: 期望的场地；底盘类工具为空。
+        runs_root: 新运行记录与保留策略的绝对根目录。
+        repo_dir: 要取指纹的仓库，必须显式给出，绝不隐含指向生产目录。
+        lock_path: 导航租约；测试必须使用私有路径。
+        command: 需要记录的原始用户命令。
+        gc: 启动前先执行保留策略，并保住本次尚未完成的运行。
+        retention_policy: 对此前已完成记录的保留上限。
     """
 
     mode: str
@@ -66,13 +66,13 @@ class StartupOptions:
 
 @dataclass(frozen=True)
 class StartupStep:
-    """One externally bound startup operation after command validation.
+    """命令校验之后、由外部绑定的一个启动操作.
 
     Attributes:
-        name: Unique event label, such as platform, preflight or dds.
-        execute: Apply this step; receive the plan, event writer and signal probe.
-            It must observe interruption, own any temporary resources, and raise
-            on failure. Applied host changes are recorded, not implicitly rolled back.
+        name: 唯一的事件标签，例如 platform、preflight 或 dds。
+        execute: 执行该步骤，入参为计划、事件写入器与信号探针。实现必须自己观察
+            中断请求、自己管理临时资源，失败时抛异常。已经生效的主机改动只会被记录，
+            不会被隐式回滚。
     """
 
     name: str
@@ -81,12 +81,12 @@ class StartupStep:
 
 @dataclass(frozen=True)
 class RecordedStartupResult:
-    """A finalized record whose owned child groups have all drained.
+    """一份已收尾的记录，其自有子进程组全部已退干净.
 
     Attributes:
-        run: Completed run directory, including failed startup evidence.
-        exit_code: Shell-compatible result of startup and cleanup.
-        exit_reason: Stage, signal or failure that ended the run.
+        run: 已完成的运行目录；启动失败时同样保留现场证据。
+        exit_code: 启动与清理的最终状态码，语义与 shell 一致。
+        exit_reason: 结束本次运行的阶段、信号或失败原因。
     """
 
     run: run_dir_lib.RunDirectory
@@ -133,17 +133,21 @@ class _Signals:
 
 
 class StartupInterrupted(Exception):
-    """An explicit shutdown request observed by a startup operation.
+    """启动操作观察到的一次显式关停请求.
+
+    信号只是"请求"：抛出本异常表示协作式退出已经开始，不代表任何进程已经结束。
 
     Attributes:
         signum: 导致启动流程协作退出的信号编号。
     """
 
     def __init__(self, signum: int) -> None:
-        """Preserve the first signal even across a host-operation boundary.
+        """保住第一个信号，跨主机操作边界也不丢失.
+
+        后续再来的信号不会覆盖它，退出原因始终指向最早的那次请求。
 
         Args:
-            signum: Signal number received by the owning supervisor.
+            signum: 持有方监督进程收到的信号编号。
         """
         self.signum = signum
         super().__init__(f'startup interrupted by signal {signum}')
@@ -157,33 +161,32 @@ def run_recorded_startup(
     runner: manifest_lib.CommandRunner = manifest_lib.run_command,
     terminal: Optional[IO[bytes]] = None,
 ) -> RecordedStartupResult:
-    """Record and execute startup while retaining ownership through finalization.
+    """记录并执行启动，直到收尾为止始终保持对自有资源的持有.
 
-    A new manifest precedes configuration preparation. Plan and command errors
-    prevent host operations; every completed host step is recorded. SIGINT,
-    SIGTERM and SIGHUP only request shutdown, including during cleanup. Remaining
-    owned process groups are retried under the lock without a false completion
-    deadline. Final manifest/summary are written only after all groups drain.
-    No retries create new children or broaden signal targets.
+    先写新清单再准备配置。计划或命令错误会挡在主机操作之前；每个已完成的主机步骤
+    都会被记录。SIGINT、SIGTERM、SIGHUP 一律只是请求关停（清理期间也是如此），
+    不强杀。残余的自有进程组在锁内反复重试回收，不设"假装已完成"的截止时间；
+    最终清单与摘要只在所有进程组都退干净之后才写。重试不会创建新子进程，
+    也不会扩大发信号的目标范围——因此本函数不保证能回收不属于本次启动的进程。
 
     Args:
-        options: Explicit identity, repository, lease and recording settings.
-        prepare: Build the immutable plan for the newly created absolute run path.
-        commands: Bind all runtime commands before any host mutation.
-        steps: Ordered explicit host operations; empty means none are applied.
-        environ: Inherited environment copied for recording and child processes.
-        now: Wall clock used for run identity and duration.
-        runner: Read-only git command runner, replaceable by tests.
-        terminal: Binary console sink; defaults to stdout when available.
+        options: 显式的身份、仓库、租约与记录设置。
+        prepare: 为新建的绝对运行路径构建不可变计划。
+        commands: 在任何主机改动之前绑定全部运行时命令。
+        steps: 有序的显式主机操作；为空表示一个都不做。
+        environ: 供记录与子进程使用的继承环境副本。
+        now: 用于运行身份与时长的墙钟。
+        runner: 只读的 git 命令执行器，测试可替换。
+        terminal: 二进制控制台输出端；可用时默认接标准输出。
 
     Returns:
-        The finalized record and exit status; runtime failures are recorded.
+        已收尾的记录与退出状态；运行期失败同样被记录下来。
 
     Raises:
-        ValueError: Top-level settings are invalid before ownership is acquired.
-        RuntimeError: Called outside the main thread or recording cannot stop.
-        OSError: Lock or run creation, initial recording or finalization fails.
-        LockBusy: Another run owns the requested lease.
+        ValueError: 取得资源归属之前发现顶层设置非法。
+        RuntimeError: 不在主线程调用，或记录无法停止。
+        OSError: 加锁、创建运行目录、初始记录或收尾失败。
+        LockBusy: 请求的租约已被另一次运行持有。
     """
     _validate(options, steps)
     env = dict(os.environ if environ is None else environ)
