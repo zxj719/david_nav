@@ -71,7 +71,9 @@ Nav2 侧保留的键是 `/lightning/odometry`，目前**无发布者**，是已�
 
 **⑧ 帧。** `frames.nav_base` 是 `base_footprint`，`frames.body` 是 `base_link`，
 两者差 0.165 m（URDF 固定关节），POI 采集用 `frames.poi_capture`。三者永不合并。
-`david_nav` 里的 `scan_priority_layer` 有硬编码的帧名，改 `robot_base_frame` 必须连带改它。
+改帧时注意**有两份同名的代价图插件**：重构版 `nav_plugins/src/scan_priority_layer.cpp`
+已改为从参数读 `robot_base_frame`（改配置即可）；生产 `~/ros2_ws/src/david_nav/src/` 下
+还有一份独立实现，里面仍有写死的 `base_footprint`（可视化 marker），改生产侧要单独确认。
 
 ## 3. 怎么不动车也能验
 
