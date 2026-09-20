@@ -122,6 +122,7 @@ cd ~/ros2_ws_refactor/src/nav_bringup && python3 -m pytest test -q
 |---|---|
 | [CLAUDE.md](CLAUDE.md) | 硬边界、环境陷阱、验证规矩（**动手前必读**） |
 | [docs/architecture.md](docs/architecture.md) | 架构与所有权、模式、任务与关闭顺序 |
+| [docs/console_and_logs.md](docs/console_and_logs.md) | **操作人员版**：怎么读终端输出、退出码含义、日志去哪找 |
 | [docs/runbook.md](docs/runbook.md) | 现场操作与诊断步骤 |
 | [docs/parameters.md](docs/parameters.md) | 参数目录（由 schema 自动生成，勿手改） |
 | [docs/porting.md](docs/porting.md) | 换机器人 |
