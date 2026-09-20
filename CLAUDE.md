@@ -85,6 +85,11 @@ python3 -c "import david_nav_msgs as m; print(m.__file__)"   # 必须落在 ros2
 
 **开一个新终端**（或 `exec bash`）再跑，不要在一个终端里换着跑两个工作区的入口。
 
+**⑩ 底盘驱动每秒一条 `serial 1s summary ... online=0` ＝ 控制板没被系统识别，不是通信错误。**
+计数全零说明连都没连上。排查链条（2026-09-20 实测）：驱动配的是 `/dev/wheeltec_controller`（与 IMU 不冲突）→ 该节点不存在 → udev 规则要求 `1a86:55d4` 或 `10c4:ea60`（serial 0002）→ `lsusb` 里没有这两个 ID ＝ 控制板没上电或 USB 没插。
+注意系统里唯一的 CH341 节点 `/dev/ttyCH341USB0` 是**IMU**（`/dev/wit_imu` 指向它，厂商版 `usb_ch341` 驱动不产生 `ttyUSB*`），别把它当成底盘口。
+控制板没接时导航栈照样能起（`startup_ready`、`failed` 0），只是车不可能动；不想看这条告警就用 `--chassis off`。
+
 ## 3. 怎么不动车也能验
 
 这是 2026-09-20 用过并留档的方法，可直接复用：
