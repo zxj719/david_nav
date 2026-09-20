@@ -1,8 +1,10 @@
-"""Validate frozen run configuration before an optional read-only ROS observation.
+"""在可选的只读 ROS 观察之前，先校验已冻结的运行配置.
 
-Offline checks recompute schema and cross-file safety rules using the saved
-inputs, rendered Nav2 tree, BTs and URDF; checks.yaml is not trusted as evidence.
-This is not hardware acceptance, a byte-integrity audit or a liveness check.
+离线检查用保存下来的输入、已渲染的 Nav2 参数树、行为树与 URDF **重新计算** schema
+与跨文件安全规则；运行目录里现成的 checks.yaml 只是上一次的结论，不被当作证据。
+
+这既不是硬件验收，也不是字节完整性审计，更不是存活性检查：
+它只回答"这份配置按当前规则还成立吗"。
 """
 
 from __future__ import annotations
@@ -114,18 +116,20 @@ def _trees(root: Path, tree: Dict[str, Any]) -> Dict[str, str]:
 def offline(
     root: Path, catalog: schema.ParameterCatalog,
 ) -> Tuple[GraphOptions, Tuple[validation.ValidationIssue, ...]]:
-    """Recheck the selected run using its frozen artifacts and the current schema.
+    """用选定运行的冻结文件与当前 schema 重新检查一遍.
+
+    输入目录被当作可信来源：本函数不防御恶意构造的归档，只处理自己产出的运行目录。
 
     Args:
-        root: Trusted existing prepared directory, not an arbitrary untrusted archive.
-        catalog: Current explicitly selected, installed or source-owned schemas.
+        root: 可信且已存在的已准备目录，不是任意的不可信归档。
+        catalog: 当前显式选定的、已安装或源码里的 schema。
 
     Returns:
-        Launch options and recomputed safety findings, without querying ROS.
+        启动选项与重新计算出的安全判定；全程不查询 ROS。
 
     Raises:
-        ValueError: A required artifact, identity, launch graph or structure is invalid.
-        OSError: Required configuration cannot be read.
+        ValueError: 缺少必需文件，或身份、启动图、结构非法。
+        OSError: 必需配置读不到。
     """
     options = load_options(str(root), {})
     launch = json.loads((root / 'launch.json').read_text(encoding='utf-8'))
@@ -158,14 +162,15 @@ def offline(
 
 
 def run(args: argparse.Namespace) -> int:
-    """Dispatch offline validation and opt-in live verification of the same run.
+    """对同一次运行分发离线校验与需显式开启的在线核验.
 
     Args:
-        args: Run selector, schema sources, live flag, strict flag and timing bounds.
+        args: 运行选择子、schema 来源、在线标志、严格标志与时间上限。
 
     Returns:
-        Zero for offline success, one for safety errors, two for invalid inputs;
-        online verification additionally preserves pending and signal exit statuses.
+        离线通过返回 0，安全规则报错返回 1，输入非法返回 2；
+        在线核验另外保留"定位仍在等待"与被信号中断这两种退出状态，
+        不把它们折叠成普通失败。
     """
     try:
         root = _root(args)

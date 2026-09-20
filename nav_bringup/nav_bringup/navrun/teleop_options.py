@@ -1,4 +1,7 @@
-"""Explicit keyboard-only overrides shared by preview, rendering and replay."""
+"""只针对键盘遥控的显式覆盖项，预览、渲染与回放共用同一份定义.
+
+覆盖只改这一次运行的键位与档位，不改源档案，也不放宽档案自带的安全上限。
+"""
 
 from dataclasses import asdict, dataclass
 import math
@@ -9,12 +12,12 @@ from nav_bringup.navcfg import render
 
 @dataclass(frozen=True)
 class TeleopOptions:
-    """Optional per-run selectors; omitted fields retain the selected profile.
+    """可选的单次运行选择子；没写的字段一律沿用选定档案.
 
     Attributes:
-        layout: wasd or uiojkl, without adding keys or changing topic ownership.
-        linear_speed: Nonnegative requested gear in m/s, within profile limits.
-        angular_speed: Nonnegative requested gear in rad/s, within profile limits.
+        layout: wasd 或 uiojkl；只换键位，不新增按键，也不改变话题归属。
+        linear_speed: 请求的线速度档位，非负、单位 m/s，必须在档案上限内。
+        angular_speed: 请求的角速度档位，非负、单位 rad/s，必须在档案上限内。
     """
 
     layout: Optional[str] = None
@@ -22,16 +25,16 @@ class TeleopOptions:
     angular_speed: Optional[float] = None
 
     def values(self, mode: str) -> Dict[str, Any]:
-        """Validate selectors before resource discovery or host operations.
+        """在资源发现与主机操作之前先校验选择子.
 
         Args:
-            mode: Selected startup mode; nonempty overrides require teleop.
+            mode: 选定的启动模式；非空覆盖只允许出现在遥控模式。
 
         Returns:
-            Only explicitly provided options, suitable for freezing as YAML.
+            只包含显式给出的选项，可直接冻结成 YAML；没给的字段不会被补默认值。
 
         Raises:
-            ValueError: A selector is invalid or used outside teleop mode.
+            ValueError: 选择子非法，或在非遥控模式下使用。
         """
         values = {key: value for key, value in asdict(self).items() if value is not None}
         if values and mode != 'teleop':
@@ -49,22 +52,22 @@ class TeleopOptions:
 def apply_options(
     profile: Mapping[str, Any], mode: str, options: TeleopOptions,
 ) -> Dict[str, Any]:
-    """Apply explicit gears without changing source data or safety ceilings.
+    """套用显式档位，不改动源数据，也不放宽安全上限.
 
-    Profile-owned deadzone lifting and clamping remain unchanged at runtime.
-    Unlike existing profile gears, explicitly requested excessive gears fail
-    early, instead of being silently clamped after an operator requests them.
+    档案自带的死区抬升与限幅在运行期保持原样。与档案里既有的档位不同，
+    显式请求超限的档位会当场失败，而不是在操作者提出之后被静默限幅——
+    这样操作者不会以为自己拿到了更高的速度。
 
     Args:
-        profile: Robot profile after the selected mode overlay.
-        mode: Startup mode, used to reject misplaced overrides.
-        options: Immutable explicit selectors, never arbitrary profile edits.
+        profile: 叠加选定模式差异之后的机器人档案。
+        mode: 启动模式，用于拒绝放错位置的覆盖。
+        options: 不可变的显式选择子，不是任意档案编辑入口。
 
     Returns:
-        A new profile with validated keyboard-only overrides applied.
+        套用了已校验的键盘覆盖之后的新档案（原档案对象不被修改）。
 
     Raises:
-        ValueError: An override is malformed or exceeds a profile-owned ceiling.
+        ValueError: 覆盖项格式错误，或超过档案自带的上限。
     """
     values = options.values(mode)
     for key, limit in (('linear_speed', 'linear_x'), ('angular_speed', 'angular_z')):

@@ -1,4 +1,8 @@
-"""Unified startup CLI with a pure preview and a lock-scoped recorded runtime."""
+"""统一启动 CLI：一个纯预览路径，一个在锁作用域内带记录的运行路径.
+
+两条路径共用同一份配置与启动图，因此预览看到的就是将要启动的东西；
+但预览成功只说明配置与入口点齐备，不构成对硬件或部署的任何验收。
+"""
 
 from __future__ import annotations
 
@@ -29,20 +33,20 @@ def _processes() -> Tuple[ProcessInfo, ...]:
 
 
 def preview(args: argparse.Namespace) -> Dict[str, Any]:
-    """Read resource files and processes and return the startup preview.
+    """读取资源文件与进程列表，返回启动预览.
 
     Args:
-        args: Parsed up arguments; source_root optionally overrides installed assets.
+        args: 已解析的 up 参数；source_root 可选地覆盖已安装资源。
 
     Returns:
-        JSON-compatible plan. The synthetic dry-run directory is never created,
-        and no git, ROS CLI, platform or other subprocess is started.
+        JSON 兼容的计划。用于试算的虚拟运行目录从不会被真的创建，
+        过程中也不启动 git、ROS CLI、平台命令或任何其它子进程。
 
     Raises:
-        ValueError: Invalid configuration or selectors.
-        LookupError: Required installed resources are unavailable.
-        OSError: A required source cannot be read.
-        PreflightError: Process visibility is insufficient for chassis auto detection.
+        ValueError: 配置或选择子非法。
+        LookupError: 缺少必需的已安装资源。
+        OSError: 某个必需输入读不到。
+        PreflightError: 进程可见性不足，无法完成底盘自动探测。
     """
     root = (args.runs_root or default_runs_root()).expanduser().absolute()
     plan = _plan(args, root / 'dry_run_preview')
@@ -97,18 +101,19 @@ def _plan(args, run_dir):
 
 
 def start(args: argparse.Namespace) -> int:
-    """Execute the prepared recorded startup without modifying production aliases.
+    """执行已准备好的带记录启动，不修改现网的任何快捷方式.
 
     Args:
-        args: Parsed mode, profile, recording, repository and strict-check selectors.
+        args: 已解析的模式、档案、记录、仓库与严格检查选择子。
 
     Returns:
-        Recorded shell-compatible exit status after cleanup and finalization.
+        清理与收尾完成之后记录下来的退出状态，语义与 shell 一致；
+        它描述这次启动怎么结束，不描述导航任务成没成功。
 
     Raises:
-        ValueError: An installed copy needs an explicit repository for traceability.
-        OSError: A required file, executable or recording operation is unavailable.
-        RuntimeError: Ownership, host preparation or recording cannot be established.
+        ValueError: 从安装副本启动时必须显式给出仓库，否则无法追溯。
+        OSError: 缺少必需文件、可执行文件，或记录操作不可用。
+        RuntimeError: 无法建立归属、主机准备或记录。
     """
     repo = args.repo or args.source_root
     if repo is None:
@@ -131,14 +136,14 @@ def start(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
-    """Dispatch either a read-only preview or the explicit recorded startup.
+    """按参数分发：要么只读预览，要么显式执行带记录的启动.
 
     Args:
-        args: Parsed startup arguments.
+        args: 已解析的启动参数。
 
     Returns:
-        Zero for a valid preview, two for invalid setup, or the runtime exit code.
-        A valid preview never certifies hardware or deployment acceptance.
+        预览有效返回 0，配置无效返回 2，实际启动则返回其运行期退出码。
+        预览有效从不等于硬件或部署通过验收。
     """
     try:
         if not args.dry_run:

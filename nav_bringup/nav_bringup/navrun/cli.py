@@ -1,4 +1,7 @@
-"""Command line entry point ``navrun``.
+"""``navrun`` 命令行入口.
+
+各子命令的职责分工写在各自模块里；本模块只负责参数解析与分发，
+不直接操作机器人，也不代替子命令做任何校验。
 
 Example:
     navrun wrap --mode tour --alias 4 -- ~/ros2_ws/src/david_nav/start_navigation_headless.sh
@@ -30,10 +33,12 @@ DEFAULT_REPO_DIR = '~/ros2_ws/src'
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Create the ``navrun`` argument parser.
+    """创建 ``navrun`` 的参数解析器.
+
+    只注册参数，不执行任何子命令，也不读取配置或触碰文件系统。
 
     Returns:
-        The parser with every subcommand registered.
+        已注册全部子命令的解析器。
     """
     parser = argparse.ArgumentParser(
         prog='navrun', description='Navigation run supervisor and recorder.')
@@ -241,16 +246,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_file_arguments(values: Sequence[str]) -> Dict[str, Path]:
-    """Parse repeated ``NAME=PATH`` arguments.
+    """解析可重复出现的 ``NAME=PATH`` 参数.
+
+    只做展开与查重，不检查路径是否存在、是否可读。
 
     Args:
-        values: Raw argument values.
+        values: 原始参数值。
 
     Returns:
-        Mapping of each name to its expanded path.
+        名字到其展开后路径的映射。
 
     Raises:
-        ValueError: If a value has no ``=`` or an empty name or path.
+        ValueError: 某项没有 ``=``，或名字、路径为空。
     """
     files: Dict[str, Path] = {}
     for value in values:
@@ -262,13 +269,13 @@ def parse_file_arguments(values: Sequence[str]) -> Dict[str, Path]:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Run the ``navrun`` command line.
+    """运行 ``navrun`` 命令行.
 
     Args:
-        argv: Arguments without the program name; defaults to ``sys.argv[1:]``.
+        argv: 不含程序名的参数；默认取 ``sys.argv[1:]``。
 
     Returns:
-        The process exit status.
+        进程退出状态，由被分发到的子命令决定；本函数自身不改写它。
     """
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else list(argv))

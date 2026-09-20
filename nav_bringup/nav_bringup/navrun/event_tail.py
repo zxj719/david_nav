@@ -1,7 +1,7 @@
-"""Own a bounded, non-motion diagnostic child after normal run cleanup.
+"""在正常清理之后，持有一个有界的、与运动无关的诊断子进程.
 
-Its lifecycle observations are local-only with source event_flush, avoiding an
-infinite chain of publishers needed to report their own final termination.
+它自己的生命周期事件只记在本地、来源标为 event_flush，不再向外发布——
+否则每个发布者都需要另一个发布者来汇报自己的终止，形成无穷链条。
 """
 
 import math
@@ -15,16 +15,16 @@ from nav_bringup.recorder.events import EventLog
 
 
 def command(python: str = sys.executable) -> Tuple[str, ...]:
-    """Build the private helper command without importing ROS or starting processes.
+    """拼出这个私有辅助命令，既不导入 ROS 也不启动任何进程.
 
     Args:
-        python: Absolute interpreter in the parent's selected ROS environment.
+        python: 父进程所选 ROS 环境里的绝对路径解释器。
 
     Returns:
-        Exact argument vector; run identity is passed through the environment.
+        精确的参数向量；运行身份通过环境变量传递，不出现在命令行上。
 
     Raises:
-        ValueError: Interpreter is not an absolute path or contains NUL.
+        ValueError: 解释器不是绝对路径，或含 NUL 字符。
     """
     if not Path(python).is_absolute() or '\0' in python:
         raise ValueError('event flush interpreter must be an absolute path without NUL')
@@ -35,22 +35,22 @@ def flush_tail(
     argv: Sequence[str], run_dir: Path, environ: Mapping[str, str], events: EventLog,
     *, timeout_sec: float = 5.0,
 ) -> None:
-    """Attempt final event publication without changing the recorded navigation status.
+    """尝试把最后一批事件发出去，且不改变已记录的导航状态.
 
-    Call only after every original child, including the monitor, has drained and
-    run_stopped has been appended. The caller retains its lease across this call.
-    A deadline interrupts this private helper; cleanup is retried until ownership
-    can be safely released. Cleanup interruption is re-raised only after draining.
+    只能在包括 monitor 在内的全部原有子进程都已退干净、run_stopped 也已追加之后调用。
+    调用期间租约仍由调用方持有。超出期限会中断这个私有辅助进程；清理会一直重试，
+    直到可以安全释放归属为止。清理期间收到的中断要等排干之后才重新抛出——
+    也就是说本函数宁可多等，也不留下无人回收的子进程。
 
     Args:
-        argv: Explicit optional helper vector; empty disables the operation.
-        run_dir: Existing owned run directory with a logs subdirectory.
-        environ: Child environment, copied and supplemented with run identity.
-        events: Parent event log; helper outcome uses a local-only source.
-        timeout_sec: Positive finite execution budget, excluding cleanup retries.
+        argv: 显式的可选辅助命令向量；为空表示不做这一步。
+        run_dir: 已存在且自有的运行目录，内含 logs 子目录。
+        environ: 子进程环境，复制一份并补上运行身份。
+        events: 父进程事件日志；辅助进程的结果用只记本地的来源写入。
+        timeout_sec: 有限且为正的执行预算，不含清理重试的时间。
 
     Raises:
-        ValueError: The explicit timeout is invalid.
+        ValueError: 显式给出的超时非法。
     """
     if not argv:
         return
