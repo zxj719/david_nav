@@ -1,11 +1,11 @@
-"""Forbidden string literals in package code (refactor plan §5.4).
+"""包代码里的禁用字符串字面量（方案 §5.4）.
 
-Robot frame names and robot-specific topic prefixes belong in the robot
-configuration package, so that porting to another robot only touches
-configuration. This check scans Python sources with :mod:`ast` and reports
-string constants that equal a forbidden frame name or contain a forbidden
-topic prefix. Docstrings are ignored; tests are expected to be excluded by the
-caller.
+坐标系名与机器人专有的话题前缀属于机器人配置包，这样换一台车只需改配置。
+本检查用 :mod:`ast` 扫描 Python 源码，报告等于禁用坐标系名、或包含禁用话题前缀的
+字符串常量。说明文本不算在内；测试文件由调用方负责排除。
+
+只看静态字符串常量：拼接、f-string 的变量部分与运行期构造的名字都发现不了，
+因此检查通过不等于代码里没有写死的机器人专有名字。
 """
 
 from __future__ import annotations
@@ -21,12 +21,12 @@ FORBIDDEN_SUBSTRINGS = ('/lightning/', '/david001/')
 
 @dataclass(frozen=True)
 class LiteralViolation:
-    """A forbidden string literal.
+    """一处禁用字符串字面量.
 
     Attributes:
-        path: Source file.
-        line: 1-based line of the literal.
-        value: The literal.
+        path: 源文件。
+        line: 该字面量所在行号，从 1 开始。
+        value: 字面量本身。
     """
 
     path: Path
@@ -40,19 +40,19 @@ def check_source(
     forbidden_exact: Sequence[str] = FORBIDDEN_EXACT,
     forbidden_substrings: Sequence[str] = FORBIDDEN_SUBSTRINGS,
 ) -> List[LiteralViolation]:
-    """Find forbidden literals in Python source text.
+    """在 Python 源码文本里找禁用字面量.
 
     Args:
-        source: Python source code.
-        path: File name used in the results.
-        forbidden_exact: Literals that are forbidden as a whole string.
-        forbidden_substrings: Substrings that are forbidden anywhere in a literal.
+        source: Python 源码。
+        path: 出现在结果里的文件名。
+        forbidden_exact: 整串相等即禁用的字面量。
+        forbidden_substrings: 出现在字面量任意位置即禁用的子串。
 
     Returns:
-        Violations ordered by line.
+        按行号排列的违例。
 
     Raises:
-        SyntaxError: If the source cannot be parsed.
+        SyntaxError: 源码无法解析。
     """
     tree = ast.parse(source, filename=str(path))
     docstrings = _docstring_ids(tree)
@@ -74,16 +74,16 @@ def check_paths(
     forbidden_substrings: Sequence[str] = FORBIDDEN_SUBSTRINGS,
     exclude: Iterable[Union[str, Path]] = (),
 ) -> List[LiteralViolation]:
-    """Find forbidden literals in Python files and directories.
+    """在 Python 文件与目录里找禁用字面量.
 
     Args:
-        paths: Python files, or directories searched recursively for ``*.py``.
-        forbidden_exact: Literals that are forbidden as a whole string.
-        forbidden_substrings: Substrings that are forbidden anywhere in a literal.
-        exclude: Files to skip, for example the module that defines a policy.
+        paths: Python 文件，或按递归查找 ``*.py`` 的目录。
+        forbidden_exact: 整串相等即禁用的字面量。
+        forbidden_substrings: 出现在字面量任意位置即禁用的子串。
+        exclude: 要跳过的文件，例如定义这份策略的模块本身。
 
     Returns:
-        Violations ordered by file and line.
+        按文件与行号排列的违例。
     """
     excluded = {Path(entry).resolve() for entry in exclude}
     files: List[Path] = []
@@ -101,13 +101,13 @@ def check_paths(
 
 
 def format_violations(violations: Sequence[LiteralViolation]) -> str:
-    """Format violations for an assertion message.
+    """把违例格式化成断言信息.
 
     Args:
-        violations: Violations to format.
+        violations: 待格式化的违例。
 
     Returns:
-        One ``path:line: literal`` line per violation.
+        每条违例一行，格式为 ``path:line: literal``。
     """
     return '\n'.join(
         f'{violation.path}:{violation.line}: forbidden literal {violation.value!r} '

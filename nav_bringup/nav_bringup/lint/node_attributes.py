@@ -1,10 +1,10 @@
-"""Inspect ROS Node inheritance and attribute collisions without executing code.
+"""检查 ROS Node 的继承与属性冲突，全程不执行被检查的代码.
 
-Static imports, relative imports, local inheritance and mixins are resolved from
-the supplied source set. Computed bases, runtime rebinding and receiver aliases
-are not resolved. Duplicate class names within a module are rejected rather
-than silently selecting one. Parent attributes come from installed Node source,
-never a constructed ROS node or a hand-maintained list of private attributes.
+静态导入、相对导入、本地继承与 mixin 都从给定的源码集合里解析；运行期计算出来的基类、
+运行期重新绑定以及接收者别名解析不了。同一模块内重名的类会被拒绝，
+而不是静默地挑一个用。父类属性取自已安装的 Node 源码，
+既不是构造出来的 ROS 节点，也不是手工维护的私有属性清单——
+因此升级 rclpy 后结论会随之变化，这是有意为之。
 """
 
 import ast
@@ -14,11 +14,11 @@ from typing import Iterable, Mapping
 
 @dataclass(frozen=True)
 class NodeAudit:
-    """Static subclass inventory and dependency-free collision diagnostics.
+    """静态得到的子类清单，以及不依赖运行时的冲突诊断.
 
     Attributes:
-        checked_classes: Sorted fully qualified Node subclass names.
-        violations: Sorted collisions and unused or invalid override allowances.
+        checked_classes: 排序后的 Node 子类完全限定名。
+        violations: 排序后的冲突，以及未被用到或无效的覆盖豁免。
     """
 
     checked_classes: tuple[str, ...]
@@ -30,22 +30,22 @@ def audit_sources(
     allowed_methods: Iterable[tuple[str, str]] = (),
     packages: Iterable[str] = (),
 ) -> NodeAudit:
-    """Compare static Node descendants with the installed parent's declared members.
+    """把静态求得的 Node 后代与已安装父类的声明成员逐项比对.
 
     Args:
-        sources: Module names mapped to Python source, including shared base classes.
-        node_source: Source containing the installed rclpy Node class definition.
-        allowed_methods: Exact owner/method pairs for reviewed lifecycle overrides.
-            Each must exist, collide and contain a same-method super delegation.
-            Instance writes remain forbidden even for an approved method name.
-        packages: Module names that represent package initializers.
+        sources: 模块名到 Python 源码的映射，包含共享基类。
+        node_source: 含已安装 rclpy Node 类定义的源码。
+        allowed_methods: 经审查的生命周期覆盖，按"属主/方法"精确配对。
+            每一项都必须真实存在、确实冲突，并且内部有对同名父方法的 super 委托；
+            即使方法名已获批准，实例写入仍然禁止。
+        packages: 代表包初始化文件的模块名。
 
     Returns:
-        Subclass inventory and line-numbered violations; no source is imported.
+        子类清单与带行号的违例；过程中不导入任何源码。
 
     Raises:
-        SyntaxError: Any supplied Python source is invalid.
-        ValueError: Node is missing, class names are ambiguous or imports escape scope.
+        SyntaxError: 给定的某份 Python 源码非法。
+        ValueError: 缺少 Node、类名有歧义，或导入越出了给定范围。
     """
     parents = [node for node in ast.parse(node_source).body
                if isinstance(node, ast.ClassDef) and node.name == 'Node']

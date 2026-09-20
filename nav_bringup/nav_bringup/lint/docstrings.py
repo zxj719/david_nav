@@ -1,31 +1,29 @@
-"""Google-style docstring section checks based on the Python AST.
+"""基于 Python AST 的 Google 风格说明分节检查.
 
-``ament_pep257`` validates docstring formatting. It does not check that a
-function documents its arguments, return value and raised exceptions, which
-the Google Python Style Guide requires. :func:`check_paths` fills that gap so
-packages can enforce those sections from a unit test.
+``ament_pep257`` 只管说明的格式，不检查函数是否写了参数、返回值与异常这几节，
+而 Google Python 风格指南要求写。:func:`check_paths` 补上这块，
+使各包可以在单元测试里强制这些分节。
 
-Rules for public definitions (names not starting with an underscore):
+本检查只判断"分节在不在、参数名有没有被提到"，**不判断说明写得对不对**：
+分节齐全不代表描述属实，语义仍需人工审查。
 
-* every module, class and function has a docstring;
-* directly declared public data fields have named ``Attributes:`` entries;
-* a function with parameters other than ``self`` / ``cls`` has an ``Args:``
-  section that mentions each parameter;
-* a function that returns a value, or declares a non-``None`` return
-  annotation, has a ``Returns:`` section (``@property`` getters are exempt);
-* a generator has a ``Yields:`` section;
-* a function containing an explicit ``raise SomeError`` has a ``Raises:``
-  section.
+对公共定义（名字不以下划线开头）的规则：
 
-Nested functions and members of private classes are not checked. Properties use
-their getter docstrings. Attribute discovery covers class assignments, literal
-slots, and instance writes/literal setattr in methods, not inherited fields,
-computed names, receiver aliases, descriptors or dynamically generated APIs.
+* 每个模块、类与函数都有说明；
+* 直接声明的公共数据字段在 ``Attributes:`` 里逐项列名；
+* 除 ``self`` / ``cls`` 以外还有参数的函数要有 ``Args:``，且逐个提到参数名；
+* 有返回值、或声明了非 ``None`` 返回注解的函数要有 ``Returns:``
+  （``@property`` 取值器豁免）；
+* 生成器要有 ``Yields:``；
+* 函数体里有显式 ``raise SomeError`` 的要有 ``Raises:``。
 
-``check_private_paths`` is a separate opt-in presence gate for private functions
-over ten physical definition lines, including nested functions/private classes.
-It excludes double-underscore names and does not judge prose quality or detect
-non-obvious short functions. Those still require review under SPEC 5.3.
+嵌套函数与私有类的成员不在检查范围内。属性用取值器的说明。
+属性发现覆盖类赋值、字面量 slots，以及方法里的实例写入和字面量 setattr；
+继承来的字段、计算出来的名字、接收者别名、描述符与动态生成的 API 都发现不了。
+
+``check_private_paths`` 是另一道需显式开启的"有没有写"门禁，针对定义超过十个物理行的
+私有函数，包含嵌套函数与私有类，但排除双下划线名字。它不判断文字质量，
+也发现不了"短但不显然"的函数——这些仍需按 SPEC 5.3 人工审查。
 
 ``check_long_paths`` 另行覆盖所有命名、所有作用域的长函数，包括双下划线
 方法和普通名字的嵌套定义；只检查非空说明，不替代公共分节或语义审查。
@@ -56,13 +54,13 @@ FunctionNode = Union[ast.FunctionDef, ast.AsyncFunctionDef]
 
 @dataclass(frozen=True)
 class Violation:
-    """A single docstring policy violation.
+    """一条说明规范的违例.
 
     Attributes:
-        path: File that contains the offending definition.
-        line: 1-based line number of the definition.
-        name: Qualified name of the definition, or ``<module>``.
-        message: Human readable description of the problem.
+        path: 出现问题的定义所在文件。
+        line: 该定义的行号，从 1 开始。
+        name: 定义的限定名，模块本身为 ``<module>``。
+        message: 面向人的问题描述。
     """
 
     path: str
@@ -71,26 +69,28 @@ class Violation:
     message: str
 
     def __str__(self) -> str:
-        """Format the violation as ``path:line name: message``.
+        """按 ``path:line name: message`` 格式化本条违例.
 
         Returns:
-            The formatted violation.
+            格式化后的文本。
         """
         return f'{self.path}:{self.line} {self.name}: {self.message}'
 
 
 def check_source(source: str, path: str = '<string>') -> List[Violation]:
-    """Check the source text of one module.
+    """检查一个模块的源码文本.
+
+    只解析不执行：源码中的导入、装饰器与运行期行为都不会被触发。
 
     Args:
-        source: Python source code.
-        path: Path used in violation messages.
+        source: Python 源码。
+        path: 出现在违例信息里的路径。
 
     Returns:
-        Violations in source order; empty when the module complies.
+        按源码顺序排列的违例；模块合规时为空。
 
     Raises:
-        SyntaxError: If ``source`` is not valid Python.
+        SyntaxError: ``source`` 不是合法的 Python。
     """
     tree = ast.parse(source, filename=path)
     violations: List[Violation] = []
@@ -101,17 +101,17 @@ def check_source(source: str, path: str = '<string>') -> List[Violation]:
 
 
 def check_paths(paths: Iterable[Union[str, Path]]) -> List[Violation]:
-    """Check every Python file under the given files or directories.
+    """检查给定文件或目录下的每一个 Python 文件.
 
     Args:
-        paths: Files or directories. Directories are searched recursively and
-            files whose names start with ``test_`` are skipped there.
+        paths: 文件或目录。目录按递归搜索，其中以 ``test_`` 开头的文件跳过；
+            直接点名的文件不受该跳过规则影响。
 
     Returns:
-        All violations, ordered by file path and then by source order.
+        全部违例，先按文件路径、再按源码顺序排列。
 
     Raises:
-        SyntaxError: If a file is not valid Python.
+        SyntaxError: 某个文件不是合法的 Python。
     """
     violations: List[Violation] = []
     for file_path in sorted(_iter_python_files(paths)):
@@ -248,13 +248,13 @@ def _all_functions(node: ast.AST, prefix: str = '') -> Iterator[tuple[str, Funct
 
 
 def format_violations(violations: Sequence[Violation]) -> str:
-    """Render violations one per line for assertion messages.
+    """把违例逐行渲染，便于放进断言信息.
 
     Args:
-        violations: Violations to render.
+        violations: 待渲染的违例。
 
     Returns:
-        A newline separated report, or an empty string when there are none.
+        以换行分隔的报告；没有违例时返回空串。
     """
     return '\n'.join(str(violation) for violation in violations)
 

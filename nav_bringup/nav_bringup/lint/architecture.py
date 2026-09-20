@@ -1,9 +1,8 @@
-"""Check split task/executor layers without importing their runtime dependencies.
+"""检查任务层与执行器层的分层，且不导入它们的运行时依赖.
 
-This AST graph includes relative, conditional and deferred static imports and
-package initializers. It expands only the inspected package, not external code
-or dynamically computed imports. It is not a replacement for TODO-I1's optional
-import-linter installation. Logical adapter aliases retain the existing layout.
+这张 AST 依赖图覆盖相对导入、条件导入、延迟的静态导入以及包初始化文件；
+只展开被检查的包本身，不展开外部代码，也解析不了运行期计算出来的导入。
+它不能取代 TODO-I1 里可选的 import-linter 安装。适配器的逻辑别名保持现有布局。
 """
 
 import ast
@@ -18,18 +17,18 @@ _FACTORIES = {'create_runtime', 'create_dock_ingress', 'declare_dock_parameters'
 
 
 def check_package(path: Path) -> list[str]:
-    """Read and statically check all Python modules of one navigation package.
+    """读取并静态检查某个导航包的全部 Python 模块.
 
     Args:
-        path: Package source directory named nav_tasks or nav_executor.
+        path: 名为 nav_tasks 或 nav_executor 的包源码目录。
 
     Returns:
-        Sorted violations with dependency-chain witnesses; empty means compliant.
+        排序后的违例，附带依赖链证据；为空表示在本策略范围内合规。
 
     Raises:
-        OSError: A source file cannot be read.
-        SyntaxError: A Python source is invalid.
-        ValueError: The package is not covered by this policy.
+        OSError: 某个源文件读不到。
+        SyntaxError: 某个 Python 源码非法。
+        ValueError: 该包不在本策略覆盖范围内。
     """
     sources = {}
     packages = set()
@@ -46,19 +45,19 @@ def check_package(path: Path) -> list[str]:
 def check_sources(
     package: str, sources: Mapping[str, str], *, packages: Iterable[str] = (),
 ) -> list[str]:
-    """Enforce layers, adapter independence and pure/public package boundaries.
+    """强制分层、适配器相互独立，以及纯逻辑与公共 API 的包边界.
 
     Args:
-        package: nav_tasks or nav_executor; other packages are external leaves.
-        sources: Fully qualified module names mapped to Python source text.
-        packages: Modules representing package initializers, for relative imports.
+        package: nav_tasks 或 nav_executor；其它包视为外部叶子节点。
+        sources: 完全限定模块名到 Python 源码文本的映射。
+        packages: 代表包初始化文件的模块，供相对导入解析。
 
     Returns:
-        Deterministically ordered diagnostics with shortest dependency witnesses.
+        顺序确定的诊断，附带最短依赖链证据；顺序确定是为了能直接做差异比对。
 
     Raises:
-        SyntaxError: A source is invalid.
-        ValueError: The package or module set is outside the policy scope.
+        SyntaxError: 某份源码非法。
+        ValueError: 该包或模块集合超出策略范围。
     """
     if package not in ('nav_tasks', 'nav_executor'):
         raise ValueError('architecture policy covers nav_tasks and nav_executor only')
