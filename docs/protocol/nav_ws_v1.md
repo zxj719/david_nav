@@ -90,8 +90,14 @@ codec 逐字节生成、键序与两套既有 golden 常量逐项对应。golden
 
 同一测试文件提供 `jsonschema.Draft7Validator` 的**完整 payload 校验**：
 每个 schema 自检、全部消息示例及抽取的既有完整事件字面量验证，另断言缺字段/错误类型拒绝。
-仅解析本地 `$ref`，无网络获取。当前 David 和 PC 未安装 jsonschema，按 S4 不安装，
-该项明确 `pytest.skip`，编号 **TODO-ASYNCAPI-1**；字段对应检查不是通用 schema 验证器。
-未来已有依赖的环境可直接运行该测试；另可在配好官方 CLI 的 PC 对本 YAML 执行
-`asyncapi validate docs/protocol/nav_ws_v1.asyncapi.yaml`。**本轮未运行官方 CLI 或完整 payload
-验证，不宣称 AsyncAPI 元 schema 已通过**。字段/格式通过也不能证明真实任务时序或实体到达。
+仅解析本地 `$ref`，无网络获取。
+
+2026-09-18 起这两项校验**已经真正运行**（此前编号 TODO-ASYNCAPI-1 的 `pytest.skip` 已消除）：
+经用户批准后在用户目录安装 `jsonschema` 4.26.0，并把官方 AsyncAPI 2.6.0 元 schema 归档到
+`docs/protocol/schemas/asyncapi-2.6.0.json`（固定上游提交、记录 sha256，校验时只读本地副本，
+不联网取任何 schema）。整份 `nav_ws_v1.asyncapi.yaml` 按该元 schema 校验的结果是 **0 错误**，
+payload 校验与示例校验同样全绿。
+
+仍然**没有**做的事，不要据此推断：未运行官方 `asyncapi` CLI（本地校验用的是归档元 schema
+而不是官方命令行工具的完整规则集）；元 schema 与 payload 通过只说明报文结构合法，
+既不能证明真实任务时序，也不能证明机器人实际到达任何位置。
