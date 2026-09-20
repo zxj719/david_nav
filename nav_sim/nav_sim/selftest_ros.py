@@ -72,7 +72,8 @@ class Observer:
             self.executor.add_node(self.node)
             self.buffer = Buffer()
             self.listener = TransformListener(self.buffer, self.node)
-            self.node.create_subscription(NavEvent, prefix + 'nav/events', self._event, 100)
+            self._events_topic = prefix + 'nav/events'
+            self.node.create_subscription(NavEvent, self._events_topic, self._event, 100)
             self.node.create_subscription(Odometry, prefix + 'odom', self._odometry, 10)
             self.node.create_subscription(
                 OccupancyGrid, prefix + 'map', self._map,
@@ -212,14 +213,20 @@ class Observer:
     def ready(self) -> bool:
         """综合地图结构、当前测量和缓存生命周期状态判断启动就绪.
 
+        事件订阅是易失的：发布者尚未被发现时发出的事件收不到。就绪因此要求本节点已经发现
+        至少一个事件发布者，否则协调器可能在订阅配上对之前就下发第一个任务，导致首条
+        任务边界事件丢失、裁判误判（2026-09-20 实跑到）。
+
         Returns:
             存在生命周期客户端且其缓存状态全为 active(3)，地图基本结构有效，
-            TF 及里程计新鲜时为 True。状态缓存没有独立年龄检查，
+            TF 及里程计新鲜、且已发现事件发布者时为 True。状态缓存没有独立年龄检查，
             结果不是目标可达或运动完成证明。
         """
         return (bool(self._clients) and set(self._states) == set(self._clients)
                 and all(value == 3 for value in self._states.values())
-                and self._map_ready and self.pose() is not None and self.odometry() is not None)
+                and self._map_ready and self.pose() is not None
+                and self.odometry() is not None
+                and self.node.count_publishers(self._events_topic) > 0)
 
     def close(self) -> None:
         """按顺序尝试释放本观察器的监听器、执行器、节点和私有上下文.

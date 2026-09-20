@@ -173,28 +173,33 @@ def _profile(original, mode, prefix, root):
     return profile
 
 
-def _assets(root, profile, namespace, uri):
-    """独占创建两任务点位、合成静态房间地图和私有场地档案.
+def _assets(root, profile, namespace, uri, kinds):
+    """独占创建各用例点位、合成静态房间地图和私有场地档案.
 
     Args:
         root: 已创建的本次实验目录，目标资产不应存在。
         profile: 选定模式下的机器人档案，提供地图帧及米/弧度容差。
         namespace: 用于唯一请求 ID 的实验命名空间。
         uri: 已验证的本地 WS 对端地址，仅写入私有配置。
+        kinds: 本次模式要跑的用例类别序列，首个必须是普通 POI。
 
     Returns:
-        普通 POI 后 Dock 的两用例元组；地图为 12 米方形、0.05 米分辨率，
+        按 kinds 顺序的用例元组；地图为 12 米方形、0.05 米分辨率，
         边界占用两格。此步骤没有发送目标或启动仿真。
 
     Raises:
         OSError: 创建资产失败；可能保留部分文件供诊断，不覆盖现有文件。
-        KeyError: 档案缺少所需帧或目标容差。
+        KeyError: 档案缺少所需帧、目标容差或入位阈值。
     """
     frame = profile['frames']['map']
+    # 两类用例的达标口径不同：普通 POI 用 Nav2 的到点容差，Dock 用入位自己的阈值。
+    # 两者自 2026-09-18 起就是彼此独立的档案项，裁判若混用会把已达标的入位判成失败。
+    tolerances = {'poi': (profile['goal']['xy_tolerance'], profile['goal']['yaw_tolerance']),
+                  'dock': (profile['dock']['xy_ok'], profile['dock']['yaw_ok'])}
     cases = tuple(ExpectedCase(
         namespace + '_' + kind, index, 'selftest_' + kind, kind, (float(index), 0.0, 0.0),
-        xy_ok=profile['goal']['xy_tolerance'], yaw_ok=profile['goal']['yaw_tolerance'])
-        for index, kind in enumerate(('poi', 'dock'), 1))
+        xy_ok=tolerances[kind][0], yaw_ok=tolerances[kind][1])
+        for index, kind in enumerate(kinds, 1))
     poses = [dict(id=case.target_id, name=case.target_id, frame_id=frame,
                   position=dict(x=case.goal[0], y=0.0, z=0.0), yaw=0.0) for case in cases]
     _write(root, 'scene/poses.json', _json(poses))
@@ -208,12 +213,13 @@ def _assets(root, profile, namespace, uri):
     _write(root, 'scene/site.yaml', _yaml(dict(
         schema_version=1, site={'name': 'selftest'}, map={'nav_yaml': 'map.yaml'},
         pois={'named_poses_file': 'poses.json', 'store_file': str(root / 'poi_store.yaml'),
-              'dock_poi_ids': [cases[1].target_id]}, agent_server={'uri': uri})))
+              'dock_poi_ids': [case.target_id for case in cases if case.kind == 'dock']},
+        agent_server={'uri': uri})))
     return cases
 
 
 def _private_graph(bundle, profile, namespace, cases):
-    """扩展准备包为私有双用例图，保留所选模式调参并为两模式接入 Dock.
+    """扩展准备包为私有用例图，保留所选模式调参并按用例接入 Dock.
 
     Args:
         bundle: 已准备的普通启动包，原对象不修改。
@@ -232,15 +238,20 @@ def _private_graph(bundle, profile, namespace, cases):
     """
     root, prefix = Path(bundle.options.run_dir), '/' + namespace + '/'
     artifacts = dict(bundle.artifacts)
-    # Both modes exercise Dock. Reuse the existing precise-mode Dock policy,
-    # but retain the actually selected tour/precise Nav2 tuning and tolerances.
-    navigation = {'nav2': yaml.safe_load(artifacts['params/rendered/nav2.yaml']),
-                  'robot_description': artifacts['params/inputs/robot.urdf'].decode()}
-    parameters = node_parameters(replace(bundle.options, mode='precise'), profile, navigation)
-    dock = parameters['dock']
-    dock['dock_navigator']['ros__parameters'].update(
-        goal_topic=prefix + 'dock_goal', action_name=prefix + 'dock_to_pose')
-    artifacts['params/rendered/dock.yaml'] = _yaml(dock)
+    # 生产只在 precise 模式配置入位（见 prepared_parameters 的模式判断），导览模式没有
+    # 入位节点。自测跟随该事实：只有带 Dock 用例的模式才渲染并注入 Dock 配置，
+    # 否则会去验证一个现场从不存在的组合（2026-09-20 导览自测失败即源于此）。
+    docking = any(case.kind == 'dock' for case in cases)
+    if docking:
+        # 沿用 precise 的 Dock 策略，但保留本模式实际选中的 Nav2 调参与容差。
+        navigation = {'nav2': yaml.safe_load(artifacts['params/rendered/nav2.yaml']),
+                      'robot_description': artifacts['params/inputs/robot.urdf'].decode()}
+        parameters = node_parameters(
+            replace(bundle.options, mode='precise'), profile, navigation)
+        dock = parameters['dock']
+        dock['dock_navigator']['ros__parameters'].update(
+            goal_topic=prefix + 'dock_goal', action_name=prefix + 'dock_to_pose')
+        artifacts['params/rendered/dock.yaml'] = _yaml(dock)
     graph = build_graph(bundle.options)
     frames = profile['frames']
     fake = {
@@ -267,16 +278,14 @@ def _private_graph(bundle, profile, namespace, cases):
             process = replace(process, parameter_file=str(root / path),
                               remappings=tuple(mapping.items()))
         else:
-            args = process.arguments
-            if bundle.options.mode == 'tour':
-                args += ('--dock-config-file', str(root / 'params/rendered/dock.yaml'))
-            args += ('--ros-args', '-r', '__ns:=/' + namespace)
+            args = process.arguments + ('--ros-args', '-r', '__ns:=/' + namespace)
             for source, target in remaps:
                 args += ('-r', source + ':=' + target)
-            process = replace(process, arguments=args,
-                              configuration_files=tuple(dict.fromkeys((
-                                  *process.configuration_files,
-                                  str(root / 'params/rendered/dock.yaml')))))
+            files = process.configuration_files
+            if docking:
+                files = tuple(dict.fromkeys((
+                    *files, str(root / 'params/rendered/dock.yaml'))))
+            process = replace(process, arguments=args, configuration_files=files)
         private.append(process)
     return replace(bundle, artifacts=tuple(sorted(artifacts.items()))), replace(
         graph, processes=tuple(private))
@@ -324,13 +333,16 @@ def prepare_scene(
     _write(root, 'scene/robot.yaml', _yaml(profile))
     _write(root, 'scene/mode.yaml', _yaml(dict(
         schema_version=1, mode=mode, profile={}, nav2_overrides=overlay.nav2_overrides)))
-    cases = _assets(root, profile, namespace, server_uri)
+    cases = _assets(root, profile, namespace, server_uri,
+                    ('poi', 'dock') if mode == 'precise' else ('poi',))
     arguments = (
         '--server-uri', server_uri, '--reconnect-delay', '0.1',
         '--pose-file', str(root / 'scene/poses.json'),
         '--poi-store-file', str(root / 'poi_store.yaml'),
-        '--global-costmap-topic', prefix + 'global_costmap/costmap',
-        '--dock-poi-id', cases[1].target_id, '--dock-action-name', prefix + 'dock_to_pose')
+        '--global-costmap-topic', prefix + 'global_costmap/costmap')
+    if len(cases) > 1:
+        arguments += ('--dock-poi-id', cases[1].target_id,
+                      '--dock-action-name', prefix + 'dock_to_pose')
     options = GraphOptions(
         mode, str(root), start_chassis=False, start_executor=True,
         nav_command_topic=prefix + 'cmd_vel_nav', ready_action=prefix + 'navigate_to_pose',

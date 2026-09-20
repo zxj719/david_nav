@@ -25,7 +25,7 @@ def _inputs(robot, mode, root):
 
 @pytest.mark.parametrize('robot', ['david', 'example_diffdrive'])
 @pytest.mark.parametrize('mode', ['tour', 'precise'])
-def test_real_bundle_is_private_and_contains_both_cases(tmp_path, robot, mode):
+def test_real_bundle_is_private_and_contains_the_mode_cases(tmp_path, robot, mode):
     """Both robots retain mode tuning while all writable and ROS endpoints are private."""
     root = tmp_path / 'run'
     inputs = _inputs(robot, mode, root)
@@ -34,8 +34,11 @@ def test_real_bundle_is_private_and_contains_both_cases(tmp_path, robot, mode):
     plan = prepare_scene(root, robot, mode, 'selftest_' + 'a' * 32, inputs, catalog,
                          'ws://127.0.0.1:18123')
     assert root.is_dir() and (root.stat().st_mode & 0o777) == 0o700
-    assert [case.kind for case in plan.cases] == ['poi', 'dock']
-    assert [case.goal for case in plan.cases] == [(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)]
+    # Production configures Dock in precise mode only, so tour carries the POI case alone.
+    kinds = ['poi', 'dock'] if mode == 'precise' else ['poi']
+    assert [case.kind for case in plan.cases] == kinds
+    assert ([case.goal for case in plan.cases]
+            == [(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)][:len(kinds)])
     assert all(path.read_bytes() == value for path, value in originals.items())
     profile = yaml.safe_load((root / 'params/rendered/executor_profile.yaml').read_text())
     overlay = render.parse_mode(yaml.safe_load(originals[inputs.mode]), inputs.mode)
@@ -57,17 +60,19 @@ def test_real_bundle_is_private_and_contains_both_cases(tmp_path, robot, mode):
     assert not {'wheeltec_robot', 'rviz2', 'pointcloud_to_laserscan'} & processes.keys()
     assert not any(item.package == 'wheeltec_driver' for item in processes.values())
     executor = processes['navigation_executor']
-    assert '--dock-poi-id' in executor.arguments
-    assert '--dock-config-file' in executor.arguments
+    assert ('--dock-poi-id' in executor.arguments) == (mode == 'precise')
+    assert ('--dock-config-file' in executor.arguments) == (mode == 'precise')
     assert prefix + 'navigate_to_pose' == executor.ready_action
     assert '--ros-args' in executor.arguments
     assert '__ns:=' + prefix[:-1] in executor.arguments
-    dock = yaml.safe_load((root / 'params/rendered/dock.yaml').read_text())
-    values = dock['dock_navigator']['ros__parameters']
-    assert values['static_map_topic'] == prefix + 'map'
-    assert values['goal_topic'] == prefix + 'dock_goal'
-    assert values['settle_max_rate_rad_s'] == 0.05
-    assert values['xy_ok'] == profile['dock']['xy_ok']
+    dock_file = root / 'params/rendered/dock.yaml'
+    assert dock_file.exists() == (mode == 'precise')
+    if mode == 'precise':
+        values = yaml.safe_load(dock_file.read_text())['dock_navigator']['ros__parameters']
+        assert values['static_map_topic'] == prefix + 'map'
+        assert values['goal_topic'] == prefix + 'dock_goal'
+        assert values['settle_max_rate_rad_s'] == 0.05
+        assert values['xy_ok'] == profile['dock']['xy_ok']
     for item in processes.values():
         if item.ros_node:
             assert ('/tf', prefix + 'tf') in item.remappings

@@ -134,11 +134,13 @@ def test_failure_observations_are_not_hidden_by_later_success(name):
 
 
 def test_empty_expectations_cannot_be_a_vacuous_success():
-    """The plan requires exactly one ordinary POI and one Dock case."""
+    """A plan always leads with the ordinary POI case and still needs real evidence."""
     with pytest.raises(ValueError):
         check_evidence((), [], [])
     with pytest.raises(ValueError):
-        check_evidence(CASES[:1], [], [])
+        check_evidence(CASES[1:], [], [])  # A Dock case without the leading POI case.
+    # Tour mode legitimately plans the POI case alone, but absent records are never a pass.
+    assert not check_evidence(CASES[:1], [], []).complete
 
 
 @pytest.mark.parametrize('field,value', [

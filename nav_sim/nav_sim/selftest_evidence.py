@@ -74,15 +74,17 @@ def _validate(cases):
     """校验普通 POI 后两段 Dock 的固定实验身份、位姿及容差.
 
     Args:
-        cases: 两个 ExpectedCase；目标位置/距离为米，角度/角容差为弧度。
+        cases: 一个或两个 ExpectedCase；目标位置/距离为米，角度/角容差为弧度。
 
     Raises:
         ValueError: 用例数量/顺序、标识、整数 sub_id、有限位姿、正容差无效，
             或两个用例复用了请求/POI 标识。
     """
-    if (len(cases) != 2 or not all(isinstance(case, ExpectedCase) for case in cases)
-            or tuple(case.kind for case in cases) != ('poi', 'dock')):
-        raise ValueError('selftest requires one POI followed by one two-stage Dock case')
+    # 导览模式生产不配置入位，该模式的自测只有普通 POI；精准模式才追加两段式入位。
+    if (not all(isinstance(case, ExpectedCase) for case in cases)
+            or tuple(case.kind for case in cases) not in (('poi',), ('poi', 'dock'))):
+        raise ValueError(
+            'selftest requires one POI optionally followed by one two-stage Dock case')
     for case in cases:
         if (not all(isinstance(value, str) and value.strip() and len(value) <= 128
                     for value in (case.task_id, case.target_id))
@@ -92,7 +94,8 @@ def _validate(cases):
                 or not all(_number(value) and value > 0 for value in (
                     case.approach_dist, case.xy_ok, case.yaw_ok))):
             raise ValueError('invalid expected identity, pose or tolerance')
-    if len({case.task_id for case in cases}) != 2 or len({case.target_id for case in cases}) != 2:
+    if (len({case.task_id for case in cases}) != len(cases)
+            or len({case.target_id for case in cases}) != len(cases)):
         raise ValueError('ordinary and Dock cases require distinct request and POI IDs')
 
 
