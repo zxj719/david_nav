@@ -1,10 +1,9 @@
-"""Conservative Fast DDS orphan-file hygiene, separate from launch and ROS discovery.
+"""保守的 Fast DDS 孤儿文件清理，与启动流程和 ROS 发现彼此独立.
 
-No daemon is stopped and no transport setting is changed. Mapping observations
-are advisory snapshots, not an atomic lock against external DDS participants;
-callers must avoid concurrent participant startup during a cleanup window.
-Tests use only private directories. The cleanup directory and observer are
-mandatory arguments so importing or calling a default CLI cannot clean /dev/shm.
+不停止任何守护进程，也不改动任何传输设置。映射观察只是参考性快照，
+不是针对外部 DDS 参与者的原子锁：调用方必须保证清理窗口内没有参与者正在启动，
+否则刚建立的段可能被误判为孤儿。测试只使用私有目录。
+清理目录与观察器都是必填参数，因此仅仅导入本模块或调用默认 CLI 不可能清到 /dev/shm。
 """
 
 from __future__ import annotations
@@ -23,12 +22,13 @@ _MAPPED = re.compile(r'fastrtps_[0-9A-Za-z_]+')
 
 @dataclass(frozen=True)
 class MappingView:
-    """One read-only observation of the process mapping set.
+    """对进程映射集合的一次只读观察.
 
     Attributes:
-        names: Shared-memory names mentioned by any readable process maps file.
-        complete: Whether all observed process directories were readable and stable.
-        issues: Reasons why the observation cannot establish absence of mappings.
+        names: 任一可读进程 maps 文件里出现过的共享内存名。
+        complete: 观察到的进程目录是否全部可读且稳定；为 False 时，
+            "没出现在 names 里"不能作为"没有进程映射它"的证据。
+        issues: 该观察无法证明"不存在映射"的原因列表。
     """
 
     names: FrozenSet[str]
@@ -51,13 +51,13 @@ class _FileState:
 
 @dataclass(frozen=True)
 class HygienePlan:
-    """An immutable initial generation of candidate DDS orphan files.
+    """候选孤儿文件的一代不可变快照.
 
     Attributes:
-        directory: Explicit absolute directory inspected by the caller.
-        candidates: Owned regular files eligible under the supplied mapping observation.
-        retained: Name/reason pairs for files conservatively retained.
-        owner_uid: User whose files alone may be removed.
+        directory: 调用方显式给出的绝对目录。
+        candidates: 在给定映射观察下可以删除的、本用户拥有的普通文件。
+        retained: 被保守保留的文件及其原因。
+        owner_uid: 只有该用户拥有的文件才允许删除。
     """
 
     directory: Path
@@ -70,13 +70,13 @@ class HygienePlan:
 
 @dataclass(frozen=True)
 class HygieneResult:
-    """Auditable outcome without claiming removed files can be recovered.
+    """可审计的清理结果；删除不可撤销，本结构不提供任何恢复手段.
 
     Attributes:
-        planned: Initial candidate names, also returned unchanged for dry-run.
-        removed: Names successfully unlinked by this operation.
-        retained: Name/reason pairs for retained files.
-        errors: Name/error pairs for failed observations or unlink attempts.
+        planned: 初次规划出的候选名；dry-run 时原样返回。
+        removed: 本次成功删除的名字。
+        retained: 被保留的文件及其原因。
+        errors: 观察失败或删除失败的文件及其错误。
     """
 
     planned: Tuple[str, ...]
@@ -112,14 +112,14 @@ def _pid_entries(proc_dir: Path) -> Dict[str, Tuple[int, int]]:
 
 
 def snapshot_mappings(proc_dir: Path = Path('/proc')) -> MappingView:
-    """Read process maps without opening segments, invoking ROS or elevating privileges.
+    """只读取进程 maps，不打开任何段、不调用 ROS、不提升权限.
 
     Args:
-        proc_dir: Process filesystem root; tests provide a private fake directory.
+        proc_dir: 进程文件系统根；测试传入私有的假目录。
 
     Returns:
-        Mapping names and a completeness flag. Unreadable maps, disappearing or
-        newly observed process directories make absence evidence incomplete.
+        映射名集合与完整性标志。maps 不可读、进程目录消失或扫描期间出现新进程，
+        都会把完整性标志置为 False——此时"不存在映射"这一结论不成立。
     """
     names, issues = set(), []
     try:
@@ -200,19 +200,22 @@ def _directory(directory: Path) -> Tuple[int, int]:
 def plan_hygiene(
     directory: Path, view: MappingView, owner_uid: int | None = None,
 ) -> HygienePlan:
-    """Inspect only Fast DDS names and preserve mapped, unsafe or unproven groups.
+    """只识别 Fast DDS 命名，凡被映射、不安全或无法证明的组一律保留.
+
+    段与其锁文件按组处理：组内任一成员被映射，整组都保留。本函数只读，不删除、
+    不写入，返回的候选集合是某一瞬间的一代快照，删除前必须重新核对。
 
     Args:
-        directory: Explicit absolute directory; no implicit deletion root exists.
-        view: Mapping evidence; complete must be a real boolean.
-        owner_uid: Allowed file owner, defaulting to the current real user id.
+        directory: 显式给出的绝对目录；本模块不存在隐含的默认删除根。
+        view: 映射证据；complete 必须是真正的布尔值。
+        owner_uid: 允许的文件属主，默认取当前真实用户 ID。
 
     Returns:
-        An initial immutable file generation and retention reasons, without writes.
+        一代不可变候选集合与保留原因；过程中不做任何写操作。
 
     Raises:
-        ValueError: The directory, mapping evidence or owner id is unsafe or malformed.
-        OSError: The directory or an entry cannot be inspected reliably.
+        ValueError: 目录、映射证据或属主 ID 不安全或格式非法。
+        OSError: 目录或其中某一项无法可靠读取。
     """
     if (type(view.complete) is not bool or not isinstance(view.names, frozenset)
             or any(not isinstance(name, str) for name in view.names)):
@@ -274,23 +277,23 @@ def _recheck(
 def cleanup_hygiene(
     plan: HygienePlan, observe: Callable[[], MappingView], dry_run: bool = False,
 ) -> HygieneResult:
-    """Remove only initial candidates that pass a fresh mapping and identity recheck.
+    """只删除通过了新一轮映射与身份复核的初次候选.
 
-    Each unlink is preceded by a new complete mapping observation and group
-    comparison. These checks reduce races but are not an atomic DDS-wide barrier;
-    external participants must not start concurrently with the cleanup window.
-    A partially removed pair or failed unlink is reported, never silently undone.
+    每次删除前都重新做一次完整映射观察并比对整组；这些检查能减少竞态，
+    但不是 DDS 范围内的原子屏障——清理窗口内不得有外部参与者启动。
+    只删掉一半的成对文件或删除失败都会如实报告，不会被静默回滚，
+    因为删除本身不可撤销。
 
     Args:
-        plan: Initial read-only decision with its fixed file generation.
-        observe: Required fresh mapping reader; tests inject controlled observations.
-        dry_run: Return planned names without reading maps or removing anything.
+        plan: 初次只读决策及其固定的一代文件集合。
+        observe: 必填的新鲜映射读取器；测试注入受控观察。
+        dry_run: 只返回计划名字，不读 maps、不删除任何文件。
 
     Returns:
-        Planned, removed, retained and failed names for recording.
+        计划、已删除、已保留与失败的名字，供记录使用。
 
     Raises:
-        ValueError: Invalid dry-run flag, unsafe evidence or a replaced directory.
+        ValueError: dry-run 标志非法、证据不安全，或目录已被替换。
     """
     if type(dry_run) is not bool:
         raise ValueError('dry_run must be a boolean')
