@@ -1,8 +1,8 @@
-"""Describe the five navigation launch modes without creating processes or files.
+"""描述五种导航启动模式，不创建任何进程或文件.
 
-The supervisor prepares run-local parameter files. This module names those
-files and describes ownership, restart budgets and readiness dependencies;
-the launch adapter consumes the result. It never probes or starts alias 3.
+参数文件由监督方预先渲染到本次运行目录；本模块只负责点名这些文件，并描述
+归属、重启预算与就绪依赖，真正的启动交给 launch 适配层。本模块是纯描述：
+不探测主机、不读参数内容、不启动任何东西，也从不探测或启动现场的定位栈。
 """
 
 from __future__ import annotations
@@ -26,35 +26,38 @@ CORE_NODES = (
 
 @dataclass(frozen=True)
 class GraphOptions:
-    """Resolved graph switches passed by navrun, not robot tuning parameters.
+    """navrun 解析后传入的启动图开关，不是机器人调参.
+
+    这里只有"启动哪些进程、谁拥有它们"的决定；速度、容差等调参一律来自
+    已渲染的参数文件，本结构不读取也不覆盖它们。
 
     Attributes:
-        mode: One of the five supported modes.
-        run_dir: Absolute directory holding pre-rendered parameter files.
-        start_chassis: Whether this launch owns a newly started driver.
-        start_executor: Whether the WS executor is enabled after Nav2 readiness.
-        map_server: Whether this launch owns the map publisher.
-        scan_bridge: Whether pointcloud preprocessing is enabled.
-        robot_state: Whether to publish the supplied robot description.
-        rviz: Whether to start the supplied RViz configuration.
-        chassis_delay_sec: Delay before starting navigation after our driver.
-        driver_restarts: Number of allowed driver restarts before stack shutdown.
-        rviz_delay_sec: Delay after navigation launch before RViz startup.
-        driver_package: Package selected by the robot profile.
-        driver_executable: Driver entry point selected by the profile.
-        nav_command_topic: Controller and behavior output when the smoother is enabled.
-        smooth_command_topic: Adapter input, fed by the smoother or directly by Nav2.
-        chassis_command_topic: Adapter output consumed by the driver.
-        chassis_odom_topic: Wheel odometry published by the driver.
-        cloud_topic: Optional preprocessing input.
-        scan_topic: Optional preprocessing output.
-        executor_arguments: Explicit site/transport CLI arguments for the shared task manager.
-        ready_timeout_sec: Maximum wall-clock wait before refusing to start the executor.
-        ready_action: Navigation action server checked without submitting any goal.
-        supervisor_keyboard: Teleop keyboard is owned directly by navrun, not launch.
-        velocity_smoother: Keep the legacy smoothing hop unless explicitly disabled.
-        adapter_implementation: Explicit python/cpp backend; Python remains the default.
-        composition: Explicitly group eligible nodes in one isolated container.
+        mode: 五种受支持模式之一。
+        run_dir: 存放已渲染参数文件的绝对目录。
+        start_chassis: 本次启动是否拥有一个新起的底盘驱动。
+        start_executor: Nav2 就绪后是否启用上位机执行器。
+        map_server: 本次启动是否拥有地图发布者。
+        scan_bridge: 是否启用点云预处理。
+        robot_state: 是否发布给定的机器人描述。
+        rviz: 是否按给定配置启动 RViz。
+        chassis_delay_sec: 自有驱动起来后，延迟多久再启动导航。
+        driver_restarts: 整栈关停前允许的驱动重启次数。
+        rviz_delay_sec: 导航启动后再延迟多久启动 RViz。
+        driver_package: 由机器人档案选定的驱动包。
+        driver_executable: 由档案选定的驱动入口。
+        nav_command_topic: 启用平滑器时，控制器与恢复行为的输出话题。
+        smooth_command_topic: 适配器输入，由平滑器或 Nav2 直接提供。
+        chassis_command_topic: 适配器输出，由驱动消费。
+        chassis_odom_topic: 驱动发布的轮式里程计。
+        cloud_topic: 可选的预处理输入。
+        scan_topic: 可选的预处理输出。
+        executor_arguments: 共享任务管理器的场地/传输命令行参数，必须显式给出。
+        ready_timeout_sec: 拒绝启动执行器前的最长墙钟等待。
+        ready_action: 用于判就绪的导航动作服务端；只检查存在，不下发任何目标。
+        supervisor_keyboard: 遥控键盘由 navrun 直接持有，不进 launch。
+        velocity_smoother: 除非显式关闭，保留原有的平滑中转。
+        adapter_implementation: 显式选择 python 或 cpp 后端，默认仍为 python。
+        composition: 显式把可组合的节点放进同一个隔离容器。
     """
 
     mode: str
@@ -87,23 +90,23 @@ class GraphOptions:
 
 @dataclass(frozen=True)
 class ProcessSpec:
-    """One logical program/node and its standalone operational contract.
+    """一个逻辑程序/节点及其独立的运行约定.
 
     Attributes:
-        name: Stable process/node identity within the graph.
-        package: ROS package providing the executable.
-        executable: Executable inside that package.
-        parameter_file: Run-local ROS parameter file, or empty for a plain program.
-        remappings: Topic remappings, without robot-specific frame literals.
-        arguments: Non-parameter CLI arguments.
-        delay_sec: Start delay relative to launch start.
-        restart_limit: Allowed respawns before global shutdown.
-        critical: Whether an unexpected final exit shuts down the whole graph.
-        wait_for_navigation: Whether a readiness gate precedes process execution.
-        ros_node: Whether ROS node name/parameter arguments may be appended.
-        ready_timeout_sec: Deadline of the optional navigation readiness gate.
-        ready_action: Action name used by the optional readiness gate.
-        configuration_files: Additional prepared CLI input files required before launch.
+        name: 该进程/节点在图内的稳定身份。
+        package: 提供可执行文件的 ROS 包。
+        executable: 该包内的可执行文件名。
+        parameter_file: 本次运行的 ROS 参数文件；普通程序为空串。
+        remappings: 话题重映射，不含机器人专有的坐标系字面量。
+        arguments: 参数文件之外的命令行参数。
+        delay_sec: 相对 launch 起点的启动延迟。
+        restart_limit: 触发整栈关停前允许的重启次数。
+        critical: 非预期的最终退出是否导致整张图关停。
+        wait_for_navigation: 进程执行前是否先过一道就绪门禁。
+        ros_node: 是否允许追加 ROS 节点名/参数类命令行参数。
+        ready_timeout_sec: 可选就绪门禁的期限。
+        ready_action: 可选就绪门禁使用的动作名。
+        configuration_files: 启动前必须已备好的其它命令行输入文件。
     """
 
     name: str
@@ -124,14 +127,14 @@ class ProcessSpec:
 
 @dataclass(frozen=True)
 class LaunchGraph:
-    """Owned logical graph, converted to physical processes at the launch boundary.
+    """自有的逻辑图，到 launch 边界才转成物理进程.
 
     Attributes:
-        mode: Selected mode.
-        processes: Owned programs/nodes, in declaration order.
-        lifecycle_nodes: Nav2 activation order, with an owned map server first.
-        supervisor_keyboard: Exclude the explicitly supervised keyboard from launch actions.
-        composition: Convert this logical graph to physical processes at the launch boundary.
+        mode: 选定的模式。
+        processes: 自有的程序/节点，按声明顺序排列。
+        lifecycle_nodes: Nav2 的激活顺序；自有地图服务器排在最前。
+        supervisor_keyboard: 把显式托管的键盘排除在 launch 动作之外。
+        composition: 是否在 launch 边界把本逻辑图合成到同一容器里。
     """
 
     mode: str
@@ -187,16 +190,19 @@ def _validate(options: GraphOptions) -> None:
 
 
 def build_graph(options: GraphOptions) -> LaunchGraph:
-    """Resolve the logical node graph without importing runtime implementations.
+    """解析出逻辑节点图，全程不导入任何运行时实现.
+
+    只做结构决策：不检查可执行文件是否装好、不读参数文件内容、不碰 ROS；
+    因此返回的图能通过校验，不等于这台机器上真的能起来。
 
     Args:
-        options: Resolved mode switches and profile-owned topic names.
+        options: 已解析的模式开关与档案给出的话题名。
 
     Returns:
-        The immutable process graph and lifecycle activation order.
+        不可变的进程图与生命周期激活顺序。
 
     Raises:
-        ValueError: If switches, mode, paths or restart/delay values are invalid.
+        ValueError: 开关、模式、路径或重启/延迟取值非法。
     """
     _validate(options)
     root = PurePath(options.run_dir)
@@ -306,18 +312,23 @@ def _task_manager(options, params, delay):
 
 
 def exit_decision(process: ProcessSpec, prior_restarts: int, shutting_down: bool) -> str:
-    """Decide restart versus shutdown for an owned process exit.
+    """为一个自有进程的退出决定重启还是关停.
+
+    纯决策函数：不杀进程、不重启、不发信号，只返回该怎么做。
 
     Args:
-        process: The exited process contract.
-        prior_restarts: Respawns already used by this process instance lineage.
-        shutting_down: Whether global shutdown is already underway.
+        process: 已退出进程的运行约定。
+        prior_restarts: 该进程谱系已经用掉的重启次数。
+        shutting_down: 是否已经处于整体关停过程中。
 
     Returns:
-        One of ignore, restart or shutdown; shutdown never restarts a process.
+        ignore、restart 或 shutdown 之一。已在关停中时一律返回 ignore：
+        关停期的进程退出本就在预期之内，无需再做动作，更不会重启。
+        正常期预算未用尽返回 restart；预算用尽后，关键进程返回 shutdown，
+        非关键进程返回 ignore。
 
     Raises:
-        ValueError: If the restart counter is invalid.
+        ValueError: 重启计数非法。
     """
     if type(prior_restarts) is not int or prior_restarts < 0:
         raise ValueError('prior_restarts must be a nonnegative integer')

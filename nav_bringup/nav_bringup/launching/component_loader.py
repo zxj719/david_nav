@@ -1,9 +1,8 @@
-"""Bounded fail-closed component loading owned by the same ROS launch context.
+"""有界且失败即停的组件加载，归属同一个 ROS launch 上下文.
 
-Humble's stock loader logs unsuccessful LoadNode responses without failing the
-launch. This adapter uses the stock request conversion, but a failed response
-or deadline raises through launch's completion future and shuts down its owned
-processes. It creates no detached process or ROS executor.
+Humble 自带的加载器在 LoadNode 返回失败时只记日志，launch 照样继续，结果是
+"起来了但少了节点"。本适配层沿用自带的请求转换，但失败响应或超时会通过 launch
+的完成 future 抛出，从而关停自有进程。本模块不创建游离进程，也不自建 ROS 执行器。
 """
 
 import asyncio
@@ -19,19 +18,24 @@ from launch_ros.ros_adapters import get_ros_node
 
 
 class CheckedComponentLoader(Action):
-    """Load components sequentially with one bounded wall-clock startup deadline."""
+    """按顺序加载组件，整体受一个墙钟启动期限约束.
+
+    期限覆盖全部组件而不是每个组件各一份；超时即失败，不做部分成功的回滚。
+    """
 
     def __init__(self, target: str, descriptions: Sequence[ComposableNode],
                  timeout_sec: float = 90.0) -> None:
-        """Store unexecuted descriptions and validate the load deadline.
+        """只保存尚未执行的组件描述并校验加载期限.
+
+        构造阶段不联系容器、不发请求，也不检查组件是否已注册。
 
         Args:
-            target: Absolute container node name.
-            descriptions: Component descriptions using frozen parameters and remappings.
-            timeout_sec: Total deadline after the owned container starts.
+            target: 容器节点的绝对名称。
+            descriptions: 组件描述，参数与重映射均已冻结。
+            timeout_sec: 自有容器启动之后的总期限。
 
         Raises:
-            ValueError: The deadline is not finite and positive.
+            ValueError: 期限不是有限的正数。
         """
         if not math.isfinite(timeout_sec) or timeout_sec <= 0:
             raise ValueError('component load timeout must be finite and positive')
@@ -41,10 +45,12 @@ class CheckedComponentLoader(Action):
         self._timeout = timeout_sec
 
     def execute(self, context: LaunchContext) -> None:
-        """Create requests and register one launch-owned asynchronous completion task.
+        """构造请求并注册一个由 launch 持有的异步完成任务.
+
+        本方法立即返回：注册成功只说明任务已交给 launch，不代表组件已加载成功。
 
         Args:
-            context: Launch context owning the ROS adapter and shutdown lifecycle.
+            context: 持有 ROS 适配器与关停生命周期的 launch 上下文。
         """
         requests = [get_composable_node_load_request(description, context)
                     for description in self._descriptions]

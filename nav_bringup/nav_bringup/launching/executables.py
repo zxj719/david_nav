@@ -1,22 +1,27 @@
-"""Read-only entry-point validation shared by startup planning and ROS launch."""
+"""只读的入口点校验，启动规划与 ROS launch 共用同一套判断.
+
+只检查"装没装、是不是可执行文件"，不加载库、不启动进程、不初始化 ROS。
+"""
 
 import os
 from pathlib import Path
 
 
 def resolve_executable(package: str, executable: str) -> str:
-    """Resolve an installed executable without importing launch or starting ROS.
+    """解析已安装的可执行文件，不导入 launch 也不启动 ROS.
+
+    结果取决于当前 ament 环境：换一个 shell 或换一份 overlay 结论可能不同。
 
     Args:
-        package: Package name in the current ament environment.
-        executable: Basename under its lib/package directory.
+        package: 当前 ament 环境中的包名。
+        executable: 该包 lib/包名 目录下的文件名。
 
     Returns:
-        Absolute path to an executable regular file.
+        可执行普通文件的绝对路径。
 
     Raises:
-        ValueError: Invalid name or unavailable executable.
-        LookupError: The package is absent from the current environment.
+        ValueError: 名字非法，或该可执行文件不可用。
+        LookupError: 当前环境中没有这个包。
     """
     from ament_index_python.packages import get_package_prefix
 
@@ -29,18 +34,19 @@ def resolve_executable(package: str, executable: str) -> str:
 
 
 def resolve_component(package: str, plugin: str) -> str:
-    """Check the ament component registration and shared library before host changes.
+    """在改动主机之前先核对 ament 组件注册与共享库.
 
     Args:
-        package: ROS package owning the component resource.
-        plugin: Exact registered C++ class name.
+        package: 拥有该组件资源的 ROS 包。
+        plugin: 注册时使用的精确 C++ 类名。
 
     Returns:
-        Absolute library path; no library is loaded and no ROS node is created.
+        共享库的绝对路径；过程中不加载库，也不创建任何 ROS 节点，
+        因此"能找到"不等于"能成功加载"。
 
     Raises:
-        ValueError: Registration is absent, ambiguous, unsafe or points at a missing library.
-        LookupError: The component resource is not installed.
+        ValueError: 注册缺失、歧义、不安全，或指向不存在的库。
+        LookupError: 该组件资源没有安装。
     """
     from ament_index_python.resources import get_resource
 

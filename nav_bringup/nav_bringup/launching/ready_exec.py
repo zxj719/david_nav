@@ -1,4 +1,8 @@
-"""Wait for the navigation action server, then replace this process without a shell."""
+"""等导航动作服务端出现，然后不经 shell 直接替换本进程.
+
+等待是只读的：只看服务端在不在，不下发任何目标，也不改变导航状态。
+替换使用 exec，不新建子进程，因此成功路径不会返回。
+"""
 
 from __future__ import annotations
 
@@ -11,14 +15,15 @@ from typing import Optional, Sequence
 
 
 def wait_ready(action_name: str, timeout_sec: float) -> bool:
-    """Wait read-only for an action server; never submit a navigation goal.
+    """只读地等待动作服务端，绝不下发导航目标.
 
     Args:
-        action_name: NavigateToPose action whose server signals readiness.
-        timeout_sec: Maximum wall-clock wait in seconds.
+        action_name: 用作就绪信号的 NavigateToPose 动作。
+        timeout_sec: 最长墙钟等待秒数。
 
     Returns:
-        True only if the server is discovered before timeout or ROS shutdown.
+        仅当在超时或 ROS 关停之前发现服务端时为 True。发现服务端只说明它已注册，
+        不证明导航能规划出路径或能到达任何目标。
     """
     from nav2_msgs.action import NavigateToPose
     import rclpy
@@ -48,14 +53,16 @@ def wait_ready(action_name: str, timeout_sec: float) -> bool:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Run the readiness gate and exec the exact prepared command.
+    """过一道就绪门禁，然后 exec 执行已备好的那条命令.
+
+    命令逐项传递，不经 shell 解释。
 
     Args:
-        argv: Arguments excluding executable name, or None for process arguments.
+        argv: 不含可执行文件名的参数；None 表示使用本进程参数。
 
     Returns:
-        Failure status on timeout, interruption or exec failure; success replaces
-        the process and therefore does not return.
+        超时、被中断或 exec 失败时返回失败状态码；成功时本进程已被替换，
+        因此根本不会返回。
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=90.0)

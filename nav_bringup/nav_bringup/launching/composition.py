@@ -1,4 +1,7 @@
-"""Map logical nodes to physical ownership without changing their parameters."""
+"""把逻辑节点映射到物理归属，不改动它们的任何参数.
+
+组合只改变"谁和谁同进程"，节点名、参数文件与重映射逐项保持不变。
+"""
 
 from dataclasses import replace
 from typing import Tuple
@@ -22,13 +25,15 @@ NODE_NAMES = {'lifecycle_manager': 'lifecycle_manager_navigation',
 
 
 def component_specs(graph: LaunchGraph) -> Tuple[Tuple[ProcessSpec, str], ...]:
-    """Select registered components only when composition was explicitly requested.
+    """仅在显式要求组合时，挑出已注册的组件.
+
+    未要求组合时返回空元组；注册表里没有的节点一律保持独立进程，不做猜测。
 
     Args:
-        graph: Logical graph, possibly restricted to a deferred execution phase.
+        graph: 逻辑图，可能已被限制到某个延后执行的阶段。
 
     Returns:
-        Original node specifications paired with their registered plugin identifiers.
+        原节点规格与其注册插件标识的配对。
     """
     if not graph.composition:
         return ()
@@ -40,16 +45,19 @@ def component_specs(graph: LaunchGraph) -> Tuple[Tuple[ProcessSpec, str], ...]:
 
 
 def physical_graph(graph: LaunchGraph) -> LaunchGraph:
-    """Replace eligible logical processes by one critical, non-respawning container.
+    """把可组合的逻辑进程换成一个关键且不自动重启的容器.
+
+    容器被标为 critical 且重启预算为零：同进程的节点共享故障域，一个组件崩溃
+    等于整组消失，因此不做局部重启，直接交由整栈关停处理。
 
     Args:
-        graph: Logical graph retaining every expected ROS node and parameter file.
+        graph: 逻辑图，其中每个预期 ROS 节点与参数文件都仍然保留。
 
     Returns:
-        Physical graph for process resolution, supervision and dry-run reporting.
+        供进程解析、监督与 dry-run 报告使用的物理图。
 
     Raises:
-        ValueError: Components disagree on startup timing or carry unsupported CLI arguments.
+        ValueError: 各组件的启动时机不一致，或带了不支持的命令行参数。
     """
     members = component_specs(graph)
     if not members:

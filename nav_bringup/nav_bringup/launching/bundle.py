@@ -1,4 +1,7 @@
-"""Read a supervisor-prepared launch bundle without rendering or changing files."""
+"""读取监督方已备好的启动包，不渲染也不改动任何文件.
+
+只读校验：确认包内文件存在且彼此一致，不重新生成参数，也不修复发现的问题。
+"""
 
 from __future__ import annotations
 
@@ -13,18 +16,21 @@ from nav_bringup.launching.graph import GraphOptions
 
 
 def load_options(run_dir: str, selectors: Mapping[str, str]) -> GraphOptions:
-    """Validate an existing run bundle and apply explicit ownership switches.
+    """校验已存在的运行包，并套用显式的归属开关.
+
+    校验只覆盖结构：文件存在、身份一致、生命周期顺序与图匹配；
+    不检查参数取值是否适合这台车。
 
     Args:
-        run_dir: Absolute directory already prepared by navrun.
-        selectors: Optional robot/site/mode identity checks, chassis on/off,
-            executor true/false, and composition true/false switches from launch.
+        run_dir: navrun 已经准备好的绝对目录。
+        selectors: 可选的机器人/场地/模式身份核对，以及来自 launch 的
+            底盘开关、执行器开关与组合开关。
 
     Returns:
-        Options whose referenced files exist and lifecycle order matches the graph.
+        其引用文件均存在、生命周期顺序与图一致的选项。
 
     Raises:
-        ValueError: If the bundle, selectors or required parameter files are invalid.
+        ValueError: 运行包、选择子或所需参数文件非法。
     """
     root = Path(run_dir).expanduser()
     if not root.is_absolute() or '..' in root.parts:

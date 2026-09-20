@@ -1,4 +1,7 @@
-"""Bounded launch-owned process restarts, without process discovery or external signals."""
+"""由 launch 持有的有界进程重启，不做进程发现，也不向外部进程发信号.
+
+只管本次 launch 自己起的进程：不按名字搜别人的进程，不 kill 任何不属于自己的东西。
+"""
 
 from __future__ import annotations
 
@@ -24,22 +27,22 @@ ProcessFactory = Callable[[ProcessSpec], ExecuteProcess]
 
 
 def managed_actions(graph: LaunchGraph, factory: ProcessFactory) -> List[Action]:
-    """Build launch actions with a finite restart budget for each owned process.
+    """为每个自有进程构建带有限重启预算的 launch 动作.
 
-    All initial process objects are constructed before any action is returned.
-    The production factory must resolve executables and parameters eagerly, so
-    a missing dependency fails before a driver is started. Restarts construct
-    a fresh action: no unlimited respawn coroutine can outlive the budget.
+    所有初始进程对象在返回任何动作之前就全部构造完毕：生产用的工厂必须立即解析
+    可执行文件与参数，这样缺依赖会在底盘驱动启动之前就失败。每次重启都新建一个
+    动作，因此不存在能活过预算的无限 respawn 协程。预算用尽后转入整栈关停，
+    不是静默放弃。
 
     Args:
-        graph: Validated process graph with no externally owned processes.
-        factory: Constructor of an unexecuted process action; injectable in tests.
+        graph: 已校验的进程图，其中不含由外部持有的进程。
+        factory: 构造未执行进程动作的工厂；测试可注入。
 
     Returns:
-        Handlers registered before the corresponding processes or start timers.
+        在对应进程或启动定时器之前注册的处理器。
 
     Raises:
-        ValueError: If process identities are duplicated.
+        ValueError: 进程身份重复。
     """
     names = [process.name for process in graph.processes]
     if len(names) != len(set(names)):
