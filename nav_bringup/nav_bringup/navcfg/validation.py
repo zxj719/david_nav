@@ -1,11 +1,11 @@
-"""Cross-file validation of robot navigation configuration.
+"""机器人导航配置的跨文件校验.
 
-Schema checks prove that individual profile values have the declared type and
-range. This module adds the relationships from refactor plan §12.4: frame and
-limit invariants, precise-mode controller consistency, map semantics, teleop
-limits, differential-drive behavior-tree warnings, and the POI capture offset.
+schema 检查只能证明单个档案取值的类型与范围合法；本模块补的是取值之间的关系
+（方案 §12.4）：坐标系与限速不变量、精准模式下控制器一致性、地图语义、遥控上限、
+差速底盘的行为树告警，以及 POI 采集偏移。
 
-The module performs no ROS communication and starts no processes.
+本模块不做任何 ROS 通信、不启动进程；全部规则都在配置文本上判断，
+因此"全过"只说明配置自洽，不说明这台车实际跑得起来或跑得安全。
 """
 
 from __future__ import annotations
@@ -25,12 +25,12 @@ _LATERAL_ATTRIBUTES = frozenset({'lateral_speed', 'linear_y', 'speed_y', 'veloci
 
 @dataclass(frozen=True)
 class ValidationIssue:
-    """One configuration validation result that needs attention.
+    """一条需要关注的配置校验结果.
 
     Attributes:
-        rule: Stable name of the rule that produced the issue.
-        severity: ``error`` rejects the configuration; ``warn`` does not.
-        message: Human-readable explanation containing the values involved.
+        rule: 产生该结果的规则的稳定名称。
+        severity: ``error`` 表示拒绝该配置；``warn`` 不拒绝，需要人工判断。
+        message: 面向人的说明，包含涉及到的具体取值。
     """
 
     rule: str
@@ -40,11 +40,11 @@ class ValidationIssue:
 
 @dataclass(frozen=True)
 class FrameOffset:
-    """Pose of a target frame expressed in a source frame.
+    """目标帧在源帧下的位姿.
 
     Attributes:
-        xyz: Translation in metres.
-        rpy: Fixed-axis roll, pitch and yaw in radians.
+        xyz: 平移，单位米。
+        rpy: 固定轴的 roll/pitch/yaw，单位弧度。
     """
 
     xyz: Tuple[float, float, float]
@@ -60,19 +60,22 @@ def validate_configuration(
     behavior_trees: Mapping[str, str],
     urdf_text: str,
 ) -> List[ValidationIssue]:
-    """Apply every offline rule from refactor plan §12.4.
+    """执行方案 §12.4 的全部离线规则.
+
+    规则全部离线：不读硬件、不连 ROS。返回顺序由规则决定，便于逐条比对。
 
     Args:
-        catalog: Aggregated per-package parameter declarations.
-        profile: Robot profile before the mode overlay.
-        mode: Selected mode overlay.
-        rendered: Nav2 parameter tree rendered for ``profile`` and ``mode``.
-        map_data: Parsed map YAML selected by the site profile.
-        behavior_trees: XML text keyed by a path or descriptive file name.
-        urdf_text: Robot URDF used to calculate the POI-to-navigation offset.
+        catalog: 各包聚合而来的参数声明。
+        profile: 叠加模式差异之前的机器人档案。
+        mode: 选定的模式差异。
+        rendered: 按该档案与模式渲染出的 Nav2 参数树。
+        map_data: 场地档案选定的地图 YAML 解析结果。
+        behavior_trees: 以路径或描述性文件名为键的行为树 XML 文本。
+        urdf_text: 用于计算 POI 帧到导航帧偏移的机器人 URDF。
 
     Returns:
-        Errors and warnings in deterministic rule order.
+        按固定规则顺序排列的错误与告警；没有错误只说明这些规则没发现问题，
+        不构成"配置正确"的证明。
     """
     effective = render.deep_merge(profile, mode.profile)
     issues = [
@@ -274,13 +277,14 @@ def _check_map_mode(map_data: Mapping[str, Any], issues: List[ValidationIssue]) 
 
 
 def validate_teleop_limits(profile: Mapping[str, Any]) -> List[ValidationIssue]:
-    """Check keyboard ceilings without adding map or localization prerequisites.
+    """只检查键盘遥控的速度上限，不引入地图或定位这些前提.
 
     Args:
-        profile: Fully merged robot and teleop-mode configuration.
+        profile: 已完全合并的机器人与遥控模式配置。
 
     Returns:
-        Existing hard-limit rule findings, also used by navigation validation.
+        既有硬上限规则的判定结果；导航校验也复用同一套判断，
+        以保证遥控与导航的上限始终一致。
     """
     issues: List[ValidationIssue] = []
     _check_teleop_limits(profile, issues)
@@ -388,19 +392,20 @@ def _check_poi_offset(
 
 
 def frame_offset(urdf_text: str, source: str, target: str) -> FrameOffset:
-    """Find the fixed-joint transform from one URDF frame to another.
+    """在 URDF 里找出两个帧之间的固定关节变换.
+
+    只走固定关节：可动关节不参与，因此取到的是与关节角无关的那部分几何关系。
 
     Args:
-        urdf_text: Complete URDF XML.
-        source: Frame in which the result is expressed.
-        target: Frame whose pose is returned.
+        urdf_text: 完整的 URDF XML。
+        source: 结果所在的参考帧。
+        target: 要求出位姿的帧。
 
     Returns:
-        Pose of ``target`` in ``source``.
+        ``target`` 在 ``source`` 下的位姿。
 
     Raises:
-        ValueError: If the XML is malformed or no fixed-joint path connects the
-            two frames.
+        ValueError: XML 格式错误，或两个帧之间没有固定关节通路。
     """
     try:
         robot = ET.fromstring(urdf_text)

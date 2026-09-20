@@ -1,4 +1,8 @@
-"""Call the independently packaged interface observer without importing its runtime."""
+"""调用独立打包的接口观察器，不导入它的运行时.
+
+以子进程方式调用：本模块不 import 观察器代码，也不在本进程里初始化 ROS，
+因此观察器崩溃不会带塌调用方。
+"""
 
 from __future__ import annotations
 
@@ -17,12 +21,12 @@ from nav_bringup.navcfg.live_check import Finding
 
 @dataclass(frozen=True)
 class InterfaceResult:
-    """Validated version-one observer response.
+    """已校验的第一版观察器响应.
 
     Attributes:
-        status: Zero for satisfied contracts, one for errors, three for pending localization.
-        findings: Structured contract findings, unchanged from the owning module.
-        evidence: Window observations, or None while waiting without a sample.
+        status: 0 表示约定满足，1 表示有错误，3 表示定位尚未就绪。
+        findings: 结构化的约定判定结果，原样来自观察器模块，本模块不改写。
+        evidence: 窗口内的观察数据；还在等待、尚无采样时为 None。
     """
 
     status: int
@@ -59,17 +63,19 @@ def _evidence_valid(value):
 
 
 def parse_report(output: str, exit_code: int) -> InterfaceResult:
-    """Check a single final JSON report and its agreement with process exit status.
+    """校验唯一一份最终 JSON 报告，并核对它与进程退出码是否自洽.
+
+    报告与退出码不一致时按错误处理，不偏信其中任何一个。
 
     Args:
-        output: Bounded combined output; non-JSON ROS log lines may precede the report.
-        exit_code: Observed subprocess status after cleanup.
+        output: 有界的合并输出；报告之前可能混有非 JSON 的 ROS 日志行。
+        exit_code: 清理之后观察到的子进程状态。
 
     Returns:
-        Validated findings and raw window evidence for the navigation check.
+        已校验的判定结果与原始窗口证据，供导航检查使用。
 
     Raises:
-        ValueError: Output is malformed, unsupported, missing or inconsistent.
+        ValueError: 输出格式错误、版本不支持、缺失或与退出码不一致。
     """
     documents = [json.loads(line) for line in output.splitlines() if line.startswith('{')]
     if type(exit_code) is not int or len(documents) != 1 or not isinstance(documents[0], dict):
@@ -100,25 +106,25 @@ def parse_report(output: str, exit_code: int) -> InterfaceResult:
 def check_interface(
     run_dir: Path, sample_sec: float, stopped: Callable[[], bool],
 ) -> Optional[InterfaceResult]:
-    """Own a bounded, read-only interface-check child and release it before returning.
+    """持有一个有界的只读接口检查子进程，并在返回前把它释放掉.
 
-    The child stays in the caller's process group, so an enclosing navrun owner
-    can drain it even if this navcfg process is killed. It is never a detached
-    helper. Temporary output is capped and removed only after child cleanup.
+    子进程留在调用方的进程组里：即使本 navcfg 进程被杀，外层 navrun 仍能把它收干净，
+    它永远不是脱管的后台帮手。临时输出有上限，并且只在子进程清理完成后才删除。
 
     Args:
-        run_dir: Validated prepared run directory containing frozen robot/mode inputs.
-        sample_sec: Positive data sampling window after the child's TF discovery.
-        stopped: Caller-owned signal flag; cancellation returns None after cleanup.
+        run_dir: 已校验的运行目录，内含冻结的机器人/模式输入。
+        sample_sec: 子进程发现 TF 之后的正采样窗口。
+        stopped: 调用方持有的信号标志；被取消时清理完成后返回 None。
 
     Returns:
-        Validated result, or None when the caller requested interruption.
+        已校验的结果；调用方请求中断时返回 None。返回结果只反映采样窗口内的观察，
+        不构成对窗口之外时间的任何结论。
 
     Raises:
-        ValueError: Invalid timing, missing executable or invalid observer output.
-        LookupError: The separately installed observer package is missing.
-        OSError: The child or its private output cannot be opened.
-        RuntimeError: The observer exceeds its time/output budget.
+        ValueError: 时间参数非法、可执行文件缺失，或观察器输出非法。
+        LookupError: 单独安装的观察器包不存在。
+        OSError: 子进程或其私有输出无法打开。
+        RuntimeError: 观察器超出时间或输出预算。
     """
     if type(sample_sec) not in (int, float) or not math.isfinite(sample_sec) or sample_sec <= 0:
         raise ValueError('interface sample window must be finite and positive')

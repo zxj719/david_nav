@@ -1,4 +1,7 @@
-"""Execute the opt-in, read-only live check while preserving caller shutdown ownership."""
+"""执行需显式开启的只读在线检查，同时保持调用方对关停的所有权.
+
+检查只观察不干预：不启动定位、不下发动作、不产生运动，也不起 ROS CLI 守护进程。
+"""
 
 from __future__ import annotations
 
@@ -17,20 +20,20 @@ from nav_bringup.recorder.events import EventLog
 
 
 def run(args: argparse.Namespace) -> int:
-    """Check a prepared run; never start localization, actions, motion or a CLI daemon.
+    """检查一次已准备好的运行；绝不启动定位、动作、运动或 CLI 守护进程.
 
     Args:
-        args: Explicit live selection, run_dir, strict flag, wait/sample/query bounds,
-            and optional events path supplied by the owning supervisor.
+        args: 显式的在线检查选择、run_dir、strict 标志、等待/采样/查询上限，
+            以及持有方监督进程可选提供的事件文件路径。
 
     Returns:
-        Zero after checks (warnings/errors printed), one for strict check errors,
-        two for invalid inputs/operational failure, three while localization remains
-        pending after an explicit diagnostic bound, or 128+signal on interruption.
-        Wait-only mode returns zero for TF readiness without claiming full checks.
+        检查完成返回 0（告警与错误已打印）；strict 模式下有错误返回 1；
+        输入非法或操作失败返回 2；给了诊断上限而定位仍未就绪返回 3；
+        被中断返回 128＋信号号。只等待模式下返回 0 仅代表 TF 已就绪，
+        不代表完整检查跑过。
 
     Raises:
-        ImportError: Required ROS runtime dependencies are unavailable.
+        ImportError: 缺少必需的 ROS 运行时依赖。
     """
     if not args.live:
         print('navcfg check: select --live explicitly', file=sys.stderr)

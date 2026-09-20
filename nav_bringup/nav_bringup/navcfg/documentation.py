@@ -1,4 +1,7 @@
-"""Deterministic Markdown documentation for aggregated parameter schemas."""
+"""把聚合后的参数 schema 确定性地渲染成 Markdown.
+
+同样的 schema 必然渲染出同样的字节，因此生成结果可以入库并用差异审阅。
+"""
 
 from __future__ import annotations
 
@@ -15,14 +18,16 @@ def render_catalog(
     catalog: ParameterCatalog,
     title: str = 'Navigation parameters',
 ) -> str:
-    """Render a parameter catalog as stable Markdown.
+    """把参数目录渲染成稳定的 Markdown.
+
+    只反映 schema 声明：参数的实际取值与是否被真正使用都不在此列。
 
     Args:
-        catalog: Aggregated package schemas.
-        title: Document heading.
+        catalog: 聚合后的各包 schema。
+        title: 文档标题。
 
     Returns:
-        Markdown ending in one newline.
+        以单个换行结尾的 Markdown 文本。
     """
     lines = [
         f'# {title}',
@@ -52,12 +57,14 @@ def write_catalog(
     catalog: ParameterCatalog,
     title: str = 'Navigation parameters',
 ) -> None:
-    """Write generated parameter documentation.
+    """写出生成的参数文档.
+
+    直接覆盖目标路径；不做备份，也不检查原文件是否被人手工改过。
 
     Args:
-        path: Markdown output path; parent directories are created.
-        catalog: Aggregated package schemas.
-        title: Document heading.
+        path: Markdown 输出路径；父目录会被创建。
+        catalog: 聚合后的各包 schema。
+        title: 文档标题。
     """
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)

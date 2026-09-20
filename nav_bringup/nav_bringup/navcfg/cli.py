@@ -1,8 +1,9 @@
-"""Command line of navcfg, the robot configuration tool (refactor plan §12).
+"""机器人配置工具 navcfg 的命令行（方案 §12）.
 
-``navcfg render`` writes the Nav2 parameter file of a robot profile and mode.
-``navcfg validate`` applies schema and cross-file safety rules before launch.
-``navcfg doc`` generates the checked-in parameter reference from package schemas.
+``navcfg render`` 按机器人档案与模式写出 Nav2 参数文件；
+``navcfg validate`` 在启动前执行 schema 与跨文件安全规则；
+``navcfg doc`` 依据各包 schema 生成入库的参数参考文档。
+三个子命令都不启动 ROS、不控制机器人；render 只写它被显式告知的输出路径。
 """
 
 import argparse
@@ -29,10 +30,12 @@ def _installed_config(file_name: str) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the parser of the navcfg command line.
+    """构建 navcfg 命令行的解析器.
+
+    只声明参数，不执行任何子命令。
 
     Returns:
-        The argument parser.
+        参数解析器。
     """
     parser = argparse.ArgumentParser(prog='navcfg', description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest='command', required=True)
@@ -105,13 +108,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _render_command(args: argparse.Namespace) -> int:
-    """Execute ``navcfg render``.
+    """执行 ``navcfg render``.
 
     Args:
-        args: Parsed render arguments.
+        args: 已解析的 render 参数。
 
     Returns:
-        Process exit status.
+        进程退出状态；非零表示渲染或校验失败，此时不保证输出文件已写出。
     """
     try:
         base = args.base or _installed_config(BASE_FILE)
@@ -316,13 +319,13 @@ def _validate_command(args: argparse.Namespace) -> int:
 
 
 def _doc_command(args: argparse.Namespace) -> int:
-    """Execute ``navcfg doc``.
+    """执行 ``navcfg doc``.
 
     Args:
-        args: Parsed documentation arguments.
+        args: 已解析的文档参数。
 
     Returns:
-        Process exit status.
+        进程退出状态；文档由 schema 确定性生成，内容变化说明 schema 变了。
     """
     try:
         documentation.write_catalog(args.output, _catalog(args))
@@ -334,13 +337,14 @@ def _doc_command(args: argparse.Namespace) -> int:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Run navcfg.
+    """运行 navcfg.
 
     Args:
-        argv: Arguments without the program name; ``sys.argv[1:]`` when None.
+        argv: 不含程序名的参数；为 None 时取 ``sys.argv[1:]``。
 
     Returns:
-        0 on success, 1 for failed validation, or 2 for malformed inputs.
+        成功为 0，校验不通过为 1，输入格式错误为 2；
+        这三个状态码是对外约定，脚本可以据此分支。
     """
     parser = build_parser()
     args = parser.parse_args(argv)
