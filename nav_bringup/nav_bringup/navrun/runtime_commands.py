@@ -1,4 +1,7 @@
-"""Bind prepared startup plans to installed programs without launching anything."""
+"""把已准备好的启动计划绑定到已安装的程序上，过程中不启动任何东西.
+
+绑定只解析路径并拼参数向量：拼得出来不代表跑得起来。
+"""
 
 from __future__ import annotations
 
@@ -19,16 +22,18 @@ from nav_bringup.navrun.up_planning import UpPlan
 
 
 def effective_profile(plan: UpPlan) -> Dict[str, Any]:
-    """Read the frozen profile bytes rather than mutable source files.
+    """读已冻结的档案字节，而不是可变的源文件.
+
+    这样启动期间有人改源文件也不会影响本次运行的取值。
 
     Args:
-        plan: Prepared and validated startup plan.
+        plan: 已准备并校验过的启动计划。
 
     Returns:
-        Robot settings with the selected mode overlay applied.
+        叠加选定模式差异之后的机器人设置。
 
     Raises:
-        ValueError: The prepared mode no longer matches its declared identity.
+        ValueError: 已准备的模式与其声明身份不再一致。
     """
     artifacts = dict(plan.bundle.artifacts)
     robot = yaml.safe_load(artifacts['params/inputs/robot.yaml'])
@@ -49,25 +54,25 @@ def bind_commands(
     resolve: Callable[[str, str], str] = resolve_executable,
     which: Callable[[str], str | None] = shutil.which, python: str = sys.executable,
 ) -> StartupCommands:
-    """Build exact installed launch/check/record/monitor/zero argument vectors.
+    """拼出已安装的启动/检查/录制/监控/置零命令的精确参数向量.
 
-    Parameter dumping is a separately owned nonfatal one-shot, never a detached
-    child of monitor. No daemon, subprocess, ROS context or configuration write
-    is started by this function. The caller validates all vectors before host work.
+    参数转储是一次性的、单独持有的非致命操作，绝不是 monitor 的脱管子进程。
+    本函数不启动守护进程、不起子进程、不建 ROS 上下文、不写配置。
+    调用方在动主机之前会先校验全部向量。
 
     Args:
-        plan: Immutable configuration and explicit recording selection.
-        strict: Request failure when the live configuration checker finds errors.
-        resolve: Read-only package executable resolver, injectable for tests.
-        which: Read-only PATH resolver for ros2.
-        python: Absolute interpreter used by the zero-only module and readiness tail.
+        plan: 不可变配置与显式的录制选择。
+        strict: 在线配置检查发现错误时是否要求失败。
+        resolve: 只读的包可执行文件解析器，测试可注入。
+        which: ros2 的只读 PATH 解析器。
+        python: 置零模块与就绪等待所用的绝对路径解释器。
 
     Returns:
-        Bound commands using the exact same run directory as the prepared bundle.
+        与已准备运行包使用同一个运行目录的绑定命令。
 
     Raises:
-        ValueError: Invalid selectors, unresolved paths or missing teleop ownership.
-        LookupError: A required installed executable is unavailable.
+        ValueError: 选择子非法、路径无法解析，或遥控归属缺失。
+        LookupError: 缺少某个必需的已安装可执行文件。
     """
     options = plan.bundle.options
     if plan.errors:

@@ -1,8 +1,8 @@
-"""Read-only run reports and frozen tuning exports for the navrun CLI.
+"""navrun CLI 的只读运行报告与冻结调参导出.
 
-Reports intentionally exclude raw manifest commands, linked processes and the
-environment. Explicit parameter/event exports can still contain sensitive data.
-They are evidence from a run, never a replacement configuration source of truth.
+报告**有意**不包含清单里的原始命令、关联进程与环境变量。但显式请求的参数/事件导出
+仍可能含敏感内容，外发前需自行确认。这些导出是某次运行的证据，
+不能当作配置的真源来回填。
 """
 
 from __future__ import annotations
@@ -118,21 +118,21 @@ def _diff(reader: record_reader.RecordReader) -> Dict[str, Any]:
 
 def report(root: Path, selector: str, *, params: bool = False,
            diff: bool = False, events: bool = False) -> Dict[str, Any]:
-    """Inspect one record without calling ROS, signaling processes or writing data.
+    """检查一条运行记录，不调用 ROS、不向进程发信号、不写入数据.
 
     Args:
-        root: Runs root selected by the operator.
-        selector: Run ID or latest.
-        params: Include exact input, rendered and effective artifact texts.
-        diff: Include the frozen mode overlay delta and separate CLI overrides.
-        events: Include complete event lines and flag an incomplete final line.
+        root: 操作者选定的运行记录根目录。
+        selector: 运行 ID 或 latest。
+        params: 是否包含输入、已渲染与实际生效文件的原文。
+        diff: 是否包含冻结的模式差异与单独的命令行覆盖。
+        events: 是否包含完整事件行，并标出末行不完整的情况。
 
     Returns:
-        JSON-ready evidence; unfinished records make no process-liveness claim.
+        可直接转 JSON 的证据；未收尾的记录不构成"进程还活着"的任何结论。
 
     Raises:
-        ValueError: Required data is missing, malformed or exceeds read limits.
-        OSError: Record files cannot be safely opened.
+        ValueError: 必需数据缺失、格式错误，或超过读取上限。
+        OSError: 记录文件无法安全打开。
     """
     with record_reader.open_record(root, selector) as reader:
         result = _brief(reader)
@@ -152,13 +152,13 @@ def report(root: Path, selector: str, *, params: bool = False,
 
 
 def run(args: argparse.Namespace) -> int:
-    """Print a JSON record listing or report, or a redacted diagnostic on stderr.
+    """打印 JSON 形式的记录列表或报告；出错时在 stderr 打印脱敏诊断.
 
     Args:
-        args: Parsed ls/show command options.
+        args: 已解析的 ls / show 命令选项。
 
     Returns:
-        Zero on success, two when a report cannot be read safely.
+        成功返回 0；报告无法安全读取返回 2。
     """
     root = args.runs_root if args.runs_root is not None else default_runs_root()
     errors = (OSError, ValueError, yaml.YAMLError, RecursionError, TypeError)

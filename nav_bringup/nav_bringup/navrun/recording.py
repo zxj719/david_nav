@@ -1,4 +1,7 @@
-"""Plan profile-owned SQLite bag recording without starting processes or writing files."""
+"""规划由档案决定的 SQLite 包录制，过程中不启动进程也不写文件.
+
+纯规划：返回的只是一条待执行的命令，录不录得成要看实际执行时的磁盘与话题情况。
+"""
 
 from __future__ import annotations
 
@@ -10,16 +13,16 @@ from typing import Any, Mapping, Tuple
 
 @dataclass(frozen=True)
 class RecordingPlan:
-    """Exact recording command and its explicit selection.
+    """确切的录制命令及其显式选择.
 
     Attributes:
-        mode: Requested light, full or off policy.
-        enabled: Whether a recorder should actually be started after readiness checks.
-        argv: Program and arguments, empty when disabled.
-        output: Run-local output directory that rosbag2 will create.
-        topics: Explicit selected topics, with duplicate entries removed.
-        regex: Additional full-mode topic selector, or empty.
-        reason: Explanation when no recorder is planned.
+        mode: 请求的策略：light、full 或 off。
+        enabled: 就绪检查之后是否真的要启动录制器。
+        argv: 程序与参数；未启用时为空。
+        output: rosbag2 将要创建的本次运行输出目录。
+        topics: 显式选中的话题，已去重。
+        regex: full 模式下附加的话题选择器，或为空。
+        reason: 没有安排录制时的原因说明。
     """
 
     mode: str
@@ -34,20 +37,20 @@ class RecordingPlan:
 def plan_recording(
     profile: Mapping[str, Any], mode: str, run_dir: Path, ros2: str = 'ros2',
 ) -> RecordingPlan:
-    """Validate one recording selection and construct its shell-free invocation.
+    """校验一次录制选择，并拼出不经 shell 的调用命令.
 
     Args:
-        profile: Effective robot/mode profile, optionally containing record settings.
-        mode: light, full or off; full requires an explicit topic list or regex.
-        run_dir: Absolute owned run record; its bag parent already belongs to the recorder.
-        ros2: ROS CLI executable resolved by the supervisor, or ros2 in a preview.
+        profile: 生效的机器人/模式档案，record 段可缺省。
+        mode: light、full 或 off；full 必须显式给出话题列表或正则。
+        run_dir: 自有的绝对运行记录目录；其 bag 父目录已归录制器所有。
+        ros2: 监督方解析出的 ROS CLI 可执行文件；预览时为 ros2。
 
     Returns:
-        Pure recording plan. Empty light lists are explicitly disabled; no fallback
-        to all topics, automatic plugin installation or implicit MCAP is performed.
+        纯粹的录制计划。light 列表为空即显式关闭——不会回退成"录所有话题"，
+        也不会自动装插件或隐式改用 MCAP。
 
     Raises:
-        ValueError: A mode, path, storage plugin, selector or option is invalid.
+        ValueError: 模式、路径、存储插件、选择器或选项非法。
     """
     if mode not in ('light', 'full', 'off'):
         raise ValueError('record mode must be light, full or off')

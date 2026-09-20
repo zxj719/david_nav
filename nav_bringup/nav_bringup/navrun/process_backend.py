@@ -1,7 +1,7 @@
-"""Explicit Linux adapters for preflight process observation and identity-safe signals.
+"""预检进程观察与身份安全发信号的显式 Linux 适配层.
 
-Importing this module does nothing to processes. Tests replace psutil and pidfd
-operations with fakes; no real signal is sent by the ordinary test suite.
+导入本模块不会对任何进程做任何事。测试用假件替换 psutil 与 pidfd 操作，
+普通测试套件从不真的发出信号。
 """
 
 from __future__ import annotations
@@ -36,17 +36,16 @@ def _read(process: psutil.Process) -> ProcessInfo:
 
 
 def snapshot_processes() -> Tuple[ProcessInfo, ...]:
-    """Read a complete process view without ROS, subprocesses or privilege escalation.
+    """取一份完整的进程视图，不用 ROS、不起子进程、不提权.
 
-    Processes that exit during observation are omitted. Other inspection errors
-    reject the snapshot; an unreadable process is not evidence that it is absent.
-    Command lines are returned in memory only, never printed or logged here.
+    观察期间自行退出的进程会被略过；其它读取错误一律否决整份快照——
+    读不到某个进程不等于它不存在。命令行只留在内存里，本模块不打印也不落盘。
 
     Returns:
-        Process identities sorted by PID, including ancestry needed by the planner.
+        按 PID 排序的进程身份，含规划器所需的父子关系。
 
     Raises:
-        PreflightError: Access denial or another error prevents a complete view.
+        PreflightError: 权限拒绝或其它错误导致无法取得完整视图。
     """
     processes = []
     try:
@@ -61,24 +60,24 @@ def snapshot_processes() -> Tuple[ProcessInfo, ...]:
 
 
 def send_if_same(expected: ProcessInfo, signum: int) -> bool:
-    """Pin a process using pidfd, recheck identity, then send the requested signal.
+    """用 pidfd 钉住进程，复核身份，再发出请求的信号.
 
-    There is deliberately no os.kill fallback. A pidfd that outlives an exiting
-    target cannot address the new process that later reuses the numeric PID.
-    The caller must use the preflight planner's ownership/protection decisions.
+    这里**故意**没有 os.kill 兜底：pidfd 在目标退出后仍指向原来那个进程，
+    不会误伤后来复用同一个 PID 号的新进程，而 os.kill 会。
+    调用方必须使用预检规划器给出的归属与保护判断，不得自行挑目标。
 
     Args:
-        expected: Freshly eligible process identity from the cleanup planner.
-        signum: SIGTERM or SIGKILL, never an arbitrary signal.
+        expected: 来自清理规划器、刚刚判定为可处理的进程身份。
+        signum: 只允许 SIGTERM 或 SIGKILL，不接受任意信号。
 
     Returns:
-        True if the pinned identity received a signal, False if it disappeared
-        or changed before sending. Permission errors are not treated as success.
+        被钉住的身份确实收到信号返回 True；发送前它消失或身份改变返回 False。
+        权限错误不算成功。
 
     Raises:
-        ValueError: A disallowed signal, special PID or other user's identity.
-        PreflightError: pidfd is unavailable or the process cannot be inspected.
-        OSError: The operating system refuses opening or signaling the pidfd.
+        ValueError: 信号不在白名单、PID 是特殊值，或身份属于其他用户。
+        PreflightError: pidfd 不可用，或无法检查该进程。
+        OSError: 操作系统拒绝打开 pidfd 或拒绝发信号。
     """
     if (signum not in (signal.SIGTERM, signal.SIGKILL) or expected.pid <= 1
             or expected.pid == os.getpid() or expected.uid != os.getuid()):

@@ -1,4 +1,7 @@
-"""Translate frozen site/profile settings into the unchanged legacy executor CLI."""
+"""把冻结的场地/档案设置翻译成原样未改的旧执行器命令行.
+
+只做翻译：旧执行器的参数名与语义保持不变，迁移期两边可以逐项对照。
+"""
 
 from __future__ import annotations
 
@@ -63,20 +66,20 @@ def bind_executor(
     options: GraphOptions, profile: Mapping[str, Any], site: Mapping[str, Any],
     site_directory: Path,
 ) -> GraphOptions:
-    """Bind server, point paths, retry interval and precise-only dock routing.
+    """绑定服务端地址、点位路径、重试间隔，以及只在精准模式启用的入位路由.
 
     Args:
-        options: Selected graph; disabled or already explicit executors are left untouched.
-        profile: Effective robot/mode settings for executor and startup timing.
-        site: Frozen site mapping, including agent_server and pois.
-        site_directory: Original site directory for relative point/store paths.
+        options: 选定的启动图；已关闭或已显式配置的执行器保持原样。
+        profile: 执行器与启动时序所用的生效机器人/模式设置。
+        site: 冻结的场地映射，含 agent_server 与 pois。
+        site_directory: 供相对点位/存储路径使用的原场地目录。
 
     Returns:
-        Updated immutable graph options. No point/store file is opened or written,
-        no runtime implementation imported, and every value remains one argv item.
+        更新后的不可变启动图选项。过程中不打开也不写入任何点位/存储文件，
+        不导入运行期实现，且每个值都保持为单独一个 argv 项（不靠空格再分词）。
 
     Raises:
-        ValueError: Server, paths, timing, routing or selected mode is invalid.
+        ValueError: 服务端、路径、时序、路由或选定模式非法。
     """
     if not options.start_executor or options.executor_arguments:
         return options

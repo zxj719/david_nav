@@ -1,5 +1,4 @@
-"""Style checks shared by the navigation packages.
+"""各导航包共用的风格检查.
 
-The ament linters cover formatting. The checks here cover rules from the
-Google Python Style Guide that ament does not enforce.
+ament 自带的 linter 管格式；这里补的是 Google Python 风格指南里 ament 不强制的那些规则。
 """

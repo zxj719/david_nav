@@ -1,1 +1,1 @@
-"""Declarative process graphs, independent of platform operations and localization."""
+"""声明式的进程图，与平台操作和定位彼此独立，本身不启动任何进程."""

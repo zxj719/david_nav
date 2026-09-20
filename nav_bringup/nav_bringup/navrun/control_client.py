@@ -1,4 +1,7 @@
-"""Read-only lease inspection and cooperative shutdown, never PID-based signaling."""
+"""只读地查看租约并发起协作式关停，绝不按 PID 发信号.
+
+"没有受管租约"只说明没人用这套机制登记过，不说明现场没有别的导航进程在跑。
+"""
 
 from __future__ import annotations
 
@@ -177,16 +180,15 @@ def _wait(path: Path, result: Dict[str, Any], timeout: float) -> Dict[str, Any]:
 
 
 def run(args: argparse.Namespace) -> int:
-    """Print current managed-owner status or request and await cooperative cleanup.
+    """打印当前受管持有者的状态，或请求并等待协作式清理.
 
     Args:
-        args: status/down, lock_path, positive exchange timeout and nonnegative wait bound.
+        args: status/down、lock_path、正的交互超时与非负的等待上限。
 
     Returns:
-        Zero for a verified response/completion or no managed lease; two for unknown
-        identity/operational failure, three for accepted but incomplete cleanup.
-        A client keyboard interruption returns 130 without forcing owner termination.
-        Inactive never claims that legacy or manually launched processes are stopped.
+        收到可验证的响应/完成、或根本没有受管租约时返回 0；身份未知或操作失败返回 2；
+        请求被接受但清理未完成返回 3。客户端被键盘中断返回 130，
+        且不会强制终止持有者。返回"未激活"从不等于旧入口或手工启动的进程已经停了。
     """
     interrupted = False
     try:

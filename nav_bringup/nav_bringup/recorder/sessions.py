@@ -1,9 +1,8 @@
-"""Stop processes that were started as leaders of their own session.
+"""停止那些以自身会话首进程身份启动的进程.
 
-``navrun`` starts helpers such as ``navrun monitor`` and ``navrun
-dump-params`` with ``start_new_session=True``. A Ctrl-C in the terminal then
-does not reach them directly, and they can be stopped as a group, children
-included, without signaling any other process.
+``navrun`` 用 ``start_new_session=True`` 启动 ``navrun monitor``、
+``navrun dump-params`` 这类辅助进程。终端里的 Ctrl-C 因此不会直接打到它们身上，
+而它们可以连同各自的子进程一起按组停掉，不会波及任何其它进程。
 """
 
 from __future__ import annotations
@@ -14,19 +13,18 @@ import subprocess
 
 
 def stop_session(process: subprocess.Popen, timeout_sec: float) -> int:
-    """Interrupt a session, and kill it if it does not exit in time.
+    """中断一个会话；到时仍未退出就杀掉.
 
-    Sends SIGINT to the process group led by ``process``, waits, and sends
-    SIGKILL to the group when the timeout expires. A process that already
-    exited is not signaled.
+    先向以 ``process`` 为首的进程组发 SIGINT，等待，超时后再向该组发 SIGKILL。
+    已经退出的进程不会被发信号。只处理这一个会话，不触碰别的进程组。
 
     Args:
-        process: A process started with ``start_new_session=True``.
-        timeout_sec: Seconds to wait after SIGINT.
+        process: 以 ``start_new_session=True`` 启动的进程。
+        timeout_sec: SIGINT 之后等待的秒数。
 
     Returns:
-        The exit status of ``process``, negative for a death by signal as in
-        :attr:`subprocess.Popen.returncode`.
+        ``process`` 的退出状态；被信号杀死时为负值，与
+        :attr:`subprocess.Popen.returncode` 一致。
     """
     if process.poll() is not None:
         return process.returncode

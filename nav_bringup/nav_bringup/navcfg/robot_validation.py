@@ -1,8 +1,8 @@
-"""Named configuration selection using the same offline bundle validation as up.
+"""按名字选配置，并复用与启动完全相同的离线运行包校验.
 
-No run directory is created and no host/process discovery, executable lookup,
-ROS context or runtime command is invoked. Success validates selected source
-assets, not an installed executable, live graph, hardware or deployment.
+不创建运行目录，不做主机/进程发现，不查可执行文件，不建 ROS 上下文，
+也不执行任何运行期命令。通过只说明选中的源资源自洽，
+不说明可执行文件已安装、图能起来、硬件正常或部署可用。
 """
 
 from __future__ import annotations
@@ -126,15 +126,15 @@ def _prepare(request: UpRequest, inputs: BundleInputs,
 
 
 def run(args: argparse.Namespace, catalog: schema.ParameterCatalog) -> int:
-    """Select and validate a robot package without performing startup operations.
+    """选定并校验一个机器人包，不执行任何启动操作.
 
     Args:
-        args: Parsed robot/mode/site selectors and optional source resource root.
-        catalog: Explicit, source-tree or installed schemas chosen by the caller.
+        args: 已解析的机器人/模式/场地选择子，以及可选的源资源根目录。
+        catalog: 调用方显式选定的 schema，可以来自源码树或已安装位置。
 
     Returns:
-        Zero for valid offline configuration, one for rejected configuration,
-        or two for malformed selectors, missing resources or inaccessible files.
+        离线配置有效返回 0；配置被拒返回 1；
+        选择子格式错误、资源缺失或文件不可访问返回 2。
     """
     try:
         request, inputs = _select(args)

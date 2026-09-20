@@ -1,4 +1,7 @@
-"""Explicit retention CLI using the shared completed-record policy and safe remover."""
+"""显式的保留策略命令行，复用共享的"已完成记录"策略与安全删除器.
+
+只处理已经完成的记录：正在进行的运行不会被清理。
+"""
 
 from __future__ import annotations
 
@@ -12,14 +15,14 @@ from nav_bringup.recorder import retention, run_dir, safe_retention
 
 
 def run(args: argparse.Namespace) -> int:
-    """Preview or apply retention without ever starting ROS or a navigation process.
+    """预览或执行保留策略，全程不启动 ROS，也不启动任何导航进程.
 
     Args:
-        args: Runs root, private/navigation lease, dry-run flag and policy limits.
+        args: 运行记录根目录、私有/导航租约、dry-run 标志与策略上限。
 
     Returns:
-        Zero for a valid no-op, preview or completed application; two for invalid
-        inputs, busy leases or failure. Deletion is incremental, not a transaction.
+        无事可做、预览完成或执行完成返回 0；输入非法、租约被占或失败返回 2。
+        删除是逐条推进的，不是事务：中途失败会留下已删与未删并存的状态。
     """
     result = {'dry_run': args.dry_run, 'applied': False, 'pruned_runs': [],
               'deleted_bags': [], 'removed_bytes': 0, 'skipped': {}}

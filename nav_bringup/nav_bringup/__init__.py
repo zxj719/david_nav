@@ -1,9 +1,7 @@
-"""Bringup, run recording and operations tooling for robot navigation stacks.
+"""机器人导航栈的启动、运行记录与运维工具.
 
-Planned components (refactor plan §13): the ``navrun`` process supervisor,
-the ``navcfg`` configuration renderer and validator, the run recorder and the
-``doctor`` checks. The :mod:`nav_bringup.lint` subpackage provides style checks
-shared by the new navigation packages.
+包含（方案 §13）：``navrun`` 进程监督器、``navcfg`` 配置渲染与校验、运行记录器，
+以及 ``doctor`` 检查。:mod:`nav_bringup.lint` 子包提供各导航包共用的风格检查。
 """
 
 __version__ = '0.1.0'

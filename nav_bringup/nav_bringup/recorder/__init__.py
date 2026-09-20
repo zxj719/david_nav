@@ -1,13 +1,13 @@
-"""Run recorder: a self-describing record of every navigation run.
+"""运行记录器：让每一次导航运行都留下自解释的记录.
 
-Modules (refactor plan §13.2):
+各模块（方案 §13.2）：
 
-* :mod:`~nav_bringup.recorder.run_dir`: run directory layout and ``latest`` link.
-* :mod:`~nav_bringup.recorder.manifest`: git state, versions, environment and
-  input file fingerprints of a run.
-* :mod:`~nav_bringup.recorder.events`: structured ``events.jsonl`` timeline.
-* :mod:`~nav_bringup.recorder.resources`: per-process CPU and memory samples.
-* :mod:`~nav_bringup.recorder.summary`: human readable ``summary.md``.
-* :mod:`~nav_bringup.recorder.retention`: bounded disk usage that never loses
-  a run's manifest or summary.
+* :mod:`~nav_bringup.recorder.run_dir`：运行目录布局与 ``latest`` 链接。
+* :mod:`~nav_bringup.recorder.manifest`：本次运行的 git 状态、版本、环境与
+  输入文件指纹。
+* :mod:`~nav_bringup.recorder.events`：结构化的 ``events.jsonl`` 时间线。
+* :mod:`~nav_bringup.recorder.resources`：逐进程的 CPU 与内存采样。
+* :mod:`~nav_bringup.recorder.summary`：给人看的 ``summary.md``。
+* :mod:`~nav_bringup.recorder.retention`：有界的磁盘占用，且绝不丢掉任何一次运行的
+  清单与摘要。
 """

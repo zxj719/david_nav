@@ -1,6 +1,5 @@
-"""The ``navrun`` supervisor.
+"""``navrun`` 监督器.
 
-``navrun wrap`` records a run around an existing launch command without
-changing how that command behaves. Later subcommands (``up``, ``down``,
-``status``, ``show``, ``doctor``) follow refactor plan §13.1.
+``navrun wrap`` 在既有启动命令外面套一层运行记录，不改变那条命令本身的行为。
+后续子命令（``up``、``down``、``status``、``show``、``doctor``）按方案 §13.1。
 """

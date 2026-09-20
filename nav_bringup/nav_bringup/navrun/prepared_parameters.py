@@ -1,4 +1,7 @@
-"""Bind node parameter names while preserving the legacy chassis and dock contracts."""
+"""绑定各节点的参数名，同时保持底盘与入位的既有对外约定不变.
+
+迁移期这些参数名要和旧实现逐字一致，才能把"行为没变"这件事验证出来。
+"""
 
 from __future__ import annotations
 
@@ -47,22 +50,22 @@ def _node(name: str, parameters: Mapping[str, Any]) -> Dict[str, Any]:
 def node_parameters(
     options: GraphOptions, profile: Mapping[str, Any], navigation: Mapping[str, Any],
 ) -> Dict[str, Any]:
-    """Build parameter trees for the processes selected by an already resolved graph.
+    """为已解析启动图选中的进程构建参数树.
 
-    Chassis and teleop parameter names remain compatible with david_move and
-    david_keyboard during migration. Dock tolerances come from the mode profile;
-    its remaining defaults preserve the precise launch policy and user stop rate.
+    迁移期底盘与遥控的参数名与旧实现保持兼容。入位容差取自模式档案，
+    其余默认值沿用精准模式的既有启动策略与用户设定的停止速率。
+    入位参数只在精准模式生成——现场的导览模式本来就没有入位节点。
 
     Args:
-        options: Resolved graph options with profile topic bindings.
-        profile: Robot profile after its mode overlay.
-        navigation: Validated Nav2 tree and URDF, or empty for chassis tools.
+        options: 已解析的启动图选项，含档案给出的话题绑定。
+        profile: 叠加模式差异之后的机器人档案。
+        navigation: 已校验的 Nav2 参数树与 URDF；底盘类工具为空。
 
     Returns:
-        Parameter trees keyed by the run-local parameter file stem.
+        以本次运行参数文件名（不含扩展名）为键的参数树。
 
     Raises:
-        ValueError: If required profile values are absent or have an invalid shape.
+        ValueError: 缺少必需的档案取值，或取值形状非法。
     """
     graph = build_graph(options)
     output: Dict[str, Any] = {}
