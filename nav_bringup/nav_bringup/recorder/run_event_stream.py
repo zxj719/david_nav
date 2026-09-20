@@ -1,7 +1,8 @@
-"""Bounded, restartable outward projection of local navrun timeline records.
+"""把本地 navrun 时间线记录有界、可续跑地向外投影.
 
-The existing monitor supplies publication; this module owns no ROS resources,
-threads or timers. The original JSONL is never rewritten or consumed destructively.
+发布动作由既有 monitor 提供；本模块不持有任何 ROS 资源、线程或定时器，
+也不重写或破坏性消费原始 JSONL。游标与租约是本模块自己的文件。
+"已推进"只表示本地读到了哪里，不表示任何订阅者收到过。
 """
 
 import fcntl
@@ -27,22 +28,30 @@ _BOOL_KEYS = frozenset(('found', 'exited_early', 'success'))
 
 
 class RunEventStream:
-    """Own one run's outward cursor and lease; pump/close are caller-loop confined."""
+    """持有一次运行的对外游标与租约；pump/close 只在调用方自己的循环里使用.
+
+    本类不是线程安全的：同一实例的 pump 与 close 必须由同一个循环串行调用。
+    互斥依靠 flock 租约，只能挡住同机上遵守该租约的其它发布者，
+    挡不住无视租约直接改写时间线的写入方。
+    """
 
     def __init__(
         self, path: Path, publish: Callable[[Mapping[str, object]], None],
         warn: Callable[[str], None],
     ) -> None:
-        """Load/create private cursor state without publishing anything.
+        """加载或创建私有游标状态，构造期间不发布任何事件.
+
+        先取得租约再读游标。坏游标一律报错，不会被当作"从零开始"，
+        以免把已经发过的记录整批重发一遍。
 
         Args:
-            path: Existing run directory's append-only events.jsonl path.
-            publish: Caller-owned generated-message construction and publication sink.
-            warn: Failure-category diagnostics; never receives raw records or paths.
+            path: 已存在运行目录中只追加的 events.jsonl 路径。
+            publish: 调用方自有的消息构造与发布接收器。
+            warn: 故障分类诊断；不会收到原始记录内容或路径。
 
         Raises:
-            OSError: State/lease I/O failed or another publisher owns the run.
-            ValueError: Existing state is invalid and must not be overwritten.
+            OSError: 状态/租约的 I/O 失败，或该运行已被另一个发布者占用。
+            ValueError: 既有状态无效，不允许被覆盖。
         """
         self._path = Path(path)
         self._state_path = self._path.with_name('nav_event_cursor.json')
@@ -67,35 +76,35 @@ class RunEventStream:
 
     @property
     def identity_prefix(self) -> str:
-        """str: Persistent run identity used to suppress this publisher's own echoes."""
+        """str: 持久化的发布者身份前缀，续跑后保持不变，用于识别并跳过本发布者自己的回声."""
         return 'navrun:' + self._identity + ':'
 
     @property
     def closed(self) -> bool:
-        """bool: Whether publication is sealed, including detected timeline mutation."""
+        """bool: 发布是否已封存；检测到时间线被替换或截断也会封存."""
         return self._closed
 
     @property
     def offset(self) -> int:
-        """int: Bytes processed locally, not an acknowledgement from any DDS subscriber."""
+        """int: 本地已处理的字节数，不是任何 DDS 订阅者的投递确认."""
         return self._offset
 
     def pump(self, *, max_records: int = 128) -> int:
-        """Attempt a bounded batch; keep a failed publication available for later retry.
+        """尝试推进一个有界批次；发布失败的那条保留到下次重试.
 
-        Partial trailing lines wait for their newline. Invalid/oversized complete
-        records are skipped with a category warning; the original file is intact.
-        Replacement/truncation seals the stream instead of reusing its identities.
-        A checkpoint is not a DDS-delivery acknowledgement or an exactly-once claim.
+        行尾没有换行的半条记录留到下次；完整但非法或超长的记录会被跳过并给出
+        分类告警，原文件不动。文件被替换或截断时整条流封存，不复用旧的事件身份。
+        已封存或本次无进展时返回 0，不抛异常。检查点只说明本地读到哪里，
+        既不是 DDS 投递确认，也不构成"恰好一次"。
 
         Args:
-            max_records: Positive maximum number of read fragments in this call.
+            max_records: 本次调用最多读取的记录条数，必须是正整数。
 
         Returns:
-            Number of publication calls that returned successfully.
+            本次成功返回的发布调用次数；不代表订阅者已经收到。
 
         Raises:
-            ValueError: The caller's batch bound is not a positive integer.
+            ValueError: 调用方给出的批量上限不是正整数。
         """
         if type(max_records) is not int or max_records <= 0:
             raise ValueError('event batch bound must be a positive integer')
@@ -166,7 +175,10 @@ class RunEventStream:
         return published
 
     def close(self) -> None:
-        """Seal publication and release only this run's lease; preserve files and ROS owners."""
+        """封存发布并只释放本运行的租约，不删除任何文件，也不动 ROS 资源的持有者.
+
+        可重复调用：已封存时再次调用不做任何事，也不报错；封存后 pump 恒返回 0。
+        """
         if not self._closed:
             self._closed = True
             self._lease.close()
