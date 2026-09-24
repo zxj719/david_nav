@@ -17,6 +17,7 @@ from nav_bringup.launching.graph import NAVIGATION_MODES
 from nav_bringup.navcfg import render
 from nav_bringup.navrun import event_tail
 from nav_bringup.navrun.startup_lifecycle import StartupCommands, StartupGate
+from nav_bringup.navrun.preparation import merge_overlay, OVERLAY_ARTIFACT
 from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
 from nav_bringup.navrun.up_planning import UpPlan
 
@@ -33,14 +34,18 @@ def effective_profile(plan: UpPlan) -> Dict[str, Any]:
         叠加选定模式差异之后的机器人设置。
 
     Raises:
-        ValueError: 已准备的模式与其声明身份不再一致。
+        ValueError: 已准备的模式或冻结叠加的声明身份不正确。
     """
     artifacts = dict(plan.bundle.artifacts)
+    inputs = Path(plan.bundle.options.run_dir) / 'params/inputs'
     robot = yaml.safe_load(artifacts['params/inputs/robot.yaml'])
     mode = render.parse_mode(yaml.safe_load(artifacts['params/inputs/mode.yaml']),
-                             Path(plan.bundle.options.run_dir) / 'params/inputs/mode.yaml')
+                             inputs / 'mode.yaml')
     if mode.name != plan.bundle.options.mode:
         raise ValueError('prepared mode does not match startup identity')
+    overlay = artifacts.get(OVERLAY_ARTIFACT)
+    mode = merge_overlay(mode, None if overlay is None else yaml.safe_load(overlay),
+                         inputs / 'overlay.yaml')
     overrides = yaml.safe_load(artifacts.get('params/inputs/teleop_options.yaml', b'{}'))
     if not isinstance(overrides, dict) or set(overrides) - {
             'layout', 'linear_speed', 'angular_speed'}:

@@ -115,6 +115,10 @@ def build_parser() -> argparse.ArgumentParser:
     up_parser.add_argument('--linear-speed', type=float, help='teleop-only gear in m/s')
     up_parser.add_argument('--angular-speed', type=float, help='teleop-only gear in rad/s')
     up_parser.add_argument('--no-executor', action='store_true')
+    up_parser.add_argument(
+        '--OA', '--oa', dest='oa', action='store_true',
+        help='add this robot direct PointCloud2 source to the local costmap; '
+             'needs the robot overlay modes/overlays/oa.yaml')
     up_parser.add_argument('--composition', action='store_true',
                            help='opt in to the isolated Nav2 component container')
     up_parser.add_argument(

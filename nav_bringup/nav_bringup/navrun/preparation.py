@@ -24,6 +24,10 @@ from nav_bringup.navrun import prepared_parameters
 from nav_bringup.navrun.executor_binding import bind_executor
 from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
 
+# 附加叠加自报的身份，以及它在运行记录里被冻结成的资产名。
+OVERLAY_NAME = 'oa'
+OVERLAY_ARTIFACT = 'params/inputs/overlay.yaml'
+
 
 @dataclass(frozen=True)
 class BundleInputs:
@@ -39,6 +43,8 @@ class BundleInputs:
         site: 可选场地档案；导航模式必需。
         urdf: 机器人描述；导航校验必需。
         rviz: 可选的 RViz 配置，只有选了 RViz 才必需。
+        overlay: 可选的附加叠加 YAML，合并到模式差异之上；只有显式选项
+            （目前只有 --OA）才会选出它，没选时为 None 且不读任何文件。
     """
 
     profile: Path
@@ -50,6 +56,7 @@ class BundleInputs:
     site: Optional[Path] = None
     urdf: Optional[Path] = None
     rviz: Optional[Path] = None
+    overlay: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +109,35 @@ class _Reader:
             for block in iter(lambda: stream.read(1024 * 1024), b''):
                 digest.update(block)
         self.fingerprints[label] = {'path': str(path), 'sha256': digest.hexdigest()}
+
+
+def merge_overlay(
+    mode: render.ModeOverlay, data: Any, source: Any,
+) -> render.ModeOverlay:
+    """把存在的附加叠加合并到模式叠加上.
+
+    准备、规划与运行期绑定三处都要从同一批输入重建同一份有效档案，任何一处
+    漏掉这次合并，绑定出来的命令就会和渲染出来的参数对不上。因此三处共用本函数，
+    而不是各自合并一遍。
+
+    Args:
+        mode: 已解析的模式叠加。
+        data: 已解析的附加叠加 YAML；本次没有选叠加时为 None。
+        source: 出错消息里指明的来源，通常是路径。
+
+    Returns:
+        合并后的叠加；没有附加叠加时原样返回 mode。
+
+    Raises:
+        ValueError: 叠加自报的身份不是预期的那个。
+        RenderError: 叠加本身的形状非法。
+    """
+    if data is None:
+        return mode
+    overlay = render.parse_mode(data, source)
+    if overlay.name != OVERLAY_NAME:
+        raise ValueError(f'{source}: expected the {OVERLAY_NAME} overlay, got {overlay.name!r}')
+    return render.merge_overlays(mode, overlay)
 
 
 def _identity(data: Mapping[str, Any], key: str) -> str:
@@ -311,6 +347,11 @@ def prepare_bundle(
         reader.mapping('mode', inputs.mode, 'params/inputs/mode.yaml'), inputs.mode)
     if mode.name != options.mode:
         raise ValueError('mode overlay does not match the requested launch mode')
+    mode = merge_overlay(
+        mode,
+        reader.mapping('overlay', inputs.overlay, OVERLAY_ARTIFACT)
+        if inputs.overlay is not None else None,
+        inputs.overlay)
     effective = apply_options(render.deep_merge(profile, mode.profile),
                               options.mode, teleop_options)
     if overrides:

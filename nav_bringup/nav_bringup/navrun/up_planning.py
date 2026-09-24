@@ -21,7 +21,8 @@ from nav_bringup.navcfg import render, schema
 from nav_bringup.navrun.platform import plan_platform, PlatformStep
 from nav_bringup.navrun.preflight import plan_preflight, PreflightPlan, ProcessInfo
 from nav_bringup.navrun.preflight import is_task_manager
-from nav_bringup.navrun.preparation import BundleInputs, PreparedBundle, prepare_bundle
+from nav_bringup.navrun.preparation import BundleInputs, merge_overlay, OVERLAY_ARTIFACT
+from nav_bringup.navrun.preparation import OVERLAY_NAME, PreparedBundle, prepare_bundle
 from nav_bringup.navrun.recording import plan_recording, RecordingPlan
 from nav_bringup.navrun.teleop_options import apply_options, TeleopOptions
 
@@ -41,6 +42,7 @@ class UpRequest:
         teleop_options: 显式的键位/档位，与源文件分开冻结。
         mode_file: 可选的完整模式差异文件路径；不会改变模式身份。
         composition: 显式选择把 Nav2 放进一个隔离容器。
+        oa: 显式请求前向局部避障；叠加档由机器人自己的配置包提供，只在导航模式可用。
     """
 
     mode: str
@@ -53,6 +55,7 @@ class UpRequest:
     teleop_options: TeleopOptions = TeleopOptions()
     mode_file: Optional[Path] = None
     composition: bool = False
+    oa: bool = False
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,8 @@ def _validate(request: UpRequest) -> None:
     if type(request.composition) is not bool or (
             request.composition and request.mode not in NAVIGATION_MODES):
         raise ValueError('composition must be boolean and is only valid for navigation')
+    if type(request.oa) is not bool or (request.oa and request.mode not in NAVIGATION_MODES):
+        raise ValueError('obstacle avoidance must be boolean and needs a mode with a costmap')
     if request.mode_file is not None and not isinstance(request.mode_file, Path):
         raise ValueError('mode_file must be a path')
     if (not isinstance(request.run_dir, Path) or not request.run_dir.is_absolute()
@@ -146,7 +151,8 @@ def discover_inputs(
         bringup / 'config/nav2_base.yaml', bringup / 'config/nav2_bindings.yaml',
         plugins / 'behavior_trees', plugins / 'config/bt_bindings.yaml',
         site=robot / 'sites' / request.site / 'site.yaml' if navigation else None,
-        urdf=robot / 'urdf' / (request.robot + '.urdf') if navigation else None)
+        urdf=robot / 'urdf' / (request.robot + '.urdf') if navigation else None,
+        overlay=robot / 'modes' / 'overlays' / (OVERLAY_NAME + '.yaml') if request.oa else None)
 
 
 def plan_up(
@@ -183,6 +189,10 @@ def plan_up(
     mode = render.parse_mode(yaml.safe_load(initial_mode), inputs.mode)
     if mode.name != request.mode:
         raise ValueError('mode overlay does not match requested mode')
+    initial_overlay = inputs.overlay.read_bytes() if inputs.overlay is not None else None
+    mode = merge_overlay(
+        mode, None if initial_overlay is None else yaml.safe_load(initial_overlay),
+        inputs.overlay)
     effective = apply_options(render.deep_merge(profile, mode.profile),
                               request.mode, request.teleop_options)
     preflight = plan_preflight(effective, processes, own_pid, chassis=request.chassis)
@@ -196,7 +206,8 @@ def plan_up(
     bundle = prepare_bundle(options, inputs, catalog, request.teleop_options)
     artifacts = dict(bundle.artifacts)
     if (artifacts['params/inputs/robot.yaml'] != initial_profile
-            or artifacts['params/inputs/mode.yaml'] != initial_mode):
+            or artifacts['params/inputs/mode.yaml'] != initial_mode
+            or artifacts.get(OVERLAY_ARTIFACT) != initial_overlay):
         raise ValueError('configuration changed during startup planning; retry')
     if bundle.robot != request.robot or (navigation and bundle.site != request.site):
         raise ValueError('requested robot/site identity does not match the rendered bundle')

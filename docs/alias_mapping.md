@@ -59,3 +59,28 @@ alias 24="export ROS_DOMAIN_ID=0;set -o allexport;source ~/ros2_ws/src/david_nav
 1. `--takeover` 只对**重构版**入口有效：它请的是持有 navrun 租约的那一方。生产的 `0` / `4`不持有该租约，`takeover` 会报 inactive 直接放行。
 2. 但启动前的预检**会**按既有 kill 规则停掉生产导览栈（`launch david_nav 2d_david_nav2_bringup` 及其 nav2 节点）。也就是说 `4` 正在跑时敲 `24`，生产那套会被停掉换成重构版——这是既定设计，不是意外。
    底盘驱动若由现场单独起着，预检会把它识别为外部驱动并保护，不会停它。
+
+## `21`：导览模式的动态避障
+
+```bash
+ros2 run nav_bringup navrun up --mode tour --OA --no-executor --takeover
+```
+
+`--OA` 只选择机器人配置包中的 `modes/overlays/oa.yaml`，不改变进程图、monitor
+或行为树错误规则。叠加档被冻结为 `params/inputs/overlay.yaml`，用于事后还原配置。
+
+David 当前只有一条障碍链：
+
+```text
+/lightning/loc/aligned_scan (PointCloud2)
+  → nav2_costmap_2d::ObstacleLayer
+  → nav2_costmap_2d::InflationLayer
+```
+
+OA 的 local costmap 插件为 `static_layer → obstacle_layer → inflation_layer`，不启动
+`pointcloud_to_laserscan`，也不加载 `scan_priority_layer`。当前障碍范围为
+`0.2～2.5 m`、清除范围为 `0.2～3.0 m`、高度窗口为 `-0.55～0.35 m`。
+Lightning 的 `blind=0.3 m` 由定位配置负责，导航侧不重复配置。
+
+这条链路仍受 `aligned_scan` 约 1～2 s 延迟和闪烁影响；后续应由 Lightning 提供
+非累计、低延迟、保留真实传感器 frame 的实时过滤点云，再替换该过渡输入。

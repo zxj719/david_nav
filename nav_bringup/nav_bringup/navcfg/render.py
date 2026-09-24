@@ -403,6 +403,28 @@ def parse_mode(data: Any, source: Union[str, Path]) -> ModeOverlay:
     return ModeOverlay(name, profile, overrides)
 
 
+def merge_overlays(base: ModeOverlay, extra: ModeOverlay) -> ModeOverlay:
+    """把一份附加叠加合并到模式叠加上，身份仍由模式决定.
+
+    附加叠加描述的是与模式正交的一个选项（例如显式请求的避障），因此它不能
+    改变这次运行是哪个模式；两份叠加改同一个参数路径时整体取附加叠加的值，
+    不逐项合并，也不在此校验参数路径是否与绑定重叠——那是 render 的判断。
+
+    Args:
+        base: 选定模式的叠加，其 name 就是合并结果的 name。
+        extra: 附加叠加，它的 name 只用于它自己的身份校验，这里不读取。
+
+    Returns:
+        新的叠加：profile 深合并，nav2_overrides 按路径以附加叠加为准。
+        两个输入都不被修改。
+
+    Raises:
+        TypeError: 任一输入不是叠加对象；映射内容的形状仍由 parse_mode 保证。
+    """
+    return ModeOverlay(base.name, deep_merge(base.profile, extra.profile),
+                       {**base.nav2_overrides, **extra.nav2_overrides})
+
+
 def render(
     base: Mapping[str, Any],
     bindings: Mapping[str, Binding],
