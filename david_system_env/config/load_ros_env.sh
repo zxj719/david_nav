@@ -9,11 +9,11 @@
 #         （ad-hoc 调试时 `export ROS_DOMAIN_ID=N` 仍可临时覆盖单次运行。）
 #
 # 2026-09-04 修：原先是「ROS_DOMAIN_ID 未设时才 source ros_env.conf」。而 .bashrc
-#   的 alias 0/4/5/6/7/8/9 全都先 `export ROS_DOMAIN_ID=0`，于是 conf 永远不会被
+#   的旧启动入口先 `export ROS_DOMAIN_ID=0`，于是 conf 永远不会被
 #   source，里面除 domain 以外的键（FASTRTPS_DEFAULT_PROFILES_FILE）一个都加载不到。
 #   改成无条件 source，再把外部指定的 ROS_DOMAIN_ID 盖回去 —— 优先级语义不变。
 #
-# 用法：  source "<…/david_nav/config>/load_ros_env.sh"
+# 用法：  source "<…/david_system_env/config>/load_ros_env.sh"
 # nounset(set -u) 安全。
 # ──────────────────────────────────────────────────────────────────────────
 __david_ros_env_conf="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)/ros_env.conf"

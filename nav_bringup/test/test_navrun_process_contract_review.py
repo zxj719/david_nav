@@ -11,9 +11,8 @@ import pytest
 import nav_bringup
 from nav_bringup.navrun.owned_process import OwnedProcess
 from nav_bringup.navrun.startup_observer import StartupObserver
-from nav_bringup.navrun.wrap import monitor_command
 
-MODULES = ('navrun/owned_process.py', 'navrun/wrap.py', 'navrun/startup_observer.py')
+MODULES = ('navrun/owned_process.py', 'navrun/startup_observer.py')
 
 
 @pytest.mark.parametrize('name', MODULES)
@@ -69,14 +68,6 @@ def test_child_runs_in_its_own_session_without_a_shell(tmp_path):
     lines = log.read_text(encoding='utf-8').split()
     assert int(lines[0]) != os.getsid(0)  # 不在测试进程的会话里。
     assert lines[1] == '*'  # 星号原样传给子进程，没有被外层展开。
-
-
-def test_monitor_command_is_built_without_starting_anything(tmp_path):
-    """只拼出 monitor 命令，不启动它，也不创建任何文件."""
-    command = monitor_command(base_frame='base_footprint', topics=('/scan',), period_sec=1.0,
-                              ready_action=None, dump_params=False, python='/usr/bin/python3')
-    assert command[0] == '/usr/bin/python3' and 'monitor' in command
-    assert list(tmp_path.iterdir()) == []
 
 
 def test_observer_construction_opens_no_file(tmp_path):

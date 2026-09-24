@@ -1,8 +1,7 @@
 # Keyboard teleoperation overlay (refactor plan §12.2, §8.5).
 #
 # Teleop starts no Nav2, so the overlay only changes the chassis adapter: in
-# this mode it takes the david_move values of david_cmd/config/cmd.yaml, which
-# test/test_modes.py checks.
+# this mode its input is the keyboard safety topic and all limits remain explicit.
 schema_version: 1
 mode: teleop
 description: 键盘遥控：不起 Nav2，底盘适配层使用遥控取值

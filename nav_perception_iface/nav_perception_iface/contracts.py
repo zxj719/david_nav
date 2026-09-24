@@ -1,11 +1,11 @@
-"""定位、底盘及可选点云接口的只读契约判定，ROS 图采样由外层注入."""
+"""定位与底盘接口的只读契约判定，ROS 图采样由外层注入."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, FrozenSet, Mapping, Optional, Tuple
+from typing import Any, FrozenSet, Mapping, Tuple
 
-from nav_perception_iface.configuration import profile_value, string_value
+from nav_perception_iface.configuration import string_value
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,6 @@ class InterfaceSnapshot:
         subscribers: 符合底盘命令 Twist 类型契约的话题订阅者数量。
         samples: 采样窗口内实际收到消息的话题。
         types: 话题实际公布的消息类型集合。
-        cloud_frame: 最新输入点云的 header.frame_id，未收到则为 None。
     """
 
     transforms: FrozenSet[Tuple[str, str]]
@@ -26,7 +25,6 @@ class InterfaceSnapshot:
     subscribers: Mapping[str, int]
     samples: FrozenSet[str]
     types: Mapping[str, FrozenSet[str]]
-    cloud_frame: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -96,15 +94,4 @@ def check_contracts(
         topic_data(string_value(profile, 'chassis.odom_topic'),
                    'nav_msgs/msg/Odometry', 'chassis_odom_missing')
 
-    scan = profile_value(profile, 'sensors.scan_from_cloud')
-    if not isinstance(scan, Mapping) or not isinstance(scan.get('enabled', False), bool):
-        raise ValueError('sensors.scan_from_cloud.enabled must be boolean')
-    if scan.get('enabled', False):
-        cloud = string_value(profile, 'sensors.scan_from_cloud.cloud_topic')
-        topic_data(cloud, 'sensor_msgs/msg/PointCloud2', 'scan_cloud_missing')
-        target = string_value(profile, 'frames.scan_target')
-        if not snapshot.cloud_frame or not has_transform(target, snapshot.cloud_frame):
-            findings.append(ContractFinding(
-                'error', 'scan_cloud_tf_missing',
-                f'{cloud}: cannot transform cloud into {target}'))
     return tuple(findings)

@@ -4,8 +4,8 @@
 
 ## 背景原文（保留）
 
-来源 [不可变旧入口](../../david_nav/test/golden/legacy_entries/navigation_executor.py.txt)
-的 `_drain_outbound_queue` 文档和应答入队注释：
+来源为提交 `93676a5` 中归档旧导航入口的 `_drain_outbound_queue`
+文档和应答入队注释：
 
 ```text
 发送排水，带送达保证（2026-07-27）。

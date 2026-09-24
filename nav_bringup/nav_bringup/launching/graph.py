@@ -1,4 +1,4 @@
-"""描述五种导航启动模式，不创建任何进程或文件.
+"""描述四种受管启动模式，不创建任何进程或文件.
 
 参数文件由监督方预先渲染到本次运行目录；本模块只负责点名这些文件，并描述
 归属、重启预算与就绪依赖，真正的启动交给 launch 适配层。本模块是纯描述：
@@ -13,8 +13,8 @@ from pathlib import PurePath
 from typing import Tuple
 
 
-MODES = ('tour', 'precise', 'bench_slamgt', 'chassis', 'teleop')
-NAVIGATION_MODES = MODES[:3]
+MODES = ('tour', 'precise', 'chassis', 'teleop')
+NAVIGATION_MODES = MODES[:2]
 CORE_NODES = (
     ('nav2_controller', 'controller_server'),
     ('nav2_planner', 'planner_server'),
@@ -32,12 +32,11 @@ class GraphOptions:
     已渲染的参数文件，本结构不读取也不覆盖它们。
 
     Attributes:
-        mode: 五种受支持模式之一。
+        mode: 四种受支持模式之一。
         run_dir: 存放已渲染参数文件的绝对目录。
         start_chassis: 本次启动是否拥有一个新起的底盘驱动。
         start_executor: Nav2 就绪后是否启用上位机执行器。
         map_server: 本次启动是否拥有地图发布者。
-        scan_bridge: 是否启用点云预处理。
         robot_state: 是否发布给定的机器人描述。
         rviz: 是否按给定配置启动 RViz。
         chassis_delay_sec: 自有驱动起来后，延迟多久再启动导航。
@@ -49,8 +48,6 @@ class GraphOptions:
         smooth_command_topic: 适配器输入，由平滑器或 Nav2 直接提供。
         chassis_command_topic: 适配器输出，由驱动消费。
         chassis_odom_topic: 驱动发布的轮式里程计。
-        cloud_topic: 可选的预处理输入。
-        scan_topic: 可选的预处理输出。
         executor_arguments: 共享任务管理器的场地/传输命令行参数，必须显式给出。
         ready_timeout_sec: 拒绝启动执行器前的最长墙钟等待。
         ready_action: 用于判就绪的导航动作服务端；只检查存在，不下发任何目标。
@@ -65,7 +62,6 @@ class GraphOptions:
     start_chassis: bool = True
     start_executor: bool = False
     map_server: bool = True
-    scan_bridge: bool = False
     robot_state: bool = True
     rviz: bool = False
     chassis_delay_sec: float = 0.0
@@ -77,8 +73,6 @@ class GraphOptions:
     smooth_command_topic: str = 'cmd_vel_smoothed'
     chassis_command_topic: str = 'cmd_vel'
     chassis_odom_topic: str = 'odom'
-    cloud_topic: str = 'cloud_in'
-    scan_topic: str = 'scan'
     executor_arguments: Tuple[str, ...] = ()
     ready_timeout_sec: float = 90.0
     ready_action: str = '/navigate_to_pose'
@@ -159,7 +153,7 @@ def _validate(options: GraphOptions) -> None:
         raise ValueError(f'unknown launch mode: {options.mode!r}')
     if not PurePath(options.run_dir).is_absolute() or '..' in PurePath(options.run_dir).parts:
         raise ValueError('run_dir must be an absolute normalized run directory')
-    for name in ('start_chassis', 'start_executor', 'map_server', 'scan_bridge',
+    for name in ('start_chassis', 'start_executor', 'map_server',
                  'robot_state', 'rviz', 'supervisor_keyboard', 'velocity_smoother', 'composition'):
         if not isinstance(getattr(options, name), bool):
             raise ValueError(f'{name} must be a resolved boolean')
@@ -178,13 +172,11 @@ def _validate(options: GraphOptions) -> None:
         raise ValueError('the executor is only valid in tour or precise mode')
     if options.supervisor_keyboard and options.mode != 'teleop':
         raise ValueError('supervisor keyboard ownership is only valid in teleop mode')
-    if options.scan_bridge and options.mode not in NAVIGATION_MODES:
-        raise ValueError('preprocessing is only valid in a navigation mode')
     if options.composition and options.mode not in NAVIGATION_MODES:
         raise ValueError('composition is only valid in a navigation mode')
     for name in ('driver_package', 'driver_executable', 'nav_command_topic',
                  'smooth_command_topic', 'chassis_command_topic', 'chassis_odom_topic',
-                 'cloud_topic', 'scan_topic', 'ready_action'):
+                 'ready_action'):
         if not isinstance(getattr(options, name), str) or not getattr(options, name).strip():
             raise ValueError(f'{name} must be a nonempty string')
 
@@ -262,11 +254,6 @@ def build_graph(options: GraphOptions) -> LaunchGraph:
         processes.append(ProcessSpec(
             'robot_state_publisher', 'robot_state_publisher', 'robot_state_publisher',
             params('robot_state'), delay_sec=delay))
-    if options.scan_bridge:
-        processes.append(ProcessSpec(
-            'pointcloud_to_laserscan', 'pointcloud_to_laserscan', 'pointcloud_to_laserscan_node',
-            params('scan_bridge'),
-            (('cloud_in', options.cloud_topic), ('scan', options.scan_topic)), delay_sec=delay))
     if options.mode == 'precise' or options.start_executor:
         processes.append(_task_manager(options, params, delay))
     if options.rviz:

@@ -10,7 +10,6 @@ from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
-from sensor_msgs.msg import PointCloud2
 from tf2_ros import StaticTransformBroadcaster
 
 from nav_perception_iface.configuration import load_contract_profile
@@ -49,13 +48,8 @@ def main() -> None:
             message_type = Odometry if args.variant == 'wrong_driver_type' else Twist
             node.create_subscription(message_type, profile['chassis']['cmd_topic'], lambda _: None,
                                      10)
-        cloud = None
-        if profile['sensors']['scan_from_cloud']['enabled']:
-            cloud = node.create_publisher(PointCloud2,
-                                          profile['sensors']['scan_from_cloud']['cloud_topic'],
-                                          qos_profile_sensor_data)
         broadcaster = StaticTransformBroadcaster(node)
-        pairs = [(frames['body'], frames['nav_base']), (frames['scan_target'], 'probe_sensor')]
+        pairs = [(frames['body'], frames['nav_base'])]
         if args.variant not in ('waiting', 'interrupt'):
             pairs.append((frames['map'], frames['odom']))
         if args.variant != 'missing_body':
@@ -79,13 +73,6 @@ def main() -> None:
             for index, publisher in enumerate(odometry):
                 if args.variant != 'silent' or index != 0:
                     publisher.publish(message)
-            if cloud is not None:
-                points = PointCloud2()
-                points.header.frame_id = 'unknown_sensor' if args.variant == 'bad_cloud' else (
-                    'probe_sensor')
-                points.header.stamp = message.header.stamp
-                cloud.publish(points)
-
         node.create_timer(0.05, publish)
         print('contract fixture ready', flush=True)
         while not stopped[0]:

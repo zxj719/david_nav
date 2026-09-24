@@ -7,7 +7,7 @@ import re
 import pytest
 
 import nav_bringup
-from nav_bringup.navrun import cli, event_tail, teleop_options
+from nav_bringup.navrun import event_tail, teleop_options
 
 MODULES = ('navrun/cli.py', 'navrun/teleop_options.py', 'navrun/up.py',
            'navrun/check.py', 'navrun/event_tail.py')
@@ -25,20 +25,6 @@ def test_reviewed_summaries_are_chinese(name):
             if doc and re.search(r'[一-鿿]', doc.splitlines()[0]) is None:
                 missing.append((getattr(node, 'lineno', 1), getattr(node, 'name', '<module>')))
     assert not missing, missing
-
-
-def test_named_files_are_expanded_without_touching_the_filesystem(tmp_path):
-    """只展开路径并查重，不要求文件存在，也不创建任何东西."""
-    mapping = cli.parse_file_arguments(['profile=' + str(tmp_path / 'missing.yaml')])
-    assert mapping['profile'] == tmp_path / 'missing.yaml'
-    assert not mapping['profile'].exists() and list(tmp_path.iterdir()) == []
-
-
-@pytest.mark.parametrize('value', ['profile', '=path', 'name=', ''])
-def test_malformed_named_files_are_refused(value):
-    """缺等号、空名字或空路径一律拒绝，不做猜测."""
-    with pytest.raises(ValueError):
-        cli.parse_file_arguments([value])
 
 
 def test_overrides_only_carry_what_was_given():

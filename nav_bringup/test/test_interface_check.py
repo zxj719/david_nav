@@ -14,7 +14,7 @@ from nav_bringup.navcfg import interface_check
 def _report(status='ready', findings=()):
     return {'schema_version': 1, 'status': status, 'findings': list(findings),
             'evidence': {'transforms': [], 'publishers': {}, 'subscribers': {},
-                         'samples': ['/odom'], 'types': {}, 'cloud_frame': None}}
+                         'samples': ['/odom'], 'types': {}}}
 
 
 def test_valid_report_retains_findings_and_window_evidence():

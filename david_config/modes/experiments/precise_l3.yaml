@@ -1,4 +1,4 @@
-# Explicit experiment only; never selected by the default five mode names.
+# Explicit experiment only; never selected by the default four mode names.
 schema_version: 1
 mode: precise
 description: L3 opt-in experiment; requires hardware A/B before deployment

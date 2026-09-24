@@ -65,7 +65,6 @@ No parameters declared.
 | `localization.process_name` | `string` | — | default: `null` | — | 单独启动的定位进程的可执行文件名；设置后运行记录会关联它（pid、启动时间、命令行、配置 sha256、日志摘录） | — |
 | `nav2.map_topic` | `string` | — | **required** | — | 代价图静态层订阅的栅格地图话题（启动文件可能改写，见 PROGRESS P2.4） | — |
 | `nav2.odom_topic` | `string` | — | **required** | — | Nav2 BT 与控制器订阅的里程计话题 | — |
-| `nav2.scan_topic` | `string` | — | **required** | — | 代价图障碍物层订阅的激光话题 | — |
 | `nav2.velocity_smoother.enabled` | `bool` | — | default: `true` | — | 保留速度平滑器；L2 实验显式关闭后 Nav2 直连适配层输入，须同时迁移恢复限速与超时 | — |
 | `platform.command_timeout_sec` | `float` | s | default: `30.0` | range: `0.001 .. inf` | 每条平台命令的等待期限；无密码、无交互，失败后停止后续平台步骤 | — |
 | `platform.jetson` | `bool` | — | default: `false` | — | 主机是 NVIDIA Jetson；为 true 时 navrun up 才处理功耗模式与 jetson_clocks | — |
@@ -128,25 +127,11 @@ No parameters declared.
 |---|---|---|---|---|---|---|
 | `chassis.odom_frame` | `string` | — | optional (unset) | — | 轮式积分Odometry的header父帧；与定位frames.odom独立，导航健康检查必须显式提供 | — |
 | `frames.body` | `string` | — | **required** | — | 定位输出的机身本体帧；与导航旋转中心分别配置 | — |
-| `frames.scan_target` | `string` | — | **required** | — | 点云转扫描的目标坐标系，应与配置的高度过滤基准一致 | — |
 | `localization.odom_topic` | `string` | — | **required** | — | 定位完成后实际发布的里程计话题；与 Nav2 现接线 nav2.odom_topic 独立 | — |
 | `localization_health.action` | `string` | — | default: `"warn"` | choices: `"warn"` | 当前只观察告警；stop自动取消属于待现场启用的TODO-H1 | — |
 | `localization_health.divergence_window_sec` | `float` | s | default: `2.0` | range: `0.0 .. inf` | 位移比较的最大滑动时间窗，须严格大于零 | — |
 | `localization_health.max_divergence_m` | `float` | m | default: `1.0` | range: `0.0 .. inf` | 同一导航基准点的配对位移向量差阈值，须严格大于零 | — |
 | `localization_health.max_tf_age_sec` | `float` | s | default: `0.5` | range: `0.0 .. inf` | 导航健康TF和配对底盘odom新鲜度阈值，运行时须严格大于零 | — |
-| `sensors.scan_from_cloud.angle_increment` | `float` | rad | **required** | range: `0.0 .. inf` | 扫描角分辨率，必须严格大于零 | — |
-| `sensors.scan_from_cloud.angle_max` | `float` | rad | **required** | — | 扫描结束角，必须大于 angle_min | — |
-| `sensors.scan_from_cloud.angle_min` | `float` | rad | **required** | — | 扫描起始角 | — |
-| `sensors.scan_from_cloud.cloud_topic` | `string` | — | **required** | — | 输入 PointCloud2 话题 | — |
-| `sensors.scan_from_cloud.enabled` | `bool` | — | default: `false` | — | 是否启动点云转扫描预处理，默认不增加节点 | — |
-| `sensors.scan_from_cloud.max_height` | `float` | m | **required** | — | 目标坐标系下参与投影的最高高度，必须大于 min_height | — |
-| `sensors.scan_from_cloud.min_height` | `float` | m | **required** | — | 目标坐标系下参与投影的最低高度 | — |
-| `sensors.scan_from_cloud.range_max` | `float` | m | **required** | range: `0.0 .. inf` | 有效最长量程，必须大于 range_min | — |
-| `sensors.scan_from_cloud.range_min` | `float` | m | **required** | range: `0.0 .. inf` | 有效最短量程 | — |
-| `sensors.scan_from_cloud.scan_time` | `float` | s | **required** | range: `0.0 .. inf` | 一帧扫描对应的时间，必须严格大于零 | — |
-| `sensors.scan_from_cloud.scan_topic` | `string` | — | **required** | — | 输出 LaserScan 话题 | — |
-| `sensors.scan_from_cloud.transform_tolerance` | `float` | s | **required** | range: `0.0 .. inf` | 输入点云到目标帧的变换时间容差 | — |
-| `sensors.scan_from_cloud.use_inf` | `bool` | — | **required** | — | 无有效点的方向输出 inf，保留原预处理设置 | — |
 
 ## `nav_plugins`
 

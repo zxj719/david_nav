@@ -26,7 +26,7 @@ nav_executor业务只导入nav_tasks.api，不导入core私有实现；反向依
 
 ## 模式与启动
 
-tour、precise、bench_slamgt为导航图；chassis/teleop不依赖地图/定位/健康节点。
+tour、precise为导航图；chassis/teleop不依赖地图/定位/健康节点。
 precise只有一个任务owner：启用WS时兼容WS和ROS Dock，禁WS时只提供ROS Dock。
 tour禁WS时不创建manager。模式/站点/robot选择必须和已冻结bundle一致。
 precise+WS管理器属于延后阶段，等Nav2就绪和完整检查后再开放，不能另起独立Dock。
@@ -58,7 +58,7 @@ monitor复用原节点订阅与发布；最终run_stopped晚于原监视器清�
 健康观察是PLAN规定的独立5Hz节点；其它事件生产者不新增常驻观察线程。
 游标、DDS ACK和软件所有权事件不是实体停稳或应用持久处理证明，见 [events](events.md)。
 
-## 兼容与未完成
+## 协议与现场验收
 
 ### 协议、决策与日志接口
 
@@ -81,8 +81,7 @@ monitor复用原节点订阅与发布；最终run_stopped晚于原监视器清�
 强引用并在退出前 join。禁止无归属的 fire-and-forget，不把“每个 asyncio task 都必须
 同一个工厂创建”的概括误写成当前实现事实。
 
-旧executor/Dock入口转到共享root，旧模块保留导出身份，参数/协议/日志golden保留。
-环境三资产迁入 [david_system_env](../david_system_env/README.md)，原source路径软链兼容。
-旧候选文件只有 [隔离提案](legacy_isolation.md)，没有批准移动或删除。
-运维CLI已补齐；自测协调器已实现且四组合无运动启动通过，实际POI/Dock闭环、
-完整schema工具校验、剩余规范和现场验收仍独立待办；模块存在不等于目标已完成。
+执行器与 Dock 只由共享 root 启动，不再保留旧包入口或环境资产软链。
+ROS/DDS 环境资产由 [david_system_env](../david_system_env/README.md) 唯一持有。
+运维 CLI 和自测协调器可做无运动检查；实际 POI/Dock 闭环与现场运动验收仍需
+在明确授权和安全条件满足时单独执行，模块存在不等于现场验收已完成。

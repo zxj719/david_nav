@@ -45,7 +45,7 @@ def _evidence_valid(value):
         空证据可合法但并不表示实际定位或话题就绪。
     """
     if not isinstance(value, dict) or set(value) != {
-            'transforms', 'publishers', 'subscribers', 'samples', 'types', 'cloud_frame'}:
+            'transforms', 'publishers', 'subscribers', 'samples', 'types'}:
         return False
 
     def strings(items):
@@ -56,7 +56,6 @@ def _evidence_valid(value):
             and strings(value['samples'])
             and isinstance(value['types'], dict)
             and all(isinstance(k, str) and strings(v) for k, v in value['types'].items())
-            and (value['cloud_frame'] is None or isinstance(value['cloud_frame'], str))
             and all(isinstance(value[key], dict) and all(
                 isinstance(topic, str) and type(count) is int and count >= 0
                 for topic, count in value[key].items()) for key in ('publishers', 'subscribers')))

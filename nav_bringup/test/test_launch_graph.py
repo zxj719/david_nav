@@ -35,15 +35,6 @@ def test_precise_keeps_local_dock_with_optional_in_process_websocket() -> None:
     assert len([node for node in graph.processes if node.name == 'bt_navigator']) == 1
 
 
-def test_bench_external_map_does_not_start_or_manage_localization() -> None:
-    """An externally owned map is absent from both processes and lifecycle management."""
-    graph = build_graph(GraphOptions('bench_slamgt', '/run/test', map_server=False))
-    assert 'map_server' not in graph.lifecycle_nodes
-    assert all(node.package not in ('lightning', 'uslam', 'david_slam_gt')
-               for node in graph.processes)
-    assert not any(node.wait_for_navigation for node in graph.processes)
-
-
 def test_chassis_and_teleop_modes_never_start_nav2() -> None:
     """Chassis includes its adapter; teleop additionally includes the keyboard."""
     chassis = build_graph(GraphOptions('chassis', '/run/test'))
@@ -82,13 +73,10 @@ def test_profile_topics_and_optional_processes_are_respected() -> None:
         'precise', '/run/other', driver_package='nav_sim', driver_executable='fake_chassis',
         nav_command_topic='/demo/nav', smooth_command_topic='/demo/smooth',
         chassis_command_topic='/demo/drive', chassis_odom_topic='/demo/encoders',
-        scan_bridge=True, cloud_topic='/demo/cloud', scan_topic='/demo/scan',
         rviz=True, rviz_delay_sec=12.0, robot_state=False))
     nodes = {node.name: node for node in graph.processes}
     assert nodes['wheeltec_robot'].package == 'nav_sim'
     assert ('cmd_vel', '/demo/drive') in nodes['wheeltec_robot'].remappings
-    assert nodes['pointcloud_to_laserscan'].remappings == (
-        ('cloud_in', '/demo/cloud'), ('scan', '/demo/scan'))
     assert 'robot_state_publisher' not in nodes
     assert nodes['rviz2'].delay_sec == 12.0
 
@@ -99,7 +87,6 @@ def test_profile_topics_and_optional_processes_are_respected() -> None:
     {'chassis_delay_sec': float('nan')}, {'rviz_delay_sec': -1.0},
     {'driver_package': ''}, {'chassis_command_topic': ''},
     {'mode': 'teleop', 'start_executor': True},
-    {'mode': 'chassis', 'scan_bridge': True},
     {'ready_timeout_sec': 0.0}, {'ready_timeout_sec': float('inf')},
     {'executor_arguments': 'not argv'}, {'ready_action': ''},
     {'supervisor_keyboard': True}, {'supervisor_keyboard': 'true'},

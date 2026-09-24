@@ -60,9 +60,9 @@ def test_teleop_limits_checked_without_navigation_inputs(tmp_path, limit):
                        schema.load_catalog(schema.find_source_schemas(SOURCE)))
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'])
+@pytest.mark.parametrize('mode', ['tour', 'precise', 'chassis', 'teleop'])
 def test_prepare_is_read_only_and_written_bundle_roundtrips(tmp_path: Path, mode: str) -> None:
-    """All five mode bundles satisfy the installed launch reader's contract."""
+    """All four mode bundles satisfy the installed launch reader's contract."""
     prepared = _prepare(tmp_path, mode)
     assert not (tmp_path / 'run').exists()
     assert prepared.robot == 'example_diffdrive'
@@ -78,7 +78,7 @@ def test_prepare_is_read_only_and_written_bundle_roundtrips(tmp_path: Path, mode
 
 def test_nav2_and_adapter_topics_are_bound_to_the_same_profile(tmp_path: Path) -> None:
     """No David topic/frame or hardware default leaks into another robot's bundle."""
-    prepared = _prepare(tmp_path, 'precise', scan_bridge=True)
+    prepared = _prepare(tmp_path, 'precise')
     artifacts = dict(prepared.artifacts)
     adapter = yaml.safe_load(artifacts['params/rendered/adapter.yaml'])
     params = adapter['chassis_adapter']['ros__parameters']
@@ -94,8 +94,6 @@ def test_nav2_and_adapter_topics_are_bound_to_the_same_profile(tmp_path: Path) -
     assert yaml.safe_load(dock_params['footprint']) == (
         render.load_yaml(tmp_path / 'robot.yaml')['footprint'])
     assert dock_params['settle_max_rate_rad_s'] == 0.05
-    scan = yaml.safe_load(artifacts['params/rendered/scan_bridge.yaml'])
-    assert scan['pointcloud_to_laserscan']['ros__parameters']['target_frame'] == 'demo_axle'
     map_params = yaml.safe_load(artifacts['params/rendered/map_server.yaml'])
     assert map_params['map_server']['ros__parameters']['topic_name'] == '/demo/map'
     for name, content in prepared.artifacts:
@@ -145,13 +143,6 @@ def test_non_navigation_does_not_require_map_or_urdf(tmp_path: Path, mode: str) 
                               schema.ParameterCatalog([]))
     assert not any(name.endswith(('map.yaml', 'nav2.yaml')) for name, _ in prepared.artifacts)
     assert prepared.site == 'none'
-
-
-def test_bench_does_not_start_a_second_map_server(tmp_path: Path) -> None:
-    """The bench provider owns the map publisher."""
-    prepared = _prepare(tmp_path, 'bench_slamgt')
-    assert not prepared.options.map_server
-    assert 'params/rendered/map_server.yaml' not in dict(prepared.artifacts)
 
 
 @pytest.mark.parametrize('mutation', ['mode', 'frame', 'limit', 'driver', 'map'])
@@ -229,11 +220,11 @@ def test_write_failure_never_publishes_a_launchable_bundle(tmp_path: Path, monke
     assert not (tmp_path / 'run/launch.json').exists()
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt'])
-def test_david_nav2_render_is_unchanged_except_run_local_bt_paths(
+@pytest.mark.parametrize('mode', ['tour', 'precise'])
+def test_david_nav2_render_matches_the_shared_renderer(
     tmp_path: Path, mode: str,
 ) -> None:
-    """New bundle preparation reuses the renderer already checked against Nav2 goldens."""
+    """Bundle preparation uses exactly the shared renderer output."""
     david = SOURCE / 'david_config'
     inputs = replace(_inputs(tmp_path, mode), profile=david / 'robot/david.yaml',
                      mode=david / 'modes' / (mode + '.yaml'), urdf=david / 'urdf/david.urdf')

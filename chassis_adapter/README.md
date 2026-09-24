@@ -1,13 +1,11 @@
 # chassis_adapter
 
-Python and opt-in C++ migration of `david_cmd.david_move` (Apache-2.0), keeping the command
-algorithm and valid-profile behavior unchanged. It owns neither a serial port
-nor localization, IMU, odometry or TF. The old executable remains available.
+Python and opt-in C++ command adapter for the navigation pipeline. It owns neither
+a serial port nor localization, IMU, odometry or TF.
 
 The installed executable/node name is `chassis_adapter`. Unified launch reads its
-ten legacy-named ROS parameters from the run-local `adapter.yaml`; profile keys
-and units are declared in `config/schema.yaml`. Defaults match the old standalone
-node, while David navigation/teleop overlays retain their different limit values.
+ten ROS parameters from the run-local `adapter.yaml`; profile keys and units are
+declared in `config/schema.yaml`. Navigation and teleop may select different values.
 Parameters are startup settings, as in the old node; restart after changing them.
 
 `ros2 launch chassis_adapter chassis.launch.py run_dir:=<prepared chassis run>`
@@ -20,8 +18,7 @@ driver-only graph is replaced, without touching production alias 5.
 The pipeline clamps then lifts deadzones. Raw input linear.x **or linear.y** makes
 the angular command use the moving floor, even though output lateral velocity is
 zero. A stationary yaw exactly at the threshold uses the stationary floor. All
-unused output axes are zero. Tests compare over 3,000 commands against the actual
-unchanged legacy methods, not a duplicated expected-value implementation.
+unused output axes are zero. Pure and C++ oracle tests cover boundaries and state transitions.
 
 Timeout uses ROS time and strict `age > timeout`, exactly as before. On entering
 stale, one zero is sent, then output stays silent to release the command topic.

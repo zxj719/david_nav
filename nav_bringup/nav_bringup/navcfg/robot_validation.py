@@ -106,12 +106,8 @@ def _prepare(request: UpRequest, inputs: BundleInputs,
     if not isinstance(profile, dict):
         raise ValueError('robot profile must be a mapping')
     mode = render.parse_mode(yaml.safe_load(inputs.mode.read_bytes()), inputs.mode)
-    effective = render.deep_merge(profile, mode.profile)
-    scan = (render.profile_value(effective, 'sensors.scan_from_cloud.enabled')
-            if request.mode in NAVIGATION_MODES else False)
     options = GraphOptions(
-        request.mode, str(request.run_dir), scan_bridge=scan,
-        start_executor=request.mode in ('tour', 'precise'),
+        request.mode, str(request.run_dir), start_executor=request.mode in ('tour', 'precise'),
         supervisor_keyboard=request.mode == 'teleop')
     bundle = prepare_bundle(options, inputs, catalog)
     if bundle.robot != request.robot or (

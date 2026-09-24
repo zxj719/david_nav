@@ -49,7 +49,7 @@ def _bind(plan, **kwargs):
                          which=lambda name: '/fixture/' + name, python='/fixture/python', **kwargs)
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt'])
+@pytest.mark.parametrize('mode', ['tour', 'precise'])
 def test_navigation_uses_installed_check_cli_and_independent_dump(tmp_path, mode, monkeypatch):
     """Binding cannot initialize ROS or execute any process, even for strict checks."""
     plan = _plan(tmp_path, mode=mode)

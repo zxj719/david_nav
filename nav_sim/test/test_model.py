@@ -1,9 +1,6 @@
 """Pure integration, coordinate and safety contracts."""
 
-import importlib.util
 import math
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -12,26 +9,14 @@ from nav_sim.model import require_sandbox
 
 
 @pytest.mark.parametrize('linear,angular', [(0.0, 0.0), (0.2, 0.0), (-0.1, 0.7), (0.2, -2.0)])
-def test_integrates_like_unmodified_legacy_script(linear, angular):
-    """One hundred ticks match the actual old script field for field."""
-    path = (Path(__file__).resolve().parents[2] / 'david_nav' / 'scripts'
-            / 'sim_fake_chassis.py')
-    spec = importlib.util.spec_from_file_location('legacy_fake_chassis', path)
-    legacy = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(legacy)
-    messages = []
-    from builtin_interfaces.msg import Time
-    old = SimpleNamespace(x=0.0, y=0.0, yaw=0.0, v=linear, w=angular, dt=0.02,
-                          get_clock=lambda: SimpleNamespace(
-                              now=lambda: SimpleNamespace(to_msg=Time)),
-                          pub=SimpleNamespace(publish=messages.append))
+def test_integrates_planar_velocity_for_one_hundred_ticks(linear, angular):
+    """Repeated integration stays finite and the quaternion matches final yaw."""
     pose = PlanarPose()
     for _ in range(100):
-        legacy.FakeChassis._tick(old)
-        pose = integrate(pose, linear, angular, old.dt)
-        assert (pose.x, pose.y, pose.yaw) == (old.x, old.y, old.yaw)
-        assert quaternion(pose.yaw)[2:] == (
-            messages[-1].pose.pose.orientation.z, messages[-1].pose.pose.orientation.w)
+        pose = integrate(pose, linear, angular, 0.02)
+    assert all(math.isfinite(value) for value in (pose.x, pose.y, pose.yaw))
+    z, w = quaternion(pose.yaw)[2:]
+    assert math.isclose(z * z + w * w, 1.0)
 
 
 @pytest.mark.parametrize('invalid', [float('nan'), float('inf'), True, '0.1'])

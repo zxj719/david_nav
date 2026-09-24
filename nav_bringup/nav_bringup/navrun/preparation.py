@@ -217,8 +217,7 @@ def _profile_options(options: GraphOptions, profile: Mapping[str, Any]) -> Graph
         profile: 已叠加模式的有效档案；时间配置单位为秒。
 
     Returns:
-        填好驱动、话题、适配器实现和预算的 GraphOptions；
-        bench_slamgt 保留不自建 map_server 的策略。
+        填好驱动、话题、适配器实现和预算的 GraphOptions。
 
     Raises:
         ValueError: 驱动配置、标识、图选项或 teleop 输入话题一致性不合法。
@@ -240,13 +239,9 @@ def _profile_options(options: GraphOptions, profile: Mapping[str, Any]) -> Graph
             'adapter', {}).get('implementation', 'python'),
         velocity_smoother=profile.get('nav2', {}).get(
             'velocity_smoother', {}).get('enabled', True),
-        map_server=options.map_server and options.mode != 'bench_slamgt')
+        map_server=options.map_server)
     resolved = replace(resolved, smooth_command_topic=_identity(
         profile, 'chassis.adapter.input_topic'))
-    if options.scan_bridge:
-        resolved = replace(
-            resolved, cloud_topic=_identity(profile, 'sensors.scan_from_cloud.cloud_topic'),
-            scan_topic=_identity(profile, 'sensors.scan_from_cloud.scan_topic'))
     if options.mode == 'teleop' and resolved.smooth_command_topic.lstrip('/') != (
             _identity(profile, 'teleop.cmd_topic').lstrip('/')):
         raise ValueError('teleop.cmd_topic must match the teleop adapter input_topic')

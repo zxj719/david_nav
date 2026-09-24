@@ -47,7 +47,7 @@ def test_david_navigation_does_not_publish_an_additional_chassis_imu() -> None:
     assert parameters['log_tx_frames'] is False
 
 
-def test_new_entrypoint_retains_one_cycle_legacy_alias_and_detection() -> None:
+def test_both_supported_entrypoint_names_share_detection() -> None:
     """Both executable spellings share one implementation and remain detectable."""
     cmake = (PACKAGE / 'CMakeLists.txt').read_text()
     profile = yaml.safe_load((SOURCE / 'david_config/robot/david.yaml').read_text())

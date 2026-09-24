@@ -198,11 +198,10 @@ def plan_up(
     preflight = plan_preflight(effective, processes, own_pid, chassis=request.chassis)
     navigation = request.mode in NAVIGATION_MODES
     executor = request.mode in ('tour', 'precise') and not request.no_executor
-    scan = effective.get('sensors', {}).get('scan_from_cloud', {}).get('enabled', False)
     options = GraphOptions(
         request.mode, str(request.run_dir), start_chassis=preflight.start_chassis,
-        start_executor=executor, scan_bridge=scan if navigation else False,
-        supervisor_keyboard=request.mode == 'teleop', composition=request.composition)
+        start_executor=executor, supervisor_keyboard=request.mode == 'teleop',
+        composition=request.composition)
     bundle = prepare_bundle(options, inputs, catalog, request.teleop_options)
     artifacts = dict(bundle.artifacts)
     if (artifacts['params/inputs/robot.yaml'] != initial_profile

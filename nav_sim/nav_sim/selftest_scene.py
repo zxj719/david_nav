@@ -140,7 +140,7 @@ def _profile(original, mode, prefix, root):
         root: 私有输出目录，POI 可写缓存定位于其下。
 
     Returns:
-        使用假底盘/假定位、禁用点云转扫描及平台提频/杀进程操作的新档案。
+        使用假底盘/假定位并禁用平台提频/杀进程操作的新档案。
 
     Raises:
         ValueError: footprint 坐标不是有限数值或超出实验房间几何范围。
@@ -161,12 +161,9 @@ def _profile(original, mode, prefix, root):
         'detect_patterns': [], 'startup_delay_sec': 0.0, 'max_restarts': 0}
     profile['localization'] = {'provider': 'fake', 'odom_topic': prefix + 'odom',
                                'aligned_cloud_topic': prefix + 'cloud'}
-    profile['nav2'].update(odom_topic=prefix + 'odom', map_topic=prefix + 'map',
-                           scan_topic=prefix + 'scan')
+    profile['nav2'].update(odom_topic=prefix + 'odom', map_topic=prefix + 'map')
     profile['executor'].update(grid_map_topic=prefix + 'map',
                                poi_store_file=str(root / 'poi_store.yaml'))
-    profile['sensors']['scan_from_cloud'].update(
-        enabled=False, cloud_topic=prefix + 'cloud', scan_topic=prefix + 'scan')
     profile['platform'] = {'jetson': False, 'maxn': False, 'jetson_clocks': False}
     profile['preflight'] = {'kill_patterns': [], 'kill_foreign_stacks': False,
                             }

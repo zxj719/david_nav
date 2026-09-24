@@ -19,7 +19,7 @@ inline std::string resolveRobotBaseFrame(
 {
   const auto & effective = layer_override ? *layer_override : costmap_frame;
   if (effective.empty()) {
-    throw std::invalid_argument("ScanPriorityLayer robot_base_frame must not be empty");
+    throw std::invalid_argument("robot_base_frame must not be empty");
   }
   return effective;
 }

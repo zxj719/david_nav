@@ -3,7 +3,7 @@ project(david_system_env)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY config docs DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 install(FILES README.md DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)

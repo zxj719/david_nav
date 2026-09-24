@@ -28,12 +28,6 @@ def copied(tmp_path):
     """Copy configuration assets only; mutations never reach repository fixtures."""
     root = tmp_path / 'src'
     shutil.copytree(SOURCE / 'example_diffdrive_config', root / 'example_diffdrive_config')
-    # The shipped example has four modes. Exercise the fifth generic branch
-    # using a private overlay, without adding a robot-specific fixture to it.
-    modes = root / 'example_diffdrive_config/modes'
-    bench = yaml.safe_load((modes / 'tour.yaml').read_text())
-    bench['mode'] = 'bench_slamgt'
-    (modes / 'bench_slamgt.yaml').write_text(yaml.safe_dump(bench))
     for path in SOURCE.glob('*/config/schema.yaml'):
         package = path.parent.parent.name
         (root / package / 'config').mkdir(parents=True, exist_ok=True)
@@ -46,8 +40,8 @@ def copied(tmp_path):
     return root
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'])
-def test_source_selector_validates_five_modes_without_writes(copied, mode, capsys):
+@pytest.mark.parametrize('mode', ['tour', 'precise', 'chassis', 'teleop'])
+def test_source_selector_validates_four_modes_without_writes(copied, mode, capsys):
     """The selector renders configuration but never creates a run or modifies its input."""
     robot = copied / 'example_diffdrive_config'
     before = {p: p.read_bytes() for p in robot.rglob('*') if p.is_file()}

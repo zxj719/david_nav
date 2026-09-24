@@ -2,7 +2,7 @@
 <package format="3">
   <name>nav_plugins</name>
   <version>0.1.0</version>
-  <description>Robot-independent costmap and recovery behavior tree plugins.</description>
+  <description>Robot-independent recovery behavior tree plugins.</description>
   <maintainer email="luoyifan902008@126.com">FLYivan</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -11,14 +11,10 @@
   <depend>nav2_behavior_tree</depend>
   <depend>nav2_costmap_2d</depend>
   <depend>nav2_msgs</depend>
-  <depend>pluginlib</depend>
   <depend>rclcpp</depend>
-  <depend>rclcpp_lifecycle</depend>
-  <depend>sensor_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>tf2_ros</depend>
-  <depend>visualization_msgs</depend>
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_cmake_cpplint</test_depend>
   <test_depend>ament_cmake_uncrustify</test_depend>

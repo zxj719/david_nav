@@ -9,7 +9,6 @@ frames:
   nav_base: demo_axle
   poi_capture: demo_body
   slam_base: demo_sensor
-  scan_target: demo_axle
 footprint: [[0.25, 0.2], [0.25, -0.2], [-0.25, -0.2], [-0.25, 0.2]]
 limits: {max_vel_x: 0.1, max_vel_theta: 0.4, max_reverse_vel: 0.1}
 goal: {xy_tolerance: 0.2, yaw_tolerance: 6.2832}
@@ -62,26 +61,10 @@ localization_health:
   action: warn
 nav2:
   odom_topic: /demo/localized_odom
-  scan_topic: /demo/scan
   map_topic: /demo/map
 executor:
   grid_map_topic: /demo/map
   poi_store_file: ~/.ros/example_diffdrive/poi_store.yaml
-sensors:
-  scan_from_cloud:
-    enabled: false
-    cloud_topic: /demo/cloud
-    scan_topic: /demo/scan
-    transform_tolerance: 0.1
-    min_height: 0.05
-    max_height: 0.8
-    angle_min: -1.57
-    angle_max: 1.57
-    angle_increment: 0.01
-    scan_time: 0.1
-    range_min: 0.2
-    range_max: 8.0
-    use_inf: true
 reactive:
   escape: {longitudinal_speed: 0.1, lateral_speed: 0.0}
   embedded_backup: {distance: 0.2, speed: 0.1}

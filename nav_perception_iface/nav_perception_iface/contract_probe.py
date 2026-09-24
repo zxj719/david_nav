@@ -1,4 +1,4 @@
-"""临时采样定位、底盘和可选点云接口的只读探针.
+"""临时采样定位与底盘接口的只读探针.
 
 持有自己的 ROS 上下文、节点和订阅，不持有接口提供方，也不创建运动发布者。
 """
@@ -17,7 +17,6 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
-from sensor_msgs.msg import PointCloud2
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from nav_perception_iface.configuration import string_value
@@ -32,21 +31,19 @@ class ContractProbe:
         data_topics: 必需数据话题及类型，不包括只查询订阅者的底盘命令输入。
         buffer: 本对象使用的 TF 缓冲区；进入上下文前为 None。
         chassis_required: 是否检查底盘数据和命令订阅者。
-        cloud: 可选点云输入话题；关闭点云检查时为 None。
         command: 只检查订阅者的底盘命令话题；不创建该话题的发布者。
         context: 本对象持有的私有 ROS 上下文；未创建时为 None。
         executor: 只驱动本对象节点的执行器；未创建时为 None。
         frames: 本次检查使用的 map、odom、body 和 nav_base 坐标系绑定。
         listener: 本对象持有的 TF 监听器；未创建时为 None。
         node: 本对象持有的只读观察节点；未创建时为 None。
-        scan_target: 点云投影目标坐标系；未启用点云检查时为 None。
     """
 
     def __init__(self, profile: Mapping[str, Any], chassis_required: bool = True) -> None:
         """校验契约输入和话题绑定，不初始化 ROS 或打开硬件.
 
         复制档案并以空快照检查所需配置；只完成本接口所需校验，不是全档案校验。
-        命令、点云和里程计话题的冲突按去除前导斜杠后的名称比较。
+        命令和里程计话题的冲突按去除前导斜杠后的名称比较。
 
         Args:
             profile: 已按模式合并的机器人配置。
@@ -69,14 +66,6 @@ class ContractProbe:
         self.command = string_value(profile, 'chassis.cmd_topic') if chassis_required else None
         if chassis_required:
             self.data_topics[string_value(profile, 'chassis.odom_topic')] = 'nav_msgs/msg/Odometry'
-        scan = profile['sensors']['scan_from_cloud']
-        self.cloud = string_value(profile, 'sensors.scan_from_cloud.cloud_topic') if (
-            scan.get('enabled', False)) else None
-        self.scan_target = string_value(profile, 'frames.scan_target') if self.cloud else None
-        if self.cloud:
-            if self.cloud.lstrip('/') in {topic.lstrip('/') for topic in self.data_topics}:
-                raise ValueError('cloud and odometry topics must be distinct')
-            self.data_topics[self.cloud] = 'sensor_msgs/msg/PointCloud2'
         if self.command and self.command.lstrip('/') in {
                 topic.lstrip('/') for topic in self.data_topics}:
             raise ValueError('command and observed data topics must be distinct')
@@ -85,10 +74,9 @@ class ContractProbe:
             raise ValueError('contract topics require explicit non-private names')
         self.context = self.node = self.executor = self.listener = self.buffer = None
         self._samples = set()
-        self._cloud_frame = self._cloud_stamp = None
 
     def __enter__(self) -> 'ContractProbe':
-        """创建私有上下文和 TF 监听器，尚不创建里程计或点云数据订阅.
+        """创建私有上下文和 TF 监听器，尚不创建里程计数据订阅.
 
         Returns:
             已初始化的观察器；数据订阅要等 sample 显式确认定位后才创建。
@@ -191,27 +179,18 @@ class ContractProbe:
         return self._has_transform(self.frames['map'], self.frames['odom'])
 
     def _receive(self, topic, message):
-        """标记采样窗口内已收到的话题，并保留最新点云的帧与时间.
-
-        点云时间无效时显式清空时间证据，避免沿用旧样本的可转换时间；
-        不复制点云负载，也不控制数据发布方。
+        """标记采样窗口内已收到的话题.
 
         Args:
             topic: 本次订阅所绑定的话题名。
-            message: 消息对象；仅点云话题读取 header 字段。
+            message: 消息对象；探针不保留负载。
         """
         self._samples.add(topic)
-        if topic == self.cloud:
-            self._cloud_frame = message.header.frame_id
-            try:
-                self._cloud_stamp = Time.from_msg(message.header.stamp)
-            except ValueError:
-                self._cloud_stamp = None
 
     def _snapshot(self):
-        """汇总本采样窗口的消息、端点与 TF 证据，不记录点云负载或控制定位.
+        """汇总本采样窗口的消息、端点与 TF 证据，不控制定位.
 
-        常规帧链查询当前可用 TF；点云转换必须使用最后收到样本的时间戳。
+        帧链查询当前可用 TF。
         速度端点仅统计 Twist 订阅者，不创建发布者或发送命令。
 
         Returns:
@@ -223,9 +202,6 @@ class ContractProbe:
         pairs = [(self.frames[target], self.frames[source]) for target, source in (
             ('map', 'odom'), ('odom', 'body'), ('body', 'nav_base'))]
         transforms = {pair for pair in pairs if self._has_transform(*pair)}
-        if self._cloud_frame and self._cloud_stamp is not None and self._has_transform(
-                self.scan_target, self._cloud_frame, self._cloud_stamp):
-            transforms.add((self.scan_target, self._cloud_frame))
         return InterfaceSnapshot(
             frozenset(transforms),
             {topic: self.node.count_publishers(topic) for topic in self.data_topics},
@@ -235,13 +211,13 @@ class ContractProbe:
             frozenset(self._samples),
             {topic: frozenset(info.topic_type for info in
                               self.node.get_publishers_info_by_topic(topic))
-             for topic in self.data_topics}, self._cloud_frame)
+             for topic in self.data_topics})
 
     def sample(self, duration_sec: float, stopped: Callable[[], bool]) -> InterfaceSnapshot:
         """在定位已可查询后创建临时订阅，采样并尝试释放本次订阅.
 
         使用 volatile、best-effort、depth-one QoS，兼容可靠和尽力投递发布者，
-        不请求保留的历史样本；只记录本次收到的话题与最新点云头，不保存负载。
+        不请求保留的历史样本；只记录本次收到的话题，不保存消息负载。
         这不证明消息源时间新鲜，也不排除发布方重放旧数据。
 
         Args:
@@ -250,7 +226,6 @@ class ContractProbe:
 
         Returns:
             本次收到的数据、端点和 TF 证据；提前停止可返回不完整快照，由调用方判断。
-            点云 TF 使用最后收到点云的源时间戳，不用无关的最新 TF 代替。
 
         Raises:
             ValueError: 窗口无效或开始采样时定位尚未可查询。
@@ -263,7 +238,6 @@ class ContractProbe:
         if not self.localized():
             raise ValueError('localization must be ready before data sampling')
         self._samples.clear()
-        self._cloud_frame = self._cloud_stamp = None
         subscriptions = []
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
                          durability=DurabilityPolicy.VOLATILE)
@@ -271,10 +245,8 @@ class ContractProbe:
             for topic, message_type in self.data_topics.items():
                 if stopped():
                     break
-                message_class = PointCloud2 if message_type == 'sensor_msgs/msg/PointCloud2' else (
-                    Odometry)
                 subscriptions.append(self.node.create_subscription(
-                    message_class, topic,
+                    Odometry, topic,
                     lambda message, key=topic: self._receive(key, message), qos))
             deadline = time.monotonic() + duration_sec
             while not stopped() and time.monotonic() < deadline:

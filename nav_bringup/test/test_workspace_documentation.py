@@ -12,7 +12,7 @@ from nav_bringup.navrun.cli import build_parser as run_parser
 
 SOURCE = Path(__file__).resolve().parents[2]
 GUIDES = (
-    'README.md', 'CLAUDE.md', 'david_nav/README.md', 'david_nav/CLAUDE.md',
+    'README.md', 'CLAUDE.md',
     'docs/architecture.md', 'docs/porting.md', 'docs/behavior_policy.md',
     'docs/events.md', 'docs/runbook.md',
 )
@@ -63,7 +63,7 @@ def test_documented_navrun_navcfg_commands_parse_without_starting_them(name, cap
 
 def test_onboarding_does_not_recommend_old_global_kills_pushes_or_domain_one():
     """Historical instructions must not masquerade as current autonomous permissions."""
-    for name in ('CLAUDE.md', 'david_nav/CLAUDE.md'):
+    for name in ('CLAUDE.md',):
         contents = (SOURCE / name).read_text()
         for stale in ('统一 1', 'pre-flight 杀所有 RSP', '默认 push', 'commit + push',
                       'ros2 run lightning run_loc_online'):

@@ -1,44 +1,18 @@
 # david_config
 
-Configuration data of the David robot. This package holds no code: robot
-specific values live here so that navigation packages stay robot independent
-(refactor plan §5.3, §12). Porting to another robot means copying this package
-to `<robot>_config` and changing values, not code.
+David 机器人的配置真源，不含运行代码。通用导航包不得写死 David 的帧、话题、
+几何或硬件路径。
 
-## Status
+- `robot/david.yaml`：帧、footprint、速度、底盘、遥控、定位、Nav2、平台和记录。
+- `modes/{tour,precise,chassis,teleop}.yaml`：只保存模式差异。
+- `modes/overlays/oa.yaml`：把 Lightning 对齐点云直接接到标准 ObstacleLayer。
+- `sites/daolan/`：地图、点位和上位机地址。
+- `urdf/` 与 `meshes/`：自包含的机器人描述和当前底盘网格。
 
-| Component | State | Plan reference |
-|---|---|---|
-| `robot/david.yaml`: baseline-derived robot profile (frames, footprint, limits, tolerances, chassis, teleop, localization, Nav2, sensors, platform, preflight, recording), with explicit refactor deltas | available (PROGRESS P2.2a, P2.3) | plan §12.2 |
-| `sites/daolan/site.yaml` + `maps/daolan_map_nav.yaml`: navigation map (trinary; image stays in the lightning map directory), point files, agent server | available (P2.2b) | plan §14 |
-| `modes/{tour,precise,bench_slamgt,chassis,teleop}.yaml`: mode overlays holding only the differences (profile values and Nav2 parameter overrides) | available (P2.2c) | plan §12.2 |
-| `urdf/david.urdf`: robot description | available (P2.2c) | plan §12.6 |
+`base_link`、`base_footprint` 和 POI 采点帧分别由 `frames.body`、
+`frames.nav_base`、`frames.poi_capture` 配置，不能合并。
 
-The site map yaml and the URDF are byte-identical copies of
-`david_nav/config/maps/daolan_map_nav.yaml` and `david_nav/urdf/david.urdf`
-and remain protected by equality tests. The refactor launch now reads this
-package; the URDF still loads its meshes from `david_nav`. Production deployment
-remains independent of the refactor workspace.
-
-## Frames
-
-`dock/standalone.yaml` stores the sixteen standalone Dock defaults
-used by the retained `david_nav/dock_navigator` shim. It is not the precise-mode
-overlay: standalone keeps yaw 0.087 and two retries, while precise launch passes
-0.4363 and zero retries. R8 changes only the historical `/goal_pose` default to
-`/dock_goal`, separating Dock from Nav2 RViz goals. Precise launch already uses
-`/dock_goal`; explicit ROS topic overrides remain possible. Both retain the
-user-requested 0.05 rad/s stop threshold and static-map footprint checking.
-Reusable runtime code contains no copy of these robot values.
-
-`base_link` and `base_footprint` are different frames and are never merged:
-Nav2, docking and costmaps use `frames.nav_base` (`base_footprint`); the body
-frame published by localization is `frames.body` (`base_link`).
-
-## Rendering Nav2 parameters
-
-`navcfg render` (package `nav_bringup`) combines the Nav2 base parameter tree
-and binding table installed by `nav_bringup` with this profile and one mode:
+渲染参数：
 
 ```bash
 share=$(ros2 pkg prefix david_config)/share/david_config
@@ -46,88 +20,17 @@ navcfg render --profile $share/robot/david.yaml --mode $share/modes/precise.yaml
   --output /tmp/nav2_precise.yaml
 ```
 
-Values that several Nav2 parameters share (frames, footprint, speed limits,
-goal tolerances, odom, scan and map topics) are written once in the profile. A
-mode changes them under `profile:` and changes other Nav2 parameters under
-`nav2_overrides:` (for example the controller critics of `precise`). The refactor
-launch consumes prepared run-local files. Production launch files still load
-`david_nav/config`; switching production aliases remains an operator step.
+20/24 默认 local/global costmap 均为 `static_layer → inflation_layer`。
+21 只在 local costmap 叠加
+`static_layer → obstacle_layer(PointCloud2) → inflation_layer`；不存在 LaserScan
+转换或自定义扫描层。
 
-## Startup and recording data
-
-### Optional L2/L3 experiments (P5.2)
-
-The five default mode files are unchanged. Complete alternative mode overlays
-are installed under `modes/experiments/{tour,precise}_{l2,l3,l2_l3}.yaml`.
-They still declare `mode: tour` or `mode: precise`; precise retains its goal
-tolerances and RotateToGoal critic. Select one explicitly, initially read-only:
-
-```bash
-navrun up --mode precise --robot david --site daolan --no-executor --dry-run \
-  --mode-file /absolute/share/david_config/modes/experiments/precise_l2_l3.yaml
-```
-
-`--mode-file` replaces the default mode overlay, not the robot profile. Its
-identity must match `--mode`; its exact bytes and source hash enter the run.
-`navcfg render/validate --mode` also accepts these files. Do not enable an
-experiment in production before the P5.U1 motion/stop/resource A/B review.
-
-| Option | Explicit delta |
-|---|---|
-| L2 | Omit velocity_smoother process and lifecycle entry; route Nav2 directly to the unchanged adapter input; behavior max_rotational_vel 0.8 → 0.5; adapter timeout 2.0 → 1.0 s; angular hard limit remains 0.60, stationary floor remains 0.55 |
-| L3 | Adapter publish_hz 50 → 20; no other command-processing change |
-| L2+L3 | Both sets of changes |
-
-The old smoother parameter section is retained as inactive provenance. Defaults,
-odom wiring, dock/U2 behavior and localization are unchanged. In-memory tests
-compare steady differential commands (y=0, within declared upstream limits) and
-Spin after the new cap, plus exact parameter deltas, timer periods and one-shot
-stale zeros. They do **not** prove identical inter-message timing or behavior for
-out-of-contract mixed/lateral commands: removing a resampling/clamping hop and
-reducing timer rate can change both. Bag comparison of Spin/BackUp/navigation,
-physical braking/startup, and CPU savings remain P5.U1; no nonzero command is
-published by the automated tests.
-
-The refactor startup planner now binds the WS server and POI paths from site.yaml.
-`pois.dock_poi_ids: [POI_017]` applies only to precise mode; it does not change tour
-routing. Both modes retain a 120-second Nav2 readiness deadline and a 3-second WS
-reconnect interval. Retained executor paths now forward to the shared manager;
-this binding does not introduce a second legacy task owner.
-
-The robot profile now holds the exact old light/full bag topic lists, full regex,
-100 MiB cache and full-only hidden/unpublished/zstd options. Large global maps stay
-out of light recording. The golden test reads these list definitions without ever
-executing the old shell script. These changes prepare the refactor workflow; they
-do not deploy new aliases or start recordings in the production environment.
-
-## How the values are guarded
-
-`modes/experiments/{tour,precise}_cpp.yaml` selects the C++ adapter explicitly
-through the same `--mode-file` interface. Numerical settings and the original
-smoother remain unchanged; default modes still use Python. The component and
-equivalence/zero-only validation are documented in `chassis_adapter/README.md`.
-
-`test/test_robot_profile.py` compares the profile with the effective parameters
-dumped from the pre-refactor bringup (`david_nav/test/golden/params`, PROGRESS
-P0.7), the `david_move` and keyboard defaults, the point-cloud-to-scan settings
-of the bringup launch and the wheeltec driver launch defaults. It also checks
-the profile against every package schema found in the workspace (`navcfg`).
-
-`test/test_modes.py` renders tour, precise and bench_slamgt and compares the
-result key by key with `david_nav/config/nav2_params_2d.yaml`,
-`nav2_params_2d_precise.yaml` and `nav2_params_2d_bench_slamgt.yaml`
-(footprints compared as polygons), and checks that teleop gives the chassis
-adapter the `david_move` values of `david_cmd/config/cmd.yaml`. A launch file
-can still rewrite parameters after loading a file (the bringup rewrites the
-static layer map topic, for example); comparing rendered parameters with the
-dumped effective ones is PROGRESS P2.4.
-
-## Testing
+验证：
 
 ```bash
 source /opt/ros/humble/setup.bash
 cd ~/ros2_ws_refactor
-colcon build --symlink-install --metas src/colcon.meta --packages-up-to david_config
-ROS_DOMAIN_ID=99 colcon test --packages-select david_config --event-handlers console_direct+
+colcon build --symlink-install --packages-up-to david_config
+ROS_DOMAIN_ID=99 colcon test --packages-select david_config
 colcon test-result --verbose
 ```

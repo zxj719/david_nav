@@ -140,14 +140,12 @@ def test_check_profile():
     catalog = schema.ParameterCatalog([schema.parse_schema(_schema({
         'limits.max_vel_x': _spec(range=[0.0, 1.0]),
         'robot.name': _spec(type='string', required=True),
-        'sensors.scan_from_cloud': _spec(type='map', default={}),
         'site.server_url': _spec(type='string', default=None),
     }), 'demo.yaml')])
 
     issues = catalog.check_profile({
         'schema_version': 1,
         'limits': {'max_vel_x': 1.5, 'max_vel_y': 0.0},
-        'sensors': {'scan_from_cloud': {'enabled': False}},
         'site': {'server_url': None},
         'teleop': {'layout': 'wasd'},
     })

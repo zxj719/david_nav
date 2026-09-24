@@ -7,15 +7,15 @@ ROS 2 Humble 导航重构工作树，分支 `refactor/nav-system`，目录 `~/ro
 新来的 agent：先读 [CLAUDE.md](CLAUDE.md)（硬边界与操作规矩），再读本文（项目地图），
 需要细节时按下表跳转。状态真源是交接包里的 `refactor_loop/PROGRESS.md`，不是本文。
 
-## 当前状态（2026-09-20）
+## 当前状态（2026-09-24）
 
 | 项 | 值 |
 |---|---|
-| 任务 | 59 项自动任务全部完成；余 7 项 `WAITING_USER`（需现场配合或需决策） |
-| 测试 | `colcon test` **4129 / 0 / 0 / 0**（0 跳过），构建约 15 秒、测试约 2 分 45 秒 |
+| 管线 | `20`（precise）、`24`（tour）、`21`（tour + OA）共用唯一 navrun/navcfg/Nav2 管线 |
+| 测试 | 以当前提交的全量 `colcon build/test` 结果为准，历史固定计数不再作为契约 |
 | 实机 | 09-18 精准入位与取消通过；09-20 完成一次**不让机器人移动**的整机验收 |
 | 部署 | 重构版精准入口已在 `.bashrc` 挂成快捷键 `20`；生产 `0` 未被替换 |
-| 待现场 | 资源基线、旧入口改 wrap、终端读键、轻量化 A/B、驱动冒烟、odom 接线、legacy 合并 |
+| 待现场 | 资源基线、终端读键、轻量化 A/B、驱动冒烟、odom 接线 |
 
 ## 三十秒看懂数据流
 
@@ -57,17 +57,16 @@ ROS 2 Humble 导航重构工作树，分支 `refactor/nav-system`，目录 `~/ro
 | `nav_bringup` | `navrun` / `navcfg`：配置渲染与校验、启动图、运行记录、体检、离线闭环自测的宿主 |
 | `nav_tasks` | 纯领域与技能、唯一任务管理器、共享 Nav2 客户端、入位、站点数据 |
 | `nav_executor` | WS 协议与传输、ROS 入站、同进程组装根；旧入口是转发到这里的薄壳 |
-| `nav_perception_iface` | 定位契约、可选点云转激光、5 Hz 健康观察（默认只告警） |
-| `nav_plugins` | 代价图/行为树插件与模板 |
+| `nav_perception_iface` | 定位/底盘接口契约与 5 Hz 健康观察（默认只告警） |
+| `nav_plugins` | 行为树恢复插件与模板 |
 | `nav_sim` | 假底盘/假定位/假上位机与**离线闭环自测**（已跑通，两种模式各一次） |
 | `wheeltec_driver` / `chassis_adapter` / `chassis_teleop` | 驱动、速度适配、键盘遥控 |
 | `david_config` / `example_diffdrive_config` | 机器人/模式/场地数据；后者用于验证"换机器人只改配置" |
 | `david_system_env` | 显式加载的共享 ROS/DDS 环境数据，没有自动 hook |
 | `david_nav_msgs` | 事件等消息契约 |
-| `david_nav` / `david_cmd` | 兼容入口与旧工具，**不能整包删**，隔离提案见 `docs/legacy_isolation.md` |
-| `david_slam_gt` / `nav2_rotation_shim_controller` / `third_party/serial` | 保留的依赖与补丁，本次不改行为 |
+| `nav2_rotation_shim_controller` / `third_party/serial` | 当前控制链需要的补丁与驱动依赖 |
 
-18 个参与构建；`third_party/wheeltec_original` 是忽略构建的原始快照。
+`third_party/wheeltec_original` 是忽略构建的原始快照。
 
 ## 常用命令
 
@@ -130,4 +129,3 @@ cd ~/ros2_ws_refactor/src/nav_bringup && python3 -m pytest test -q
 | [docs/events.md](docs/events.md) | 事件契约与交付限制 |
 | [docs/protocol/](docs/protocol/) | 上位机 WS 协议、AsyncAPI、ADR |
 | [docs/alias_mapping.md](docs/alias_mapping.md) | 现场快捷键与重构版入口的对应 |
-| [docs/legacy_isolation.md](docs/legacy_isolation.md) | 旧代码隔离提案（待逐项确认） |

@@ -67,10 +67,6 @@ parameters:
     type: string
     required: true
     description: Nav2 BT 与控制器订阅的里程计话题
-  nav2.scan_topic:
-    type: string
-    required: true
-    description: 代价图障碍物层订阅的激光话题
   nav2.map_topic:
     type: string
     required: true

@@ -69,14 +69,12 @@ def test_the_run_freezes_the_overlay_it_actually_used(tmp_path):
     assert OVERLAY_ARTIFACT not in dict(_plan(tmp_path, False).bundle.artifacts)
 
 
-def test_the_flag_uses_the_direct_cloud_without_a_scan_bridge(tmp_path):
-    """The standard obstacle layer consumes PointCloud2 without a conversion process."""
+def test_the_flag_uses_the_direct_cloud_in_the_only_obstacle_pipeline(tmp_path):
+    """The standard obstacle layer consumes PointCloud2 without another process."""
     plan = _plan(tmp_path, True)
     rendered = yaml.safe_load(dict(plan.bundle.artifacts)['params/rendered/nav2.yaml'])
 
-    assert not plan.bundle.options.scan_bridge
     assert 'obstacle_layer' in render.get_path(rendered, PLUGINS)
-    assert not any(process.name == 'pointcloud_to_laserscan' for process in plan.graph.processes)
 
 
 def test_a_run_without_the_flag_renders_what_it_renders_today(tmp_path):
@@ -84,7 +82,6 @@ def test_a_run_without_the_flag_renders_what_it_renders_today(tmp_path):
     plan = _plan(tmp_path, False)
     rendered = yaml.safe_load(dict(plan.bundle.artifacts)['params/rendered/nav2.yaml'])
 
-    assert not plan.bundle.options.scan_bridge
     assert 'obstacle_layer' not in render.get_path(rendered, PLUGINS)
 
 

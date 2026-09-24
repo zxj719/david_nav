@@ -38,7 +38,7 @@ ps -eo pid,etimes,cmd | grep -E "[l]ightning|[l]slidar|[w]it_imu|[m]ove_group"  
 表现是 TF 树空、话题 0 发布者、节点列表缺一半——全是假象。任何 `ros2` 命令前：
 
 ```bash
-set -o allexport; source ~/ros2_ws/src/david_nav/config/ros_env.conf; set +o allexport
+set -o allexport; source ~/ros2_ws_refactor/install/david_system_env/share/david_system_env/config/ros_env.conf; set +o allexport
 source /opt/ros/humble/setup.bash && source ~/ros2_ws_refactor/install/setup.bash
 ros2 daemon stop        # 关键；必要时用 --no-daemon 做对照
 ```
@@ -71,9 +71,8 @@ Nav2 侧保留的键是 `/lightning/odometry`，目前**无发布者**，是已�
 
 **⑧ 帧。** `frames.nav_base` 是 `base_footprint`，`frames.body` 是 `base_link`，
 两者差 0.165 m（URDF 固定关节），POI 采集用 `frames.poi_capture`。三者永不合并。
-改帧时注意**有两份同名的代价图插件**：重构版 `nav_plugins/src/scan_priority_layer.cpp`
-已改为从参数读 `robot_base_frame`（改配置即可）；生产 `~/ros2_ws/src/david_nav/src/` 下
-还有一份独立实现，里面仍有写死的 `base_footprint`（可视化 marker），改生产侧要单独确认。
+OA 只使用标准 `nav2_costmap_2d::ObstacleLayer`，输入为
+`/lightning/loc/aligned_scan`；不要重新引入扫描桥或自定义代价图层。
 
 **⑨ 同一个终端里混过两个工作区，启动会以奇怪的方式失败。** 2026-09-20 实测：终端若**先 source 过重构、之后又 source 过生产**（例如先跑 `20`、后来又跑过 `0`/`4`），生产的 `david_nav_msgs` 会排在 `PYTHONPATH` 前面，而**生产那份没有 `msg` 子包**；再敲 `20` 也救不回来——ROS 的 setup 脚本发现该前缀已在路径里就不再前置。
 后果：执行器起来后打完配置就死于 `ModuleNotFoundError: No module named david_nav_msgs.msg`，整次启动判为 `executor_launch_exited`、退出码 1。
@@ -100,7 +99,7 @@ navrun up --mode precise --chassis off --dry-run
 
 # 1) 确认没有任何东西能驱动轮子（应该连话题都不存在）
 ros2 topic info /cmd_vel; ros2 topic info /cmd_control_command
-ps -eo pid,cmd | grep -E "[w]heeltec|lib/david_cmd/[d]avid_move|[c]hassis_adapter"
+ps -eo pid,cmd | grep -E "[w]heeltec|[c]hassis_adapter"
 
 # 2) 起栈时不启动驱动（实际调用带 ros2 run nav_bringup 前缀）
 navrun up --mode precise --chassis off --record off

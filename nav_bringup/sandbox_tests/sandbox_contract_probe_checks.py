@@ -16,10 +16,9 @@ from nav_bringup.navrun.owned_process import OwnedProcess
 
 
 @pytest.mark.parametrize('variant,expected,code', [
-    ('good', 0, None), ('disabled', 0, None),
+    ('good', 0, None),
     ('silent', 1, 'localization_odom_missing'),
     ('missing_body', 1, 'localization_tf_missing'),
-    ('bad_cloud', 1, 'scan_cloud_tf_missing'),
     ('no_driver_sub', 1, 'chassis_cmd_missing'),
     ('wrong_driver_type', 1, 'chassis_cmd_missing'),
     ('waiting', 3, None), ('interrupt', 130, None)])
@@ -31,11 +30,9 @@ def test_installed_contract_probe_reads_data_without_starting_providers(
     profile.write_text(yaml.safe_dump({
         'schema_version': 1,
         'frames': {'map': 'probe_world', 'odom': 'probe_odom', 'body': 'probe_body',
-                   'nav_base': 'probe_nav', 'scan_target': 'probe_nav'},
+                   'nav_base': 'probe_nav'},
         'localization': {'odom_topic': '/contract/loc_odom'},
-        'chassis': {'cmd_topic': '/contract/command', 'odom_topic': '/contract/wheel_odom'},
-        'sensors': {'scan_from_cloud': {
-            'enabled': variant != 'disabled', 'cloud_topic': '/contract/cloud'}}}))
+        'chassis': {'cmd_topic': '/contract/command', 'odom_topic': '/contract/wheel_odom'}}))
     fixture = checker = None
     fixture_log, checker_log = tmp_path / 'fixture.log', tmp_path / 'checker.log'
     try:

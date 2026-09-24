@@ -11,16 +11,17 @@ nav2_overrides:
     - static_layer
     - obstacle_layer
     - inflation_layer
-  local_costmap/local_costmap/ros__parameters/obstacle_layer/observation_sources: realtime_cloud
-  local_costmap/local_costmap/ros__parameters/obstacle_layer/realtime_cloud:
-    topic: /demo/lidar_points
-    sensor_frame: demo_axle
-    data_type: PointCloud2
-    marking: true
-    clearing: true
-    min_obstacle_height: -0.5
-    max_obstacle_height: 0.5
-    obstacle_min_range: 0.2
-    obstacle_max_range: 2.5
-    raytrace_min_range: 0.2
-    raytrace_max_range: 3.0
+  local_costmap/local_costmap/ros__parameters/obstacle_layer:
+    observation_sources: realtime_cloud
+    realtime_cloud:
+      topic: /demo/lidar_points
+      sensor_frame: demo_axle
+      data_type: PointCloud2
+      marking: true
+      clearing: true
+      min_obstacle_height: -0.5
+      max_obstacle_height: 0.5
+      obstacle_min_range: 0.2
+      obstacle_max_range: 2.5
+      raytrace_min_range: 0.2
+      raytrace_max_range: 3.0

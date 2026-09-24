@@ -77,8 +77,8 @@ Teleop refuses preflight cleanup targets (including a legacy navigation stack
 without the new lock) before host operations. Its keyboard hard-limit checks do
 not require maps, localization or Nav2 inputs.
 
-`control.TeleopConfig` retains the Apache-2.0 `david_cmd.david_keyboard` standalone
-defaults. `KeyboardState` owns only one command and its last motion timestamp.
+`control.TeleopConfig` owns the standalone keyboard defaults. `KeyboardState`
+owns only one command and its last motion timestamp.
 Default WASD/arrows, signed deadzone lifting, ceilings, monotonic-time strict
 timeout, stop and quit events are preserved. `uiojkl` also provides forward/reverse
 arcs but no lateral axis, omnidirectional mode or unbounded speed increase.
@@ -105,8 +105,8 @@ sequences are consumed as one non-motion event. Buffer size is bounded at 32 byt
 and each poll consumes at most 256 bytes. A poll never waits beyond its requested
 timeout for a missing escape suffix.
 
-Ordinary tests compare old methods via AST and use fake ROS infrastructure and
-test-created PTY pairs. They do not initialize ROS or read a user's terminal.
+Ordinary tests use fake ROS infrastructure and test-created PTY pairs. They do
+not initialize ROS or read a user's terminal.
 Explicit sandbox checks use domain 99 and private locks/PTYs, send only stop/quit
 keys or signals to owned children, and assert that every observed Twist is zero.
 The installed convenience entry is also exercised through real LaunchService,

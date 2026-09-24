@@ -1,4 +1,4 @@
-"""行为树模板、配置覆盖、旧树逐属性等价和错误输入门禁."""
+"""行为树模板、配置覆盖和错误输入门禁."""
 
 import copy
 from pathlib import Path
@@ -20,19 +20,19 @@ def _signature(xml):
     return [(node.tag, node.attrib) for node in ET.fromstring(xml).iter()]
 
 
-@pytest.mark.parametrize('mode_name', ['tour', 'precise', 'bench_slamgt', 'teleop'])
-def test_david_templates_equal_every_legacy_node_and_attribute(mode_name):
-    """Each David mode reproduces all three existing trees without semantic normalization."""
+@pytest.mark.parametrize('mode_name', ['tour', 'precise', 'teleop'])
+def test_david_templates_render_three_valid_behavior_trees(mode_name):
+    """Each David mode renders the complete installed template set."""
     profile = render.load_yaml(ROBOT / 'robot/david.yaml')
     source = ROBOT / 'modes' / f'{mode_name}.yaml'
     mode = render.parse_mode(render.load_yaml(source), source)
     bundle = bt.render_bundle(
         PLUGIN / 'behavior_trees', PLUGIN / 'config/bt_bindings.yaml',
         render.deep_merge(profile, mode.profile))
-    originals = ROOT / 'david_nav/behavior_trees'
-    assert set(bundle) == {path.name for path in originals.glob('*.xml')}
-    for name, xml in bundle.items():
-        assert _signature(xml) == _signature((originals / name).read_text(encoding='utf-8'))
+    templates = {path.name.removesuffix('.tmpl')
+                 for path in (PLUGIN / 'behavior_trees').glob('*.xml.tmpl')}
+    assert set(bundle) == templates
+    assert all(_signature(xml) for xml in bundle.values())
 
 
 def test_frames_and_speeds_come_only_from_the_profile():
@@ -63,8 +63,8 @@ def test_xml_escaping_does_not_rewrite_blackboard_values():
     assert node.attrib == {'frame': 'a"&<b', 'goal': '{goal}'}
 
 
-def test_legacy_decimal_format_does_not_round_new_tuning_values():
-    """Preserving old trailing zeros must not silently round new profile values."""
+def test_decimal_format_does_not_round_new_tuning_values():
+    """Stable trailing zeros must not silently round new profile values."""
     binding = bt.parse_bindings({
         'schema_version': 1, 'bindings': {'speed': {'key': 'speed', 'format': '.2f'}}})
     xml = bt.render_template(

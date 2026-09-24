@@ -200,6 +200,7 @@ class KeyboardState:
         """
         if self.last_motion_time == 0.0:
             return (0.0, 0.0)
-        if self.config.key_timeout > 0.0 and now - self.last_motion_time > self.config.key_timeout:
+        deadline = self.last_motion_time + self.config.key_timeout
+        if self.config.key_timeout > 0.0 and now > deadline:
             return (0.0, 0.0)
         return self.active

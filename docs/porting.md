@@ -32,7 +32,7 @@ navcfg validate --robot example_diffdrive --mode precise --site offline --source
 核机器人/模式/场地身份、schema、帧/限速、URDF、地图与所选点位资产；不启动ROS、
 不扫描进程、不写运行记录。默认从安装包找资源，`--source-root`改选源码包。
 导航场地只有一个时自动选择，否则必须`--site`；chassis/teleop不依赖场地/地图/URDF。
-机器人须提供所选mode文件；样例提供tour/precise/chassis/teleop四种，不含bench_slamgt。
+机器人须提供所选 mode 文件；当前唯一集合为 tour/precise/chassis/teleop。
 成功不证明可执行文件可用、在线话题或硬件通过；并发编辑时也不是原子配置快照。
 
 原显式文件接口保留，以下在重构工作空间根目录运行，只写指定临时输出：

@@ -139,10 +139,8 @@ TEST_P(RecoveryResume, EscapeSuccessRequiresASecondPlanningAndTrackingGoal)
 }
 
 INSTANTIATE_TEST_SUITE_P(
-  CompatibilityAndTemplates, RecoveryResume,
+  Templates, RecoveryResume,
   ::testing::Values(
-    LEGACY_BT_DIR "/navigate_to_pose_w_david_embedded_recovery.xml",
-    LEGACY_BT_DIR "/navigate_through_poses_w_david_embedded_recovery.xml",
     TEMPLATE_BT_DIR "/navigate_to_pose_w_david_embedded_recovery.xml.tmpl",
     TEMPLATE_BT_DIR "/navigate_through_poses_w_david_embedded_recovery.xml.tmpl"));
 

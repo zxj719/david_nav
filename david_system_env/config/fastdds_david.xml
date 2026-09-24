@@ -14,8 +14,6 @@
                       (GID 前缀 01.0f.60.72)，David 自己的 /local_costmap
                       (GID 01.0f.02.10) 正订阅着它 —— 这就是"costmap 贴在
                       错误的地图上"的直接现场。
-      - /scan       对方 pointcloud_to_laserscan 在发(David scan_bridge 没起时
-                    publisher count 仍为 1)，会被 costmap 的 obstacle_layer 吃进去
       - /initialpose David rviz 点一下 2D Pose Estimate 会顺手重定位对方的车
       - /tf         对方 amcl 是 lifecycle active 且在 /tf 上有 publisher，
                     随时可能和 lightning 抢发 map->odom。

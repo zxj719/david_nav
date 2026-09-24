@@ -159,53 +159,6 @@ def test_robot_state_publishers(tmp_path):
     assert 'pid 20, 22' in result.message
 
 
-def test_parse_installed_programs():
-    """install(PROGRAMS) blocks with and without RENAME are recognized."""
-    cmake = '''
-install(PROGRAMS
-  david_nav/dock_navigator.py
-  DESTINATION lib/${PROJECT_NAME}
-  RENAME dock_navigator
-)
-install(PROGRAMS navigate.sh DESTINATION lib/${PROJECT_NAME})
-install(TARGETS something DESTINATION lib/${PROJECT_NAME})
-'''
-
-    assert checks.parse_installed_programs(cmake) == [
-        ('david_nav/dock_navigator.py', 'dock_navigator'),
-        ('navigate.sh', 'navigate.sh'),
-    ]
-
-
-def test_stale_installed_programs(tmp_path):
-    """Copies that differ from their sources are reported; symlinks are ignored."""
-    package = tmp_path / 'src' / 'david_nav'
-    (package / 'david_nav').mkdir(parents=True)
-    (package / 'CMakeLists.txt').write_text(
-        'install(PROGRAMS david_nav/a.py DESTINATION lib/${PROJECT_NAME} RENAME a)\n'
-        'install(PROGRAMS david_nav/b.py DESTINATION lib/${PROJECT_NAME} RENAME b)\n'
-        'install(PROGRAMS david_nav/c.py DESTINATION lib/${PROJECT_NAME} RENAME c)\n',
-        encoding='utf-8')
-    for name in ('a', 'b', 'c'):
-        source = package / 'david_nav' / f'{name}.py'
-        source.write_text(f'print("{name} new")\n', encoding='utf-8')
-    lib = tmp_path / 'install' / 'david_nav' / 'lib' / 'david_nav'
-    lib.mkdir(parents=True)
-    (lib / 'a').write_text('print("a new")\n', encoding='utf-8')
-    (lib / 'b').write_text('print("b old")\n', encoding='utf-8')
-    (lib / 'c').symlink_to(package / 'david_nav' / 'c.py')
-
-    result = checks.check_stale_installed_programs(_context(tmp_path))
-
-    assert result.status is checks.Status.WARN
-    assert result.message.endswith('：b')
-
-
-def test_stale_installed_programs_skips_without_install(tmp_path):
-    """Without a build there is nothing to compare."""
-    assert checks.check_stale_installed_programs(_context(tmp_path)).status is checks.Status.SKIP
-
-
 def test_serial_device(tmp_path):
     """Missing or inaccessible devices warn; an accessible one passes."""
     device = tmp_path / 'wheeltec_controller'
@@ -296,7 +249,7 @@ def test_worst_status_and_report():
 
 def test_default_context_uses_navrun_repo(tmp_path):
     """The repository, map yamls and ROS log directory follow the environment."""
-    maps = tmp_path / 'src' / 'david_nav' / 'config' / 'maps'
+    maps = tmp_path / 'src' / 'david_config' / 'sites' / 'test' / 'maps'
     maps.mkdir(parents=True)
     (maps / 'site.yaml').write_text('mode: trinary\n', encoding='utf-8')
 
@@ -319,6 +272,6 @@ def test_cli_doctor_json_output(tmp_path, monkeypatch, capsys):
     assert code in (0, 1)
     assert [item['name'] for item in payload] == [
         'ros_environment', 'dds_shared_memory', 'map_yaml_mode', 'robot_state_publishers',
-        'stale_installed_programs', 'serial_device', 'ros_log_dir']
+        'serial_device', 'ros_log_dir']
     assert all(item['status'] in ('OK', 'WARN', 'FAIL', 'SKIP') for item in payload)
     assert Path(tmp_path / 'src').exists() is False

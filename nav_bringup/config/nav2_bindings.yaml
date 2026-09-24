@@ -41,10 +41,6 @@ bindings:
   nav2.odom_topic:
     - bt_navigator/ros__parameters/odom_topic
     - controller_server/ros__parameters/odom_topic
-  nav2.scan_topic:
-    - local_costmap/local_costmap/ros__parameters/scan_priority_layer/scan_topic
-    - local_costmap/local_costmap/ros__parameters/obstacle_layer/scan/topic
-    - global_costmap/global_costmap/ros__parameters/obstacle_layer/scan/topic
   nav2.map_topic:
     - local_costmap/local_costmap/ros__parameters/static_layer/map_topic
     - global_costmap/global_costmap/ros__parameters/static_layer/map_topic

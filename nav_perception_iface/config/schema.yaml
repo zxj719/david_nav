@@ -31,77 +31,7 @@ parameters:
     type: string
     required: true
     description: 定位输出的机身本体帧；与导航旋转中心分别配置
-  frames.scan_target:
-    type: string
-    required: true
-    description: 点云转扫描的目标坐标系，应与配置的高度过滤基准一致
   localization.odom_topic:
     type: string
     required: true
     description: 定位完成后实际发布的里程计话题；与 Nav2 现接线 nav2.odom_topic 独立
-  sensors.scan_from_cloud.enabled:
-    type: bool
-    default: false
-    description: 是否启动点云转扫描预处理，默认不增加节点
-  sensors.scan_from_cloud.cloud_topic:
-    type: string
-    required: true
-    description: 输入 PointCloud2 话题
-  sensors.scan_from_cloud.scan_topic:
-    type: string
-    required: true
-    description: 输出 LaserScan 话题
-  sensors.scan_from_cloud.transform_tolerance:
-    type: float
-    unit: s
-    required: true
-    range: [0.0, null]
-    description: 输入点云到目标帧的变换时间容差
-  sensors.scan_from_cloud.min_height:
-    type: float
-    unit: m
-    required: true
-    description: 目标坐标系下参与投影的最低高度
-  sensors.scan_from_cloud.max_height:
-    type: float
-    unit: m
-    required: true
-    description: 目标坐标系下参与投影的最高高度，必须大于 min_height
-  sensors.scan_from_cloud.angle_min:
-    type: float
-    unit: rad
-    required: true
-    description: 扫描起始角
-  sensors.scan_from_cloud.angle_max:
-    type: float
-    unit: rad
-    required: true
-    description: 扫描结束角，必须大于 angle_min
-  sensors.scan_from_cloud.angle_increment:
-    type: float
-    unit: rad
-    required: true
-    range: [0.0, null]
-    description: 扫描角分辨率，必须严格大于零
-  sensors.scan_from_cloud.scan_time:
-    type: float
-    unit: s
-    required: true
-    range: [0.0, null]
-    description: 一帧扫描对应的时间，必须严格大于零
-  sensors.scan_from_cloud.range_min:
-    type: float
-    unit: m
-    required: true
-    range: [0.0, null]
-    description: 有效最短量程
-  sensors.scan_from_cloud.range_max:
-    type: float
-    unit: m
-    required: true
-    range: [0.0, null]
-    description: 有效最长量程，必须大于 range_min
-  sensors.scan_from_cloud.use_inf:
-    type: bool
-    required: true
-    description: 无有效点的方向输出 inf，保留原预处理设置

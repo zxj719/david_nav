@@ -1,1 +1,0 @@
-../../david_system_env/config/load_ros_env.sh

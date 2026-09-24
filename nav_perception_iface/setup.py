@@ -11,13 +11,12 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + PACKAGE_NAME]),
         ('share/' + PACKAGE_NAME, ['package.xml', 'README.md']),
-        ('share/' + PACKAGE_NAME + '/launch', glob('launch/*.launch.py')),
         ('share/' + PACKAGE_NAME + '/config', ['config/schema.yaml']),
         ('share/' + PACKAGE_NAME + '/docs', glob('docs/*.md')),
     ],
     install_requires=['setuptools'], zip_safe=True,
     maintainer='zhangxingjian', maintainer_email='xingjian.zhang@amicro.com.cn',
-    description='Localization and perception contracts for robot navigation.',
+    description='Localization and chassis contracts for robot navigation.',
     license='Apache-2.0', tests_require=['pytest'],
     entry_points={'console_scripts': [
         'nav_interface_check = nav_perception_iface.contract_cli:main',

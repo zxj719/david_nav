@@ -22,7 +22,7 @@ def test_python_metadata_declares_selected_websocket_release(package):
     assert 'websockets==16.1' in ast.literal_eval(requirements)
 
 
-@pytest.mark.parametrize('package', ['nav_executor', 'nav_sim', 'david_nav'])
+@pytest.mark.parametrize('package', ['nav_executor', 'nav_sim'])
 def test_ros_metadata_does_not_reintroduce_the_old_apt_websocket_selection(package):
     """Leave the selected pip distribution to Python metadata, including tests."""
     document = ET.parse(ROOT.parent / package / 'package.xml').getroot()

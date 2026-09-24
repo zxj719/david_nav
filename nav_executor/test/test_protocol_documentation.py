@@ -1,6 +1,5 @@
 """Keep protocol documentation tied to the unchanged codec and wire goldens."""
 
-import ast
 import hashlib
 import json
 from pathlib import Path
@@ -41,24 +40,6 @@ def _examples(document):
     for name, message in document['components']['messages'].items():
         for example in message['examples']:
             yield name, example['payload']
-
-
-def _golden_frames():
-    # Read existing literal expectations; do not regenerate or execute reference runtimes.
-    paths = [ROOT / 'david_nav/test/test_executor_golden.py',
-             ROOT / 'nav_executor/test/test_task_wire_golden.py']
-    frames = []
-    for path in paths:
-        for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                try:
-                    value = json.loads(node.value)
-                except (ValueError, TypeError):
-                    continue
-                if isinstance(value, dict) and 'event_type' in value:
-                    frames.append(value)
-    assert len(frames) >= 10, 'Expected existing complete literal wire goldens'
-    return frames
 
 
 def test_asyncapi_direction_and_message_inventory():
@@ -106,18 +87,6 @@ def test_outbound_documentation_matches_actual_builders_and_order():
         assert schema['additionalProperties'] is False
 
 
-def test_all_frozen_event_literals_have_a_documented_message():
-    """The sample mapping covers every unchanged event frame in both golden suites."""
-    document = _document()
-    types = {_payload(document, name)['properties']['event_type']['const']: name
-             for name in EVENTS}
-    frames = _golden_frames()
-    for frame in frames:
-        schema = _payload(document, types[frame['event_type']])
-        assert list(frame) == schema['x-wire-keys']
-        assert set(schema['required']) == frame.keys()
-
-
 def _expand(document, value, active=()):
     if isinstance(value, list):
         return [_expand(document, item, active) for item in value]
@@ -143,10 +112,6 @@ def test_payloads_and_existing_goldens_with_json_schema():
         validators[name] = jsonschema.Draft7Validator(schema)
     for name, frame in _examples(document):
         validators[name].validate(frame)
-    types = {_payload(document, name)['properties']['event_type']['const']: name
-             for name in EVENTS}
-    for frame in _golden_frames():
-        validators[types[frame['event_type']]].validate(frame)
     # Ensure the validator is enforcing required fields/types, not just loading YAML.
     for name, frame in _examples(document):
         schema = _payload(document, name)
@@ -192,17 +157,3 @@ def test_contract_documents_exist_and_local_links_resolve(relative):
         if '://' in target or target.startswith('#'):
             continue
         assert (path.parent / target.split('#')[0]).exists(), (relative, target)
-
-
-def test_frozen_log_document_covers_actual_bench_regex_consumers():
-    """Every current Dock timeline regex and the SPEC log families remain listed."""
-    document = (ROOT / 'docs/frozen_logs.md').read_text(encoding='utf-8')
-    consumer = ROOT / 'david_nav/scripts/dock_bench/dock_common.py'
-    names = {node.id for node in ast.walk(ast.parse(consumer.read_text(encoding='utf-8')))
-             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
-             and node.id.startswith('_RE_')}
-    assert len(names) >= 7
-    assert all(name in document for name in names)
-    assert all(token in document for token in (
-        'NAV ERROR reported to server:', 'STATUS state=', 'OUT RESENT(断联重发)',
-        'NAV FAILURE attempt', 'parse_dock_timeline', '_VERDICT_RULES'))

@@ -15,19 +15,13 @@ from dataclasses import dataclass
 import enum
 import os
 from pathlib import Path
-import re
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import yaml
 
 from nav_bringup.navrun.dds_hygiene import snapshot_mappings
-from nav_bringup.recorder.manifest import sha256_file
 
 _SHM_PREFIX = 'fastrtps_'
-_INSTALL_PROGRAMS_RE = re.compile(
-    r'install\(\s*PROGRAMS\s+(?P<source>\S+)\s+DESTINATION\s+lib/\$\{PROJECT_NAME\}'
-    r'(?:\s+RENAME\s+(?P<name>\S+))?\s*\)',
-)
 _IGNORED_PROCESS_NAMES = frozenset({'pgrep', 'grep', 'pkill', 'ps'})
 
 
@@ -138,12 +132,12 @@ def default_context(environ: Mapping[str, str]) -> DoctorContext:
         及日志目录组成的上下文；地图只按 *.yaml 发现，不证明正在被导航使用。
     """
     repo_dir = Path(environ.get('NAVRUN_REPO', '~/ros2_ws/src')).expanduser()
-    maps_dir = repo_dir / 'david_nav' / 'config' / 'maps'
+    maps_dir = repo_dir / 'david_config' / 'sites'
     return DoctorContext(
         repo_dir=repo_dir,
         install_dir=repo_dir.parent / 'install',
         environ=dict(environ),
-        map_yamls=tuple(sorted(maps_dir.glob('*.yaml'))) if maps_dir.is_dir() else (),
+        map_yamls=tuple(sorted(maps_dir.glob('*/maps/*.yaml'))) if maps_dir.is_dir() else (),
         ros_log_dir=ros_log_directory(environ),
     )
 
@@ -179,7 +173,7 @@ def check_ros_environment(context: DoctorContext) -> CheckResult:
         return CheckResult(
             name, Status.WARN, '；'.join(problems),
             '手敲 ros2 命令前先加载 DDS 白名单：set -o allexport; '
-            'source <david_nav>/config/ros_env.conf; set +o allexport; 再 ros2 daemon stop，'
+            'source <david_system_env>/config/ros_env.conf; set +o allexport; 再 ros2 daemon stop，'
             '否则可能只看见一部分节点')
     return CheckResult(
         name, Status.OK,
@@ -286,62 +280,6 @@ def check_robot_state_publishers(context: DoctorContext) -> CheckResult:
     return CheckResult(name, Status.OK, f'{len(found)} 个 robot_state_publisher 在运行')
 
 
-def parse_installed_programs(cmake_text: str) -> List[Tuple[str, str]]:
-    """用受限正则提取单来源 install(PROGRAMS ...) 片段.
-
-    不执行 CMake、不处理完整语法或剥除注释；多文件、复杂变量和其它目标可能遗漏。
-
-    Args:
-        cmake_text: CMakeLists.txt 原始文本。
-
-    Returns:
-        按文本顺序的 (来源路径, 安装名) 列表，无 RENAME 时用来源 basename。
-    """
-    programs = []
-    for match in _INSTALL_PROGRAMS_RE.finditer(cmake_text):
-        source = match.group('source')
-        programs.append((source, match.group('name') or Path(source).name))
-    return programs
-
-
-def check_stale_installed_programs(context: DoctorContext) -> CheckResult:
-    """比较 david_nav 中可识别的拷贝安装脚本与源码的哈希.
-
-    只检查受限 CMake 正则识别的条目，跳过符号链接、缺失来源和缺失目标；
-    OK 不证明整个 install 完整或可执行内容均为最新，零项比较也可为 OK。
-
-    Args:
-        context: 仓库及安装目录。
-
-    Returns:
-        缺少 CMake 文件或目标 lib 目录时 SKIP，有哈希不一致时 WARN，
-        否则 OK。IO/解码异常可传播给外层 run_checks。
-    """
-    name = 'stale_installed_programs'
-    package_dir = context.repo_dir / 'david_nav'
-    cmake = package_dir / 'CMakeLists.txt'
-    lib_dir = context.install_dir / 'david_nav' / 'lib' / 'david_nav'
-    if not cmake.is_file() or not lib_dir.is_dir():
-        return CheckResult(name, Status.SKIP, '未找到 david_nav 源码或其 install 目录')
-    stale = []
-    compared = 0
-    for source, installed_name in parse_installed_programs(cmake.read_text(encoding='utf-8')):
-        installed = lib_dir / installed_name
-        source_path = package_dir / source
-        if installed.is_symlink() or not installed.is_file() or not source_path.is_file():
-            continue
-        compared += 1
-        if sha256_file(installed) != sha256_file(source_path):
-            stale.append(installed_name)
-    if stale:
-        return CheckResult(
-            name, Status.WARN,
-            f'install 目录里 {len(stale)} 个脚本与源码不一致：' + '，'.join(stale),
-            '这些脚本是拷贝安装的：改了源码要重新 colcon build，'
-            '否则 ros2 run david_nav <脚本> 跑的仍是旧版本')
-    return CheckResult(name, Status.OK, f'{compared} 个拷贝安装的脚本与源码一致')
-
-
 def check_serial_device(context: DoctorContext) -> CheckResult:
     """检查预期串口路径存在性和 os.access 权限，不打开设备.
 
@@ -410,7 +348,6 @@ ALL_CHECKS: Tuple[Callable[[DoctorContext], CheckResult], ...] = (
     check_dds_shared_memory,
     check_map_yaml_modes,
     check_robot_state_publishers,
-    check_stale_installed_programs,
     check_serial_device,
     check_ros_log_dir,
 )

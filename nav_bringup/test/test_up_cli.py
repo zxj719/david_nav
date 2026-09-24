@@ -15,7 +15,7 @@ SOURCE = Path(__file__).resolve().parents[2]
 
 
 def test_up_parser_defaults():
-    """The documented five-mode entry uses conservative, explicit selectors."""
+    """The four-mode entry uses conservative, explicit selectors."""
     args = cli.build_parser().parse_args(['up', '--mode', 'precise', '--dry-run'])
     assert (args.robot, args.site, args.record, args.chassis) == (
         'david', 'daolan', 'light', 'auto')

@@ -149,12 +149,10 @@ def test_yaw_from_quaternion():
 
 def test_default_rules_name_nodes_of_david_trees():
     """Every default rule names a node of the David recovery trees."""
-    trees_dir = Path(__file__).resolve().parents[2] / 'david_nav' / 'behavior_trees'
-    if not trees_dir.is_dir():
-        pytest.skip('david_nav behavior trees are not next to this package')
+    trees_dir = Path(__file__).resolve().parents[2] / 'nav_plugins' / 'behavior_trees'
     names = set()
     for tree in _DAVID_TREES:
-        text = (trees_dir / tree).read_text(encoding='utf-8')
+        text = (trees_dir / (tree + '.tmpl')).read_text(encoding='utf-8')
         names.update(re.findall(r'\bname="([^"]+)"', text))
         names.update(re.findall(r'<([A-Za-z][A-Za-z0-9]*)\b', text))
 

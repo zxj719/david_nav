@@ -43,14 +43,6 @@ cd ~/lightning_ws
 source ./install/setup.bash
 ros2 run lightning run_loc_online --config /home/agx/lightning_ws/src/hoslam_lightning_lm/config/default_c16.yaml
 
-/home/agx/ros2_ws/src/david_nav/navigate_semantic_pose_with_debug_bag.sh
-
-抓取任务一键启动导航
-~/ros2_ws/src/david_nav/start_waypoint_nav_headless.sh
-
-一键启动语音导航
-/home/agx/ros2_ws/src/david_nav/start_navigation_headless.sh 
-
 保存地图
 source install/setup.bash
 ros2 service call /lightning/save_map lightning/srv/SaveMap "{map_id: my_map}"
@@ -87,11 +79,9 @@ ros2 run turn_on_wheeltec_robot keyboard_teleop_ros2.py
 
 
 启动导航
-cd ~/ros2_ws
-source ./install/setup.bash
-ros2 launch david_nav 2d_david_nav2_bringup.launch.py use_rviz:=false enable_scan_bridge:=false
-
-~/ros2_ws/src/david_nav/scripts/launch_waypoint_nav.sh
+source /opt/ros/humble/setup.bash
+source ~/ros2_ws_refactor/install/setup.bash
+ros2 run nav_bringup navrun up --mode tour --takeover
 
 启动hydra
 包的语义
@@ -197,4 +187,3 @@ python -m lerobot.teleoperate \
 rviz2
 终端4
  ros2 bag record -o hydra_bag /tesse/depth_cam/mono/image_raw /tesse/left_cam/rgb/image_raw /semantic_color/image_raw /tf
-

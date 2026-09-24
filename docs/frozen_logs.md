@@ -30,7 +30,7 @@
 
 ## Dock：有实际正则消费者
 
-消费者是 [dock_common.py](../david_nav/scripts/dock_bench/dock_common.py)
+历史消费者来自提交 `93676a5` 的 Dock bench，
 的 `parse_dock_timeline` / `_RE_*`，由 dock bench 记录/指标流程使用。
 它按关键片段切阶段，主要评测数值由独立 TF 复算，不能把被测对象自评当定位真值。
 时间线/测量正则与判词规则也必须继续兼容。
@@ -51,9 +51,9 @@
 取消行是 `===== 已取消:`，不能改写成成功。
 生产者：[workflow.py](../nav_tasks/nav_tasks/skills/docking/workflow.py)、
 [dock_motion.py](../nav_tasks/nav_tasks/adapters/ros/dock_motion.py)。
-证明：[新 Dock 金样](../nav_tasks/test/test_dock_workflow_golden.py)、
-[动作金样](../nav_tasks/test/test_dock_action_golden.py)、
-[bench 时间线样例](../david_nav/scripts/dock_bench/test_dock_common.py)。
+证明：[Dock 工作流测试](../nav_tasks/test/test_dock_workflow.py)、
+[结构化事件测试](../nav_tasks/test/test_dock_event_observations.py)、
+历史 bench 时间线样例已随旧台架退役。
 
 结构化 `/nav/events` 是附加观察面，见 [事件文档](events.md)；bench 的正则消费者
 尚未整体迁成事件订阅，因此不能废弃这些日志接口。

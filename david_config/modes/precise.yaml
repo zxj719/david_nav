@@ -1,8 +1,6 @@
 # Precise mode overlay (refactor plan §12.2): the final stage of two-stage docking.
 #
-# test/test_modes.py renders it and compares the result with
-# david_nav/config/nav2_params_2d_precise.yaml, the file
-# precise_nav_bringup.launch.py loads.
+# This overlay only tightens goal handling on the shared Nav2 base.
 schema_version: 1
 mode: precise
 description: 精确入位：到点位置与朝向收紧，末端原地转到目标朝向

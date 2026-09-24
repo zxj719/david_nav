@@ -4,7 +4,7 @@ set -eo pipefail
 source /opt/ros/humble/setup.bash
 source "${SANDBOX_INSTALL_SETUP:-$HOME/ros2_ws_refactor/install/setup.bash}"
 set -o allexport
-source "${SANDBOX_ROS_ENV_FILE:-$HOME/ros2_ws_refactor/src/david_nav/config/ros_env.conf}"
+source "${SANDBOX_ROS_ENV_FILE:-$HOME/ros2_ws_refactor/src/david_system_env/config/ros_env.conf}"
 set +o allexport
 export ROS_DOMAIN_ID=99
 cd "$(dirname "$0")/.."

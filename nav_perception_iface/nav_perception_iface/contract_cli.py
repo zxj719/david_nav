@@ -1,6 +1,6 @@
 """用于 navcfg 子进程集成的独立只读接口检查入口.
 
-只观察定位、底盘与可选点云接口，不选择或启动提供方。
+只观察定位与底盘接口，不选择或启动提供方。
 命令行帮助沿用独立的兼容文案，不以本模块的中文说明改变既有 CLI 输出。
 """
 
@@ -65,8 +65,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         evidence = None if snapshot is None else {
             'transforms': sorted(snapshot.transforms), 'publishers': dict(snapshot.publishers),
             'subscribers': dict(snapshot.subscribers), 'samples': sorted(snapshot.samples),
-            'types': {key: sorted(value) for key, value in snapshot.types.items()},
-            'cloud_frame': snapshot.cloud_frame}
+            'types': {key: sorted(value) for key, value in snapshot.types.items()}}
         # A close failure can replace this candidate before anything is emitted.
         document[:] = [{'schema_version': 1, 'status': status,
                         'findings': [asdict(item) for item in findings], 'evidence': evidence}]

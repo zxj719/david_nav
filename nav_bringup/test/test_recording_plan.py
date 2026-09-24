@@ -1,8 +1,6 @@
 """Plan explicit SQLite recording commands without starting ROS or touching storage."""
 
 from pathlib import Path
-import re
-import shlex
 
 import pytest
 import yaml
@@ -47,23 +45,18 @@ def test_full_recording_requires_explicit_topics_or_regex(tmp_path):
         plan_recording({}, 'full', tmp_path)
 
 
-def test_david_selections_match_existing_shell_without_executing_it(tmp_path):
-    """Freeze both legacy lists and the full regex, including full-only zstd/hidden flags."""
+def test_david_selections_are_explicit_and_safe(tmp_path):
+    """Both lists and the full regex produce bounded explicit recording commands."""
     source = Path(__file__).resolve().parents[2]
     profile = yaml.safe_load((source / 'david_config/robot/david.yaml').read_text())
-    script = (source / 'david_nav/start_navigation_headless.sh').read_text()
-    for mode, variable in (('light', 'LIGHT_BAG_TOPICS'), ('full', 'EXPLICIT_TOPICS')):
-        match = re.search(r'^' + variable + r'=\((.*?)^\)', script, flags=re.M | re.S)
-        assert match
-        expected = shlex.split(match.group(1), comments=True)
+    for mode in ('light', 'full'):
         plan = plan_recording(profile, mode, tmp_path)
-        assert list(plan.topics) == expected
+        assert list(plan.topics) == profile['record'][mode + '_topics']
         assert plan.enabled
         assert '--all' not in plan.argv
         assert plan.argv[plan.argv.index('--storage') + 1] == 'sqlite3'
     full = plan_recording(profile, 'full', tmp_path)
-    regex = re.search(r"^REGEX='([^']*)'$", script, flags=re.M)
-    assert regex and full.regex == regex.group(1)
+    assert full.regex == profile['record']['full_regex']
     assert '--include-hidden-topics' in full.argv
     assert '--include-unpublished-topics' in full.argv
     assert full.argv[full.argv.index('--compression-format') + 1] == 'zstd'

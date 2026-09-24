@@ -10,11 +10,8 @@ SOURCE = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize('relative', [
-    'david_nav/sandbox_tests/run_sandbox_checks.sh',
-    'david_nav/sandbox_tests/conftest.py',
     'nav_bringup/sandbox_tests/run_sandbox_checks.sh',
     'nav_bringup/sandbox_tests/conftest.py',
-    'nav_plugins/sandbox_tests/run_sandbox_checks.sh',
     'wheeltec_driver/sandbox_tests/run_sandbox_checks.sh',
 ])
 def test_guard_matches_driver_and_container_executables(relative: str) -> None:

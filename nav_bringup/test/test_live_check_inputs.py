@@ -25,7 +25,7 @@ def test_ambiguous_or_invalid_parameter_document_is_rejected(tree):
         parameter_sections(tree)
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt'])
+@pytest.mark.parametrize('mode', ['tour', 'precise'])
 def test_live_inputs_use_exact_mode_bundle_without_modifying_sources(tmp_path, mode):
     """Alternate robot names and costmap children are resolved from the prepared graph."""
     prepared = _prepare(tmp_path, mode)

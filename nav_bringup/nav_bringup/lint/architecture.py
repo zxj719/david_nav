@@ -165,8 +165,6 @@ def _violations(package, origin, target):
     """
     root = target.split('.')[0]
     pure = _section(origin) in _PURE
-    if root == 'david_nav':
-        yield 'reverse legacy dependency'
     if package == 'nav_tasks' and root in ('nav_executor', 'websockets'):
         yield 'task/transport dependency'
     if package == 'nav_executor' and root == 'nav_tasks':

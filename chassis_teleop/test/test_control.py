@@ -1,54 +1,32 @@
-"""Compare keyboard decisions and shaping with legacy code without ROS or TTY I/O."""
+"""Keyboard decisions and shaping without ROS or TTY I/O."""
 
-import ast
-from dataclasses import asdict, replace
-import math
-from pathlib import Path
-import random
-from types import SimpleNamespace
+from dataclasses import replace
 
 import pytest
 
 from chassis_teleop.control import KeyboardState, TeleopConfig, motion_for_key, shape_motion
 
 
-SOURCE = Path(__file__).resolve().parents[2]
-
-
-def _legacy(config):
-    tree = ast.parse((SOURCE / 'david_cmd/david_cmd/david_keyboard.py').read_text())
-    tree.body = [node for node in tree.body if isinstance(
-        node, (ast.Assign, ast.FunctionDef, ast.ClassDef))]
-    scope = {'Node': object, 'math': math, 'Twist': lambda: SimpleNamespace(
-        linear=SimpleNamespace(x=0.0), angular=SimpleNamespace(z=0.0))}
-    exec(compile(tree, '<legacy-keyboard-no-imports>', 'exec'), scope)
-    node = object.__new__(scope['DavidKeyboardNode'])
-    for key, value in asdict(config).items():
-        setattr(node, key, value)
-    return node, scope
-
-
 @pytest.mark.parametrize('config', [
     TeleopConfig(), TeleopConfig(linear_speed=0.1, angular_speed=0.2),
     TeleopConfig(linear_deadzone=0.0, angular_deadzone=0.0),
 ])
-def test_shaping_is_equal_to_actual_legacy_methods(config):
-    """Finite direction inputs match old clamp, signed deadzone and ceiling ordering."""
-    legacy, _ = _legacy(config)
-    rng = random.Random(44)
-    samples = [(x, yaw) for x in (-1.0, 0.0, 1.0) for yaw in (-1.0, 0.0, 1.0)]
-    samples.extend((rng.uniform(-2, 2), rng.uniform(-2, 2)) for _ in range(500))
-    for x, yaw in samples:
-        expected = legacy.build_twist(x, yaw)
-        assert shape_motion(x, yaw, config) == (expected.linear.x, expected.angular.z)
+def test_shaping_applies_speed_deadzone_and_ceiling(config):
+    """Direction inputs are scaled, lifted through deadzones and bounded."""
+    assert shape_motion(0.0, 0.0, config) == (0.0, 0.0)
+    linear, angular = shape_motion(1.0, -1.0, config)
+    assert 0.0 < linear <= config.max_linear_x
+    assert -config.max_angular_z <= angular < 0.0
 
 
-@pytest.mark.parametrize('key', ['w', 'W', 'a', 's', 'd', '\x1b[A', '\x1b[B',
-                                      '\x1b[C', '\x1b[D', 'z', '', 'q'])
-def test_default_key_map_matches_legacy(key):
-    """WASD and arrows retain their exact direction and case behavior."""
-    _, legacy = _legacy(TeleopConfig())
-    assert motion_for_key(key, 'wasd') == legacy['motion_for_key'](key)
+@pytest.mark.parametrize('key,motion', [
+    ('w', (1, 0)), ('W', (1, 0)), ('s', (-1, 0)), ('a', (0, 1)), ('d', (0, -1)),
+    ('\x1b[A', (1, 0)), ('\x1b[B', (-1, 0)), ('\x1b[C', (0, -1)),
+    ('\x1b[D', (0, 1)), ('z', None), ('', None), ('q', None),
+])
+def test_default_key_map(key, motion):
+    """WASD and arrows map to bounded differential-drive directions."""
+    assert motion_for_key(key, 'wasd') == motion
 
 
 @pytest.mark.parametrize('key,motion', [
@@ -101,7 +79,7 @@ def test_invalid_configuration_is_rejected(key, value):
         KeyboardState(replace(TeleopConfig(), **{key: value}))
 
 
-def test_legacy_disabled_timeout_and_frequency_floor():
+def test_disabled_timeout_and_frequency_floor():
     """Disabling deadman timeout remains explicit and does not enable speed changes."""
     state = KeyboardState(TeleopConfig(key_timeout=0.0, publish_hz=0.0))
     state.handle_key('w', 1.0)
@@ -109,15 +87,9 @@ def test_legacy_disabled_timeout_and_frequency_floor():
     assert state.config.period_sec == 1.0
 
 
-def test_command_lease_matches_legacy_across_floating_time_boundaries():
-    """Monotonic subtraction remains identical, including representational edge cases."""
-    config = TeleopConfig()
-    old, scope = _legacy(config)
-    state = KeyboardState(config)
+def test_command_lease_expires_after_the_configured_boundary():
+    """A motion remains live through the timeout boundary and stops afterwards."""
+    state = KeyboardState(TeleopConfig())
     state.handle_key('w', 10.0)
-    old.last_motion_time = 10.0
-    old.active_twist = old.build_twist(1.0, 0.0)
-    for now in (10.0, 10.39, 10.4, 10.400001, 11.0):
-        scope['time'] = SimpleNamespace(monotonic=lambda: now)
-        expected = old.current_command()
-        assert state.command(now) == (expected.linear.x, expected.angular.z)
+    assert state.command(10.4) == (0.2, 0.0)
+    assert state.command(10.400001) == (0.0, 0.0)

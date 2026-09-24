@@ -36,25 +36,6 @@ def test_ready_gate_times_out_without_executing_command(sessions, tmp_path: Path
     assert 'executor was not started' in log and 'UNEXPECTED_CHILD' not in log
 
 
-def test_ready_gate_discovers_fake_server_without_sending_a_goal(sessions, tmp_path: Path) -> None:
-    """Only discovery occurs before replacing the gate with a harmless print process."""
-    source = Path(__file__).resolve().parents[2]
-    server_script = source / 'david_nav/sandbox_tests/fake_nav2_servers.py'
-    goal_log = tmp_path / 'goals.log'
-    server = sessions.start('gate_server', [
-        sys.executable, str(server_script), '--log', str(goal_log), '--x', '0',
-        '--y', '0', '--yaw', '0', '--map-mode', 'none'])
-    executable = Path(get_package_prefix('nav_bringup')) / 'lib/nav_bringup/nav_ready_exec'
-    gate = sessions.start('gate_ready', [
-        str(executable), '--timeout', '10', '--', sys.executable,
-        '-c', 'print("harmless_executor_started")'])
-    code = gate.wait(timeout=15)
-    log = (tmp_path / 'process_logs/gate_ready.log').read_text()
-    assert code == 0 and 'harmless_executor_started' in log, log
-    assert server.poll() is None
-    assert not goal_log.exists(), 'readiness checking must never submit a goal'
-
-
 @pytest.mark.parametrize('entry', ['nav_bringup', 'chassis_adapter'])
 def test_installed_launch_entry_runs_only_a_zero_motion_fake_chassis(
         sessions, tmp_path: Path, entry: str) -> None:

@@ -9,7 +9,6 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 
 from nav_bringup.navcfg import behavior_trees, cli, render, schema, validation
-from nav_perception_iface.configuration import load_scan_configuration
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT.parent
@@ -74,15 +73,6 @@ def test_installed_data_and_cli_render_validate(name, tmp_path):
     assert len(list(bt_dir.glob('*.xml'))) == 3
     assert render.load_yaml(output)['bt_navigator']['ros__parameters']['robot_base_frame'] == (
         'demo_axle')
-
-
-def test_optional_perception_accepts_second_robot_without_modification():
-    """Perception frame/topic parameters come solely from this package."""
-    scan = load_scan_configuration(PROFILE)
-    assert not scan.enabled
-    assert scan.cloud_topic == '/demo/cloud'
-    assert scan.scan_topic == '/demo/scan'
-    assert scan.parameters['target_frame'] == 'demo_axle'
 
 
 def test_site_is_self_contained_with_an_ascii_map():

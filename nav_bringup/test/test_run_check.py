@@ -28,8 +28,8 @@ def _run(root, *options):
     return cli.main(['check', '--run-dir', str(root), '--source-root', str(SOURCE), *options])
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'])
-def test_offline_checks_all_five_modes_without_observer_or_writes(tmp_path, observer, mode):
+@pytest.mark.parametrize('mode', ['tour', 'precise', 'chassis', 'teleop'])
+def test_offline_checks_all_four_modes_without_observer_or_writes(tmp_path, observer, mode):
     """Offline validation never instantiates even the fake live observer."""
     root = _bundle(tmp_path, mode)
     before = {path: path.read_bytes() for path in root.rglob('*') if path.is_file()}

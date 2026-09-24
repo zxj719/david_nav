@@ -26,7 +26,7 @@ verdict can become task completion; the approach is not arrival at the Dock.
 
 `skills.docking.approach.check_approach_footprint` rejects a missing map or a frame
 mismatch, then calls the shared full-polygon static checker. That implementation
-is relocated unchanged from david_nav.dock_approach; legacy exports refer to the
+is in `nav_tasks.domain.footprint`; all callers use the
 same classes/functions. It handles rotated map origins, polygon/cell area and
 boundary contact, invalid geometry and out-of-map footprints. Unknown cells are
 still allowed as before. Do not use ordinary POI snapping or a center-point test

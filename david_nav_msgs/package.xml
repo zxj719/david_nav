@@ -3,7 +3,7 @@
 <package format="3">
   <name>david_nav_msgs</name>
   <version>0.0.1</version>
-  <description>Action / msg / srv definitions for david_nav (position loop, etc.)</description>
+  <description>Shared action and event interfaces for the navigation task pipeline</description>
   <maintainer email="luoyifan902008@126.com">FLYivan</maintainer>
   <license>Apache-2.0</license>
 

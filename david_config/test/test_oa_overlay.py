@@ -48,12 +48,6 @@ def test_the_overlay_keeps_the_identity_of_the_mode_it_extends():
     assert merged.name == 'tour'
 
 
-def test_the_overlay_does_not_start_the_scan_bridge():
-    """PointCloud2 goes straight to Nav2 instead of taking a LaserScan detour."""
-    assert _effective(with_oa=False)['sensors']['scan_from_cloud']['enabled'] is False
-    assert _effective()['sensors']['scan_from_cloud']['enabled'] is False
-
-
 def test_the_local_costmap_marks_obstacles_before_it_inflates_them():
     """Layer order decides what gets inflated; marking after inflating would inflate nothing."""
     plugins = render.get_path(_render(), PLUGINS)
@@ -97,15 +91,12 @@ def test_the_overlay_only_touches_the_local_costmap_obstacle_wiring():
     with_oa = _render()
     without = _render(with_oa=False)
     render.set_path(with_oa, PLUGINS, render.get_path(without, PLUGINS))
-    render.set_path(
-        with_oa, OBSTACLE_LAYER + '/observation_sources',
-        render.get_path(without, OBSTACLE_LAYER + '/observation_sources'))
-    del render.get_path(with_oa, OBSTACLE_LAYER)['aligned_cloud']
+    del render.get_path(with_oa, LOCAL_COSTMAP)['obstacle_layer']
 
     assert with_oa == without
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt'])
+@pytest.mark.parametrize('mode', ['tour', 'precise'])
 def test_every_navigation_mode_accepts_the_overlay(mode):
     """The flag is orthogonal to the mode, so no mode may fail to render with it."""
     assert 'obstacle_layer' in render.get_path(_render(mode), PLUGINS)

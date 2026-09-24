@@ -16,7 +16,7 @@ named_poses.json 是点位映射的唯一真源(nav WS v1 §四.1):启动导入
 躺在持久化 store 里,agent 发旧 id 时会导航到过期坐标而不是报错。
 ```
 
-来源 [不可变旧入口](../../david_nav/test/golden/legacy_entries/navigation_executor.py.txt)：
+来源为提交 `93676a5` 中归档的旧导航入口：
 
 ```python
 # named_poses.json 是映射唯一真源:清掉上次导入残留、这次 json 里
@@ -36,6 +36,6 @@ named_poses.json 是点位映射的唯一真源(nav WS v1 §四.1):启动导入
 
 ## 证据与边界
 
-`nav_tasks/test/test_site_data.py` 和 `david_nav/test/test_poi_repository_migration.py`
+`nav_tasks/test/test_site_data.py`
 覆盖格式兼容、重命名及按会话裁剪。这里说明程序契约，未修改用户真实 JSON/POI store。
 “唯一真源”限定人工导入的该会话，不抹掉运行期标记能力，也不证明手工坐标 frame 正确。

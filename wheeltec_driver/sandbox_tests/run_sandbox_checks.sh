@@ -23,7 +23,7 @@ fi
 source /opt/ros/humble/setup.bash
 source "${REFACTOR_WS}/install/setup.bash"
 set -o allexport
-source "${SANDBOX_ROS_ENV_FILE:-${REFACTOR_WS}/src/david_nav/config/ros_env.conf}"
+source "${SANDBOX_ROS_ENV_FILE:-${REFACTOR_WS}/src/david_system_env/config/ros_env.conf}"
 set +o allexport
 export ROS_DOMAIN_ID=99
 ROS_LOG_DIR="$(mktemp -d -t wheeltec_driver_ros_log.XXXXXX)"

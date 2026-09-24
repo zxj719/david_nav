@@ -1,20 +1,15 @@
 """Exercise actual node methods with in-memory endpoints and no ROS context."""
 
 from dataclasses import asdict
-from pathlib import Path
 import signal
 from types import SimpleNamespace
 
 from geometry_msgs.msg import Twist
 import pytest
 from rclpy.time import Time
-import yaml
 
 from chassis_adapter.core import AdapterConfig
 from chassis_adapter import node as runtime
-
-
-SOURCE = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
@@ -52,22 +47,11 @@ def endpoints(monkeypatch):
 
 
 def test_constructor_defaults_and_endpoint_binding(endpoints):
-    """All ten old defaults are declared and configured topics feed the endpoints."""
+    """All adapter defaults are declared and configured topics feed the endpoints."""
     runtime.AdapterNode()
     assert endpoints.declarations == asdict(AdapterConfig())
     assert endpoints.subscriptions[0][1] == 'cmd_vel_safe'
     assert [timer[0] for timer in endpoints.timers] == [0.02, 1.0]
-
-
-@pytest.mark.parametrize('mode', ['tour', 'precise'])
-def test_node_parameters_match_recorded_legacy_dump(endpoints, mode):
-    """The exact navigation settings recorded before migration remain effective."""
-    path = SOURCE / f'david_nav/test/golden/params/{mode}/david_move.yaml'
-    expected = yaml.safe_load(path.read_text())['/david_move']['ros__parameters']
-    expected.pop('use_sim_time')
-    adapter = runtime.AdapterNode(test_parameters=expected)
-    assert asdict(adapter.config) == expected
-    assert endpoints.subscriptions[0][1] == expected['input_cmd_vel_topic']
 
 
 def test_callback_timer_and_timeout_use_only_fake_publisher(endpoints):
@@ -112,7 +96,7 @@ def test_diagnostics_do_not_publish_or_refresh_commands(endpoints, monkeypatch):
 
 
 def test_stop_burst_contains_only_zeros(endpoints, monkeypatch):
-    """Shutdown attempts preserve the five-message/20ms legacy burst."""
+    """Shutdown attempts preserve the five-message/20ms zero burst."""
     slept = []
     monkeypatch.setattr(runtime.time, 'sleep', slept.append)
     adapter = runtime.AdapterNode()

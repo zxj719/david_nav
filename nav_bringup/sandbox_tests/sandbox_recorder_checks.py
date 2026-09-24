@@ -23,22 +23,6 @@ from nav_bringup.recorder import topic_stats
 
 CHATTER_TOPIC = '/navrun_sandbox/chatter'
 SANDBOX_BASE_FRAME = 'navrun_sandbox_base'
-READY_ACTION = '/navrun_sandbox/ready'
-ACTION_SERVER_NODE = 'navrun_sandbox_action_server'
-ACTION_SERVER_CODE = '\n'.join([
-    'import rclpy',
-    'from rclpy.action import ActionServer',
-    'from nav2_msgs.action import NavigateToPose',
-    'rclpy.init()',
-    f'node = rclpy.create_node("{ACTION_SERVER_NODE}")',
-    f'server = ActionServer(node, NavigateToPose, "{READY_ACTION}",',
-    '                      lambda goal: NavigateToPose.Result())',
-    'try:',
-    '    rclpy.spin(node)',
-    'except KeyboardInterrupt:',
-    '    pass',
-    '',
-])
 
 
 def _static_transform(child_frame: str) -> List[str]:
@@ -101,31 +85,3 @@ def test_dump_params_dumps_a_live_node(sessions, tmp_path):
     assert publishers, completed.stderr
     dump = (output / param_dump.node_file_name(publishers[0])).read_text(encoding='utf-8')
     assert 'ros__parameters' in dump
-
-
-def test_wrap_starts_monitor_and_dumps_parameters_when_ready(sessions, tmp_path):
-    """The wrapper runs the monitor, which dumps parameters once the ready action is up."""
-    runs_root = tmp_path / 'runs'
-    sessions.start('action_server', ['python3', '-c', ACTION_SERVER_CODE])
-    wrapper = sessions.start('wrap', [
-        'ros2', 'run', 'nav_bringup', 'navrun', 'wrap', '--mode', 'sandbox',
-        '--runs-root', str(runs_root), '--repo', str(tmp_path), '--no-gc',
-        '--monitor-base-frame', SANDBOX_BASE_FRAME, '--monitor-period', '1',
-        '--ready-action', READY_ACTION, '--', 'sleep', '45'])
-
-    assert wrapper.wait(timeout=180) == 0
-
-    run_path = runs_root / 'latest'
-    recorded, _ = events.read_events(run_path / 'events.jsonl')
-    types = [event.event_type for event in recorded]
-    assert 'monitor_started' in types
-    assert 'ready_action_available' in types
-    assert 'params_dumped' in types
-    stopped = next(event for event in recorded if event.event_type == 'monitor_stopped')
-    assert stopped.severity == 'info'
-    report = yaml.safe_load(
-        (run_path / 'params' / 'effective' / param_dump.REPORT_FILE_NAME).read_text(
-            encoding='utf-8'))
-    assert f'/{ACTION_SERVER_NODE}' in report['dumped']
-    assert (run_path / 'metrics' / topic_stats.TOPICS_CSV_NAME).is_file()
-    assert '话题频率与 TF 延迟' in (run_path / 'summary.md').read_text(encoding='utf-8')

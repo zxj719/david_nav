@@ -1,12 +1,7 @@
 # David robot profile (refactor plan §12.2).
 #
-# Every value equals what production runs today. test/test_robot_profile.py
-# compares them with the effective parameters dumped from the pre-refactor
-# bringup (david_nav/test/golden/params), the david_move and keyboard defaults,
-# the bringup launch and the wheeltec driver launch; test/test_modes.py renders
-# the Nav2 parameter file of every mode from this profile and compares it with
-# the file production loads. Mode differences belong in modes/*.yaml and site
-# data in sites/<site>/ (PROGRESS P2.2b).
+# This profile is the single source of robot-specific runtime values. Mode
+# differences belong in modes/*.yaml and site data in sites/<site>/.
 schema_version: 1
 
 robot:
@@ -24,7 +19,6 @@ frames:
   body: base_link                   # 机身本体帧（lightning 发布）
   slam_base: base                   # SLAM 内部帧，导航禁用
   poi_capture: base_link            # 采点帧；与 nav_base 不同时 validate 告警
-  scan_target: base_footprint
 
 footprint: [[0.255, 0.30], [0.255, -0.30], [-0.465, -0.30], [-0.465, 0.30]]
 
@@ -82,7 +76,7 @@ chassis:
     startup_delay_sec: 3.0
     max_restarts: 1
 
-teleop:                             # = david_cmd/config/cmd.yaml 的 david_keyboard
+teleop:
   layout: wasd
   tty_device: /dev/tty
   cmd_topic: cmd_vel_safe
@@ -107,8 +101,7 @@ localization:
 
 nav2:
   odom_topic: /lightning/odometry   # Nav2 现接线（alias 3 不发布该话题）；等值渲染保留，是否切换见 TODO-O1
-  scan_topic: /scan                 # 代价图障碍物层订阅；默认无发布者（sensors.scan_from_cloud.enabled 为 false）
-  map_topic: /map                   # 代价图静态层实际订阅；2d_david_nav2_bringup 的默认 map_topic 改写值
+  map_topic: /map                   # 代价图静态层实际订阅
 
 localization_health:
   max_tf_age_sec: 0.5
@@ -124,22 +117,6 @@ executor:
   # POI capture uses frames.poi_capture, odometry keeps nav2.odom_topic (TODO-O1).
   poi_store_file: ~/.ros/david_nav/poi_store.yaml
   grid_map_topic: /lightning/grid_map
-
-sensors:
-  scan_from_cloud:
-    enabled: false
-    cloud_topic: /lightning/loc/aligned_scan
-    scan_topic: /scan
-    transform_tolerance: 0.1
-    min_height: 0.10
-    max_height: 1.0
-    angle_min: -1.5708
-    angle_max: 1.5708
-    angle_increment: 0.0087
-    scan_time: 0.1
-    range_min: 0.3
-    range_max: 12.0
-    use_inf: true
 
 reactive:
   # Existing behavior, including lateral escape and the 0.25 m/s recovery
@@ -181,7 +158,7 @@ preflight:
   kill_foreign_stacks: false
 
 record:
-  # Exact legacy light list; do not add full global costmaps or localization clouds here.
+  # Keep light recording bounded; do not add full global maps or localization clouds here.
   light_topics:
     - /tf
     - /tf_static
@@ -190,7 +167,6 @@ record:
     - /cmd_vel_nav
     - /cmd_vel_safe
     - /cmd_control_command
-    - /scan
     - /map
     - /lightning/odometry
     - /local_costmap/costmap
@@ -211,7 +187,6 @@ record:
     - /cmd_vel_nav
     - /cmd_vel_safe
     - /cmd_control_command
-    - /scan
     - /map
     - /lightning/odometry
     - /lightning/grid_map

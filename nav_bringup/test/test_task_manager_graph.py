@@ -15,15 +15,13 @@ from test_run_preparation import _inputs, SOURCE
 
 @pytest.mark.parametrize('mode,websocket,count', [
     ('tour', True, 1), ('tour', False, 0), ('precise', True, 1), ('precise', False, 1),
-    ('bench_slamgt', False, 0), ('chassis', False, 0), ('teleop', False, 0),
+    ('chassis', False, 0), ('teleop', False, 0),
 ])
 def test_each_mode_has_at_most_one_task_manager(tmp_path, mode, websocket, count):
     """ROS Dock and optional WS never create competing task-manager processes."""
     graph = build_graph(GraphOptions(mode, str(tmp_path), start_executor=websocket))
     managers = [spec for spec in graph.processes if spec.package == 'nav_executor']
     assert len(managers) == count
-    assert not any(spec.package == 'david_nav' and spec.executable in (
-        'dock_navigator', 'navigation_executor.py') for spec in graph.processes)
     if not count:
         return
     manager = managers[0]

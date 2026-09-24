@@ -14,7 +14,7 @@ OTHER_ROBOT = {
     'footprint': [[0.3, 0.2], [0.3, -0.2], [-0.3, -0.2], [-0.3, 0.2]],
     'limits': {'max_vel_x': 0.5, 'max_vel_theta': 1.0},
     'goal': {'xy_tolerance': 0.2, 'yaw_tolerance': 0.3},
-    'nav2': {'odom_topic': '/wheel/odom', 'scan_topic': '/front/scan', 'map_topic': '/map'},
+    'nav2': {'odom_topic': '/wheel/odom', 'map_topic': '/map'},
     'chassis': {'odom_topic': '/wheel/odom'},
 }
 

@@ -29,8 +29,6 @@ def test_import_boundaries():
                 targets = [node.module or '']
             for target in targets:
                 root = target.split('.')[0]
-                if root == 'david_nav':
-                    violations.append(f'{relative}: reverse legacy dependency {target}')
                 if pure and (root in ('rclpy', 'websockets', 'yaml') or root.endswith('_msgs')):
                     violations.append(f'{relative}: I/O dependency in pure layer {target}')
                 if root == 'nav_tasks' and target != 'nav_tasks.api':

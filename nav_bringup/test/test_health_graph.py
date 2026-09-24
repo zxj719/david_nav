@@ -7,7 +7,7 @@ from nav_bringup.launching.graph import build_graph, GraphOptions
 from test_run_preparation import _prepare
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt'])
+@pytest.mark.parametrize('mode', ['tour', 'precise'])
 def test_navigation_graph_owns_one_warn_only_health_observer(tmp_path, mode):
     """Health is noncritical observation, not a localization provider or a motion owner."""
     graph = build_graph(GraphOptions(mode, str(tmp_path / 'run')))

@@ -57,7 +57,7 @@ def test_real_bundle_is_private_and_contains_the_mode_cases(tmp_path, robot, mod
     assert processes['fake_chassis'].package == 'nav_sim'
     assert processes['fake_localization'].package == 'nav_sim'
     assert processes['controller_server'].package == 'nav2_controller'
-    assert not {'wheeltec_robot', 'rviz2', 'pointcloud_to_laserscan'} & processes.keys()
+    assert not {'wheeltec_robot', 'rviz2'} & processes.keys()
     assert not any(item.package == 'wheeltec_driver' for item in processes.values())
     executor = processes['navigation_executor']
     assert ('--dock-poi-id' in executor.arguments) == (mode == 'precise')

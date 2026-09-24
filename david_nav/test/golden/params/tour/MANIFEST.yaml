@@ -1,9 +1,0 @@
-mode: tour
-params_file: david_nav/config/nav2_params_2d.yaml
-params_file_md5: 3c6125283009a5525eff4ad34230fa56
-launch: david_nav/launch/2d_david_nav2_bringup.launch.py cmd_shaping:=false
-fake_tf: map->odom->base_link identity (static)
-ros_domain_id: 99
-git_head: f898cf01fcdf6b7636bba55233a83d779875a832
-captured_at: 2026-09-14T17:47:10+02:00
-dump_failures: 0

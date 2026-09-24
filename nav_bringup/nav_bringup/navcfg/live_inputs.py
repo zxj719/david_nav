@@ -170,10 +170,6 @@ def load_live_spec(run_dir: Path) -> Tuple[LiveSpec, Tuple[Finding, ...]]:
             (value('nav2.odom_topic'), 'nav_msgs/msg/Odometry'),
             (value('nav2.map_topic'), 'nav_msgs/msg/OccupancyGrid')):
         rules.setdefault(topic(name), TopicRule(topic(name), message_type=message_type))
-    if options.scan_bridge:
-        for name, message_type in ((options.cloud_topic, 'sensor_msgs/msg/PointCloud2'),
-                                   (options.scan_topic, 'sensor_msgs/msg/LaserScan')):
-            rules.setdefault(topic(name), TopicRule(topic(name), message_type=message_type))
     health = profile.get('localization_health', {})
     if not isinstance(health, Mapping):
         raise ValueError('localization_health must be a mapping')

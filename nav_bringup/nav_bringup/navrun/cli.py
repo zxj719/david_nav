@@ -4,7 +4,7 @@
 不直接操作机器人，也不代替子命令做任何校验。
 
 Example:
-    navrun wrap --mode tour --alias 4 -- ~/ros2_ws/src/david_nav/start_navigation_headless.sh
+    navrun up --mode tour
     navrun doctor
     navrun monitor --run-dir ~/nav_runs/latest --base-frame <frames.nav_base> --topic /cmd_vel
     navrun dump-params --run-dir ~/nav_runs/latest
@@ -17,19 +17,15 @@ import json
 import os
 from pathlib import Path
 import sys
-from typing import Dict, Optional, Sequence
+from typing import Optional, Sequence
 
 from nav_bringup.doctor import checks
 from nav_bringup.doctor import live
-from nav_bringup.navrun import event_tail, wrap
 from nav_bringup.recorder import events
-from nav_bringup.recorder import linked_process
 from nav_bringup.recorder import monitor
 from nav_bringup.recorder import param_dump
 from nav_bringup.recorder import run_dir
 from nav_bringup.recorder import topic_stats
-
-DEFAULT_REPO_DIR = '~/ros2_ws/src'
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -104,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     up_parser = subparsers.add_parser('up', help='start and record a navigation mode')
     up_parser.add_argument('--mode', required=True, choices=(
-        'tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'))
+        'tour', 'precise', 'chassis', 'teleop'))
     up_parser.add_argument('--robot', default='david')
     up_parser.add_argument('--mode-file', type=Path,
                            help='explicit complete mode overlay; identity must match --mode')
@@ -132,56 +128,6 @@ def build_parser() -> argparse.ArgumentParser:
     up_parser.add_argument('--repo', type=Path, help='repository whose code state is recorded')
     up_parser.add_argument('--runs-root', type=Path, help='run root; not created by --dry-run')
     up_parser.add_argument('--source-root', type=Path, help='use source-tree resource files')
-
-    wrap_parser = subparsers.add_parser(
-        'wrap', help='record a run around an existing launch command')
-    wrap_parser.add_argument('--mode', required=True, help='run mode, e.g. tour or precise')
-    wrap_parser.add_argument(
-        '--alias', default=None, help='shell alias that started the run (default: $NAVRUN_ALIAS)')
-    wrap_parser.add_argument('--robot', default=None, help='robot profile name')
-    wrap_parser.add_argument('--site', default=None, help='site profile name')
-    wrap_parser.add_argument(
-        '--runs-root', type=Path, default=None, help='default: $NAV_RUNS_ROOT or ~/nav_runs')
-    wrap_parser.add_argument(
-        '--repo', type=Path, default=None, help='git repository to record (default: '
-        '$NAVRUN_REPO or ~/ros2_ws/src)')
-    wrap_parser.add_argument(
-        '--file', action='append', default=[], metavar='NAME=PATH',
-        help='input file to fingerprint in the manifest; repeatable')
-    wrap_parser.add_argument(
-        '--sample-interval', type=float, default=1.0, help='seconds between resource samples')
-    wrap_parser.add_argument(
-        '--no-gc', action='store_true', help='do not prune old runs before starting')
-    wrap_parser.add_argument(
-        '--monitor-base-frame', default=None, metavar='FRAME',
-        help='run navrun monitor next to the command with this robot frame '
-        '(robot profile frames.nav_base)')
-    wrap_parser.add_argument(
-        '--monitor-topic', action='append', default=[], metavar='TOPIC',
-        help='topic whose rate the monitor records; repeatable')
-    wrap_parser.add_argument(
-        '--monitor-period', type=float, default=topic_stats.DEFAULT_PERIOD_SEC,
-        help='seconds between topics.csv samples')
-    wrap_parser.add_argument(
-        '--ready-action', default=wrap.DEFAULT_READY_ACTION, metavar='ACTION',
-        help='action whose server marks the stack as ready (default: %(default)s)')
-    wrap_parser.add_argument(
-        '--no-dump-params', action='store_true',
-        help='do not dump effective parameters when the ready action is up')
-    wrap_parser.add_argument(
-        '--loc-process', default=None, metavar='EXECUTABLE',
-        help='executable of the separately started localization to link to the run '
-        '(robot profile localization.process_name)')
-    wrap_parser.add_argument(
-        '--loc-config-flag', action='append', default=None, metavar='FLAG',
-        help='name of a localization flag whose value is a config file to hash, e.g. '
-        'config for --config; repeatable (default: config)')
-    wrap_parser.add_argument(
-        '--loc-log', action='append', default=[], metavar='GLOB',
-        help='localization log files to excerpt into logs/loc; {pid} is replaced with the '
-        'process id; repeatable')
-    wrap_parser.add_argument(
-        'command', nargs=argparse.REMAINDER, help='command to run, placed after --')
 
     doctor_parser = subparsers.add_parser(
         'doctor', help='read-only checks for known navigation failure modes')
@@ -255,29 +201,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_file_arguments(values: Sequence[str]) -> Dict[str, Path]:
-    """解析可重复出现的 ``NAME=PATH`` 参数.
-
-    只做展开与查重，不检查路径是否存在、是否可读。
-
-    Args:
-        values: 原始参数值。
-
-    Returns:
-        名字到其展开后路径的映射。
-
-    Raises:
-        ValueError: 某项没有 ``=``，或名字、路径为空。
-    """
-    files: Dict[str, Path] = {}
-    for value in values:
-        name, separator, path = value.partition('=')
-        if not separator or not name or not path:
-            raise ValueError(f'--file expects NAME=PATH, got {value!r}')
-        files[name] = Path(path).expanduser()
-    return files
-
-
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """运行 ``navrun`` 命令行.
 
@@ -324,7 +247,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _monitor(parser, args)
     if args.subcommand == 'dump-params':
         return _dump_params(parser, args)
-    return _wrap(parser, args)
+    parser.error(f'unsupported command: {args.subcommand}')
 
 
 def _run_directory(explicit: Optional[Path]) -> Optional[run_dir.RunDirectory]:
@@ -345,10 +268,6 @@ def _run_directory(explicit: Optional[Path]) -> Optional[run_dir.RunDirectory]:
         return None
     directory = directory.expanduser()
     return run_dir.RunDirectory(directory.parent, directory.name)
-
-
-def _as_flag(name: str) -> str:
-    return name if name.startswith('-') else f'--{name}'
 
 
 def _doctor(args: argparse.Namespace) -> int:
@@ -436,7 +355,7 @@ def _dump_params(parser: argparse.ArgumentParser, args: argparse.Namespace) -> i
     report = param_dump.dump_graph(output_dir, settings=settings)
     if run is not None:
         events.EventLog(run.events).append(
-            wrap.EVENT_SOURCE, 'params_dumped', 'info' if report.ok else 'warn',
+            'navrun', 'params_dumped', 'info' if report.ok else 'warn',
             report.to_dict())
     problems = ', node list failed' if report.list_failed else ''
     print(
@@ -445,75 +364,6 @@ def _dump_params(parser: argparse.ArgumentParser, args: argparse.Namespace) -> i
         file=sys.stderr,
     )
     return 0 if report.ok else 1
-
-
-def _wrap(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
-    """解析命令包装、观察与定位日志关联配置，再委托受管运行器执行.
-
-    Args:
-        parser: CLI 参数错误报告器。
-        args: 包含待执行命令、记录目录、采样及可选监测选项的参数。
-
-    Returns:
-        受管命令的退出码；创建的运行目录和退出原因打印到标准错误。
-
-    Raises:
-        SystemExit: 缺少命令、文件标记或关联配置无效。
-        Exception: 运行器启动、采样或收尾失败；不在此自行扩大进程管理范围。
-    """
-    command = list(args.command)
-    if command and command[0] == '--':
-        command = command[1:]
-    if not command:
-        parser.error('wrap needs a command after --')
-    try:
-        files = parse_file_arguments(args.file)
-    except ValueError as error:
-        parser.error(str(error))
-    repo_dir = args.repo or Path(os.environ.get('NAVRUN_REPO', DEFAULT_REPO_DIR))
-    monitor_command = None
-    if args.monitor_base_frame:
-        monitor_command = wrap.monitor_command(
-            base_frame=args.monitor_base_frame,
-            topics=args.monitor_topic,
-            period_sec=args.monitor_period,
-            ready_action=args.ready_action,
-            dump_params=not args.no_dump_params,
-        )
-    linked = ()
-    if args.loc_process:
-        flags = tuple(_as_flag(flag) for flag in (args.loc_config_flag or ['config']))
-        try:
-            linked = (linked_process.LinkSpec(
-                name='loc', executable=args.loc_process, config_flags=flags,
-                log_globs=tuple(args.loc_log)),)
-        except ValueError as error:
-            parser.error(str(error))
-    options = wrap.WrapOptions(
-        command=command,
-        mode=args.mode,
-        runs_root=(args.runs_root or run_dir.default_runs_root()).expanduser(),
-        repo_dir=repo_dir.expanduser(),
-        alias=args.alias,
-        robot=args.robot,
-        site=args.site,
-        files=files,
-        sample_interval_sec=args.sample_interval,
-        gc=not args.no_gc,
-        monitor_command=monitor_command,
-        event_flush_command=event_tail.command() if monitor_command else None,
-        linked=linked,
-    )
-    try:
-        result = wrap.run_wrapped(options)
-    except ValueError as error:
-        parser.error(str(error))
-    print(
-        f'navrun: run record {result.run.path} '
-        f'({result.exit_reason}, exit {result.exit_code})',
-        file=sys.stderr,
-    )
-    return result.exit_code
 
 
 if __name__ == '__main__':

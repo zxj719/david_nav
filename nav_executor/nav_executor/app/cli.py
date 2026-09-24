@@ -19,7 +19,7 @@ def build_help_text() -> str:
         'usage: navigation_executor.py [--server-uri URI] [--poi-store-file PATH] '
         '[--pose-file PATH] [ROS args...]',
         '',
-        'Robot-side WebSocket navigation executor for david_nav.',
+        'Robot-side WebSocket navigation executor.',
         '',
         'options:',
         '  --server-uri URI        Agent WebSocket server (nav WS v1). Default:',

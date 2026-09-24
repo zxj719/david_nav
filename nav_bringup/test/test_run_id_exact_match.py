@@ -40,7 +40,7 @@ def test_listing_ignores_nonexact_id_without_modifying_it(tmp_path):
     assert invalid.is_dir()
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt'])
+@pytest.mark.parametrize('mode', ['tour', 'precise'])
 def test_valid_ids_round_trip_through_creation_listing_and_reading(tmp_path, mode):
     """正常模式保持命名格式，并可被严格的记录读取器接收."""
     name = run_dir.make_run_id(mode, 'abcdef0123456789', START)

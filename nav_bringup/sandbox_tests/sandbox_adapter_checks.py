@@ -17,9 +17,20 @@ import yaml
 def test_adapter_parameters_and_exit_zero(sessions, tmp_path, mode, signum):
     """No command input is ever published; only the owned node's shutdown zeros appear."""
     source = Path(__file__).resolve().parents[2]
-    golden = yaml.safe_load((source / (
-        f'david_nav/test/golden/params/{mode}/david_move.yaml')).read_text())
-    expected = golden['/david_move']['ros__parameters']
+    profile = yaml.safe_load((source / 'david_config/robot/david.yaml').read_text())
+    adapter = profile['chassis']['adapter']
+    expected = {
+        'input_cmd_vel_topic': adapter['input_topic'],
+        'output_cmd_vel_topic': profile['chassis']['cmd_topic'],
+        'max_linear_x': adapter['hard_max_linear_x'],
+        'max_angular_z': adapter['hard_max_angular_z'],
+        'min_linear_x': adapter['min_linear_x'],
+        'min_angular_z': adapter['min_angular_z'],
+        'min_stationary_angular_z': adapter['min_stationary_angular_z'],
+        'stationary_angular_threshold': adapter['stationary_angular_threshold'],
+        'cmd_vel_timeout': adapter['cmd_timeout_sec'],
+        'publish_hz': adapter['publish_hz'],
+    }
     parameter_file = tmp_path / 'adapter.yaml'
     parameter_file.write_text(yaml.safe_dump({
         'chassis_adapter': {'ros__parameters': expected}}))

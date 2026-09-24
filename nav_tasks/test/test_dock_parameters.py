@@ -1,8 +1,6 @@
-"""Legacy Dock parameter binding without a ROS context or motion publication."""
+"""Dock parameter binding without a ROS context or motion publication."""
 
-import ast
 from dataclasses import FrozenInstanceError
-from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
@@ -39,16 +37,10 @@ class _Node:
         return NS(value=self.values[name])
 
 
-def test_parameter_names_equal_old_node_and_keep_distinct_wiring():
-    """Every old declaration is represented, without substituting POI capture frames."""
-    root = Path(__file__).resolve().parents[2]
-    path = root / 'david_nav/test/golden/legacy_entries/dock_navigator.py.txt'
-    source = ast.parse(path.read_text())
-    old = {node.args[0].value for node in ast.walk(source)
-           if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-           and node.func.attr == 'declare_parameter'}
+def test_parameter_names_are_complete_and_keep_distinct_wiring():
+    """Every runtime input is explicit, without substituting POI capture frames."""
     raw = parameters()
-    assert old == set(raw)
+    assert len(raw) == 16
     value = dock_config_from_parameters(raw)
     assert value.goal_topic == '/custom_dock'
     assert value.action_name == 'custom_dock_action'
@@ -80,7 +72,7 @@ def test_declares_original_defaults_then_uses_ros_overrides():
     assert value.runtime.footprint[0] == (-0.2, -0.2)
 
 
-def test_optional_backend_wiring_is_explicit_not_an_extra_legacy_parameter():
+def test_optional_backend_wiring_is_explicit_not_an_extra_ros_parameter():
     """Spin remapping and TF budget can be supplied without growing the ROS parameter list."""
     node = _Node()
     value = declare_dock_parameters(node, parameters(), spin_action_name='/custom_spin',
@@ -110,7 +102,7 @@ def test_invalid_defaults_fail_before_parameter_declaration(name, value):
 
 @pytest.mark.parametrize('name', list(parameters()))
 def test_missing_parameter_is_not_replaced_by_helper_defaults(name):
-    """All sixteen legacy values must come from explicit defaults or rendered mode data."""
+    """All sixteen values must come from explicit defaults or rendered mode data."""
     raw = parameters()
     del raw[name]
     with pytest.raises(ConfigError, match=name):

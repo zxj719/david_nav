@@ -28,7 +28,7 @@ setup(
         ('share/' + PACKAGE_NAME + '/dock', glob('dock/*.yaml')),
         ('share/' + PACKAGE_NAME + '/modes', glob('modes/*.yaml')),
         ('share/' + PACKAGE_NAME + '/urdf', glob('urdf/*.urdf')),
-    ] + _tree('sites') + _tree('modes/experiments') + _tree('modes/overlays'),
+    ] + _tree('sites') + _tree('modes/experiments') + _tree('modes/overlays') + _tree('meshes'),
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='zhangxingjian',

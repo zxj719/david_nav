@@ -75,10 +75,9 @@ def test_relative_import_in_initializer():
     'from nav_tasks.core import state',
     'import nav_tasks.nav2_client',
     'from nav_tasks import nav2_client',
-    'import david_nav',
 ])
 def test_executor_public_package_boundary(source):
-    """The executor cannot import private task implementation or legacy code."""
+    """The executor cannot import private task implementation modules."""
     assert check_sources('nav_executor', {'nav_executor.app.runtime': source})
 
 

@@ -1,4 +1,4 @@
-# Explicit formats preserve legacy XML attribute text, including trailing zeros.
+# Explicit formats keep generated XML stable, including trailing zeros.
 schema_version: 1
 bindings:
   nav_base: {key: frames.nav_base}

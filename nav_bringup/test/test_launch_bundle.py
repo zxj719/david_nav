@@ -32,8 +32,8 @@ def _prepare(root, mode='tour'):
     return data
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'])
-def test_bundle_reads_all_five_modes_without_modifying_files(tmp_path: Path, mode: str) -> None:
+@pytest.mark.parametrize('mode', ['tour', 'precise', 'chassis', 'teleop'])
+def test_bundle_reads_all_four_modes_without_modifying_files(tmp_path: Path, mode: str) -> None:
     """Bundle selection is read-only and keeps supplied identities."""
     _prepare(tmp_path, mode)
     before = {path: path.read_bytes() for path in tmp_path.rglob('*') if path.is_file()}

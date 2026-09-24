@@ -1,6 +1,6 @@
-"""绑定各节点的参数名，同时保持底盘与入位的既有对外约定不变.
+"""把唯一启动图中的节点绑定到已验证档案参数.
 
-迁移期这些参数名要和旧实现逐字一致，才能把"行为没变"这件事验证出来。
+运行期不读取其它参数源；底盘、遥控和入位均从同一有效档案生成。
 """
 
 from __future__ import annotations
@@ -27,9 +27,6 @@ _TELEOP_KEYS = {
     'linear_deadzone': 'linear_deadzone', 'angular_deadzone': 'angular_deadzone',
     'layout': 'layout', 'tty_device': 'tty_device',
 }
-_SCAN_KEYS = (
-    'transform_tolerance', 'min_height', 'max_height', 'angle_min', 'angle_max',
-    'angle_increment', 'scan_time', 'range_min', 'range_max', 'use_inf')
 
 
 def _node(name: str, parameters: Mapping[str, Any]) -> Dict[str, Any]:
@@ -52,7 +49,7 @@ def node_parameters(
 ) -> Dict[str, Any]:
     """为已解析启动图选中的进程构建参数树.
 
-    迁移期底盘与遥控的参数名与旧实现保持兼容。入位容差取自模式档案，
+    底盘与遥控参数名由各自节点的公共接口定义。入位容差取自模式档案，
     其余默认值沿用精准模式的既有启动策略与用户设定的停止速率。
     入位参数只在精准模式生成——现场的导览模式本来就没有入位节点。
 
@@ -123,11 +120,6 @@ def node_parameters(
     if options.robot_state:
         output['robot_state'] = _node('robot_state_publisher', {
             'use_sim_time': False, 'robot_description': navigation['robot_description']})
-    if options.scan_bridge:
-        scan = {key: render.profile_value(profile, 'sensors.scan_from_cloud.' + key)
-                for key in _SCAN_KEYS}
-        scan['target_frame'] = render.profile_value(profile, 'frames.scan_target')
-        output['scan_bridge'] = _node('pointcloud_to_laserscan', scan)
     if options.mode == 'precise':
         dock = {
             'approach_dist': render.profile_value(profile, 'dock.approach_dist'),

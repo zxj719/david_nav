@@ -10,7 +10,7 @@ from nav_bringup.launching.graph import build_graph, GraphOptions
 from test_launch_bundle import _prepare
 
 
-@pytest.mark.parametrize('mode', ['tour', 'precise', 'bench_slamgt'])
+@pytest.mark.parametrize('mode', ['tour', 'precise'])
 @pytest.mark.parametrize('smoother', [True, False])
 @pytest.mark.parametrize('adapter', ['python', 'cpp'])
 def test_composition_preserves_logical_graph_and_groups_only_eligible_nodes(
@@ -55,17 +55,6 @@ def test_profile_selected_driver_keeps_its_independent_restart_contract():
     physical = physical_graph(graph)
     assert physical.processes[0] == graph.processes[0]
     assert physical.processes[0].restart_limit == 1
-
-
-def test_composition_respects_optional_map_and_independent_scan_bridge():
-    """An external map is not loaded, while perception remains its own process."""
-    from nav_bringup.launching.composition import component_specs, physical_graph
-
-    graph = build_graph(GraphOptions(
-        'tour', '/unused/run', composition=True, map_server=False, scan_bridge=True))
-    assert 'map_server' not in graph.lifecycle_nodes
-    assert len(component_specs(graph)) == 6
-    assert any(spec.name == 'pointcloud_to_laserscan' for spec in physical_graph(graph).processes)
 
 
 def test_frozen_composition_default_and_explicit_override(tmp_path):

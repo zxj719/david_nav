@@ -309,7 +309,7 @@ def _validate(options, steps):
     Raises:
         ValueError: 名称、模式、路径或步骤标签不符合约束。
     """
-    if options.mode not in ('tour', 'precise', 'bench_slamgt', 'chassis', 'teleop'):
+    if options.mode not in ('tour', 'precise', 'chassis', 'teleop'):
         raise ValueError('unknown startup mode')
     for name in (options.robot, options.site):
         if not re.fullmatch('[a-z][a-z0-9_]*', name):
@@ -368,7 +368,7 @@ def _link_spec(plan):
         导航模式且配置了进程名时的 LinkSpec；其它情况为 None。
         仅描述配置参数标记与日志路径规则，不读取日志负载。
     """
-    if plan.bundle.options.mode not in ('tour', 'precise', 'bench_slamgt'):
+    if plan.bundle.options.mode not in ('tour', 'precise'):
         return None
     artifacts = dict(plan.bundle.artifacts)
     profile = yaml.safe_load(artifacts['params/inputs/robot.yaml'])

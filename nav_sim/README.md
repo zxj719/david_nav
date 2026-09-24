@@ -2,8 +2,8 @@
 
 PLAN §13.4 / P3.4 的可配置离线假件，不依赖真实驱动，不打开串口。
 
-- `fake_chassis` 订阅 `cmd_topic`（默认 `/cmd_vel`），以固定 `dt=0.02` 按旧
-  `david_nav/scripts/sim_fake_chassis.py` 的显式 Euler 规则积分，发布 `odom_topic`
+- `fake_chassis` 订阅 `cmd_topic`（默认 `/cmd_vel`），以固定 `dt=0.02` 按显式
+  Euler 规则积分，发布 `odom_topic`
   （默认 `/odom`）。仅使用 linear.x / angular.z；默认静止，延续旧脚本持有最后指令的语义。
   必填 `odom_frame`、`body_frame`；新消息明确填 child_frame_id，避免假定位猜测机器人帧。
 - `fake_localization` 接收上述里程计，发布恒等 map→odom 和积分 odom→body。
