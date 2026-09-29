@@ -127,5 +127,6 @@ cd ~/ros2_ws_refactor/src/nav_bringup && python3 -m pytest test -q
 | [docs/porting.md](docs/porting.md) | 换机器人 |
 | [docs/behavior_policy.md](docs/behavior_policy.md) | 行为与安全边界 |
 | [docs/events.md](docs/events.md) | 事件契约与交付限制 |
+| [docs/agent_navigation_tools.md](docs/agent_navigation_tools.md) | Agent 可调用的导航工具、事件和任务编排边界 |
 | [docs/protocol/](docs/protocol/) | 上位机 WS 协议、AsyncAPI、ADR |
 | [docs/alias_mapping.md](docs/alias_mapping.md) | 现场快捷键与重构版入口的对应 |
