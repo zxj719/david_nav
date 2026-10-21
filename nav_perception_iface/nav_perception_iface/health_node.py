@@ -20,7 +20,8 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
 
-from nav_perception_iface.health_core import HealthMonitor, HealthPolicy, PoseSample
+from nav_perception_iface.health_core import (
+    HealthMonitor, HealthPolicy, MapOdomLagMonitor, PoseSample)
 
 _LEVELS = {'info': DiagnosticStatus.OK, 'warn': DiagnosticStatus.WARN,
            'error': DiagnosticStatus.ERROR}
@@ -80,11 +81,13 @@ class LocalizationMonitor(Node):
         self._next_failure = 0.0
         self._identity = uuid.uuid4().hex
         self._sequence = 0
+        self._lag_warn = None
         try:
             defaults = dict(map_frame='', odom_frame='', nav_frame='', chassis_odom_topic='',
                             chassis_odom_frame='',
                             max_tf_age_sec=0.5, max_divergence_m=1.0,
-                            divergence_window_sec=2.0, action='warn')
+                            divergence_window_sec=2.0, action='warn',
+                            max_map_odom_lag_sec=0.3, map_odom_lag_samples=3)
             for name, value in defaults.items():
                 self.declare_parameter(name, value)
             values = {name: self.get_parameter(name).value for name in defaults}
@@ -94,9 +97,11 @@ class LocalizationMonitor(Node):
                     raise ValueError('health observation frame/topic must be explicit')
             self._frames = tuple(values[name] for name in ('map_frame', 'odom_frame', 'nav_frame'))
             self._wheel_frame = values['chassis_odom_frame']
-            self._core = HealthMonitor(HealthPolicy(**{
-                name: values[name] for name in (
-                    'max_tf_age_sec', 'max_divergence_m', 'divergence_window_sec', 'action')}))
+            policy = HealthPolicy(**{name: values[name] for name in (
+                'max_tf_age_sec', 'max_divergence_m', 'divergence_window_sec', 'action',
+                'max_map_odom_lag_sec', 'map_odom_lag_samples')})
+            self._core = HealthMonitor(policy)
+            self._lag = MapOdomLagMonitor(policy)
             self._buffer = Buffer()
             self._listener = TransformListener(self._buffer, self, spin_thread=False)
             self._diagnostics = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
@@ -143,7 +148,8 @@ class LocalizationMonitor(Node):
 
         定位就绪转换时单独发事件；状态变化立即上报，稳定状态按单调时钟
         最多每五秒重报一次。诊断消息每次定时回调发布，失败走节流告警。
-        TF 查询失败按不可用样本处理，不伪造健康状态。
+        TF 查询失败按不可用样本处理，不伪造健康状态。map→odom 滞后是第二个
+        诊断状态，只在进入告警和首次恢复时发事件，不改变主报告。
 
         Raises:
             Exception: 健康核心、消息构造或日志操作失败；诊断发布异常由
@@ -166,7 +172,15 @@ class LocalizationMonitor(Node):
                                   value.translation.y, _yaw(value.rotation))
             except Exception:
                 pass
+        edge_stamp = None
+        if localized:
+            try:
+                edge = self._buffer.lookup_transform(self._frames[0], self._frames[1], Time())
+                edge_stamp = _stamp(edge.header.stamp)
+            except Exception:
+                pass
         report = self._core.sample(now, bool(localized), pose, self._wheel)
+        lag = self._lag.sample(now, edge_stamp)
         if localized and not self._last_localized:
             self._event('localization_ready', 'info', {})
         self._last_localized = bool(localized)
@@ -175,12 +189,21 @@ class LocalizationMonitor(Node):
             self._event(report.code, report.severity, report.values)
             self._last_status = status
             self._next_event = time.monotonic() + 5.0
+        if lag.severity != 'info':
+            if lag.code != self._lag_warn:
+                self._event(lag.code, lag.severity, lag.values)
+                self._lag_warn = lag.code
+        elif lag.code == 'map_odom_lag_ok' and self._lag_warn is not None:
+            self._event('map_odom_lag_recovered', 'info', lag.values)
+            self._lag_warn = None
         diagnostic = DiagnosticArray()
         diagnostic.header.stamp = clock.to_msg()
-        details = [KeyValue(key=key, value=str(value)) for key, value in report.values.items()]
         diagnostic.status = [DiagnosticStatus(
-            level=_LEVELS[report.severity], name='localization_health', hardware_id='navigation',
-            message=report.code, values=details)]
+            level=_LEVELS[item.severity], name=name, hardware_id='navigation',
+            message=item.code,
+            values=[KeyValue(key=key, value=str(value)) for key, value in item.values.items()])
+            for name, item in (('localization_health', report),
+                               ('localization_map_odom_lag', lag))]
         try:
             self._diagnostics.publish(diagnostic)
         except Exception as error:

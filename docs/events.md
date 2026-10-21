@@ -12,7 +12,7 @@ stamp为有限Unix wall秒，不是ROS仿真时间；data_json为对象且数值
 | `tasks` | admitted/phase/progress/paused/cleanup/fault及succeeded/failed/canceled | 终态在释放软件所有权后；外部CANCELED的paused仍非终态 |
 | `dock` | started/approach_checked/stage_started/measured/spin/after_spin/no_pose，全局带dock_前缀 | 测量事件不等于任务成功；`~/events` String保留同一原始stamp/id |
 | `navrun` | 生命周期/预检/启动/检查/退出的有限字段投影 | 来自原events.jsonl，持久UUID+字节offset身份，原记录时间不变 |
-| `localization_health` | waiting/ready、TF或odom缺失/过期/未来、clock_reset/numeric_range、health_ok/divergence | 每次状态变化或5s，另有5Hz diagnostics；ready仅表示map→odom可查 |
+| `localization_health` | waiting/ready、TF或odom缺失/过期/未来、clock_reset/numeric_range、health_ok/divergence；另有 map_odom_lag_persistent/map_odom_future/map_odom_lag_numeric_range/map_odom_lag_recovered | 每次状态变化或5s，另有5Hz diagnostics；ready仅表示map→odom可查；map_odom_* 只在进入告警与首次恢复时发 |
 
 任务/Dock具体字段与生命周期见 [任务事件](../nav_tasks/docs/events.md)。
 生产者使用reliable/volatile/keep-last depth10；晚订阅者没有历史保证。

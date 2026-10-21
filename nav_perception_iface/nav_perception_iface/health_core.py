@@ -22,23 +22,32 @@ class HealthPolicy:
         max_divergence_m: 位移向量残差的严格超限阈值，单位米。
         divergence_window_sec: 配对观察的最长比较窗口，单位 ROS 秒。
         action: 只接受 warn；即使报告等级为 error 也不自动触发停车。
+        max_map_odom_lag_sec: map→odom 最新样本允许的滞后，单位 ROS 秒；
+            严格超过才计入连续超阈次数。
+        map_odom_lag_samples: 连续超阈多少次才报告持续滞后，单个尖峰不告警。
     """
 
     max_tf_age_sec: float = 0.5
     max_divergence_m: float = 1.0
     divergence_window_sec: float = 2.0
     action: str = 'warn'
+    max_map_odom_lag_sec: float = 0.3
+    map_odom_lag_samples: int = 3
 
     def __post_init__(self) -> None:
         """在分配观察资源前校验策略，不接受隐式开启停车行为.
 
         Raises:
-            ValueError: 阈值不是正的有限 int/float，或 action 不是 warn。
+            ValueError: 阈值不是正的有限 int/float、连续次数不是正整数，
+                或 action 不是 warn。
             OverflowError: 超大整数无法转换为有限性检查所需的浮点数。
         """
         if any(not _finite(value) or value <= 0 for value in (
-                self.max_tf_age_sec, self.max_divergence_m, self.divergence_window_sec)):
+                self.max_tf_age_sec, self.max_divergence_m, self.divergence_window_sec,
+                self.max_map_odom_lag_sec)):
             raise ValueError('health thresholds must be positive finite numbers')
+        if type(self.map_odom_lag_samples) is not int or self.map_odom_lag_samples < 1:
+            raise ValueError('map->odom lag sample count must be a positive int')
         if self.action != 'warn':
             raise ValueError('only warn is commissioned; automatic stop is TODO-H1')
 
@@ -194,3 +203,64 @@ class HealthMonitor:
         """
         self._history.clear()
         return HealthReport('warn', code, dict(values or {}))
+
+
+class MapOdomLagMonitor:
+    """只看 map→odom 这一条边的持续滞后，与位移一致性检查互不遮蔽.
+
+    滞后是观测时刻减去该边最新样本的时间戳，包含最多一个发布间隔的采样偏移。
+    严格超过阈值的连续次数达到设定值才报告，单个尖峰只留在证据里。
+    Lightning 降到 10 Hz、滞后约 156 ms 的那类劣化不在本检查覆盖范围内。
+
+    Attributes:
+        policy: 提供滞后阈值、连续次数与未来时间戳界限的只告警策略。
+    """
+
+    def __init__(self, policy: HealthPolicy) -> None:
+        """保存策略并清零连续超阈计数，不创建 ROS、时钟或线程.
+
+        Args:
+            policy: 已校验的只告警策略。
+        """
+        self.policy = policy
+        self._over = 0
+        self._last_now = None
+
+    def sample(self, now: float, stamp: Optional[float]) -> HealthReport:
+        """评估一次 map→odom 滞后，返回独立于主健康报告的状态.
+
+        时钟回退、缺样本、数值溢出和明显未来的时间戳都会清零连续计数。
+
+        Args:
+            now: 当前 ROS 或仿真时间，单位秒。
+            stamp: 该边最新样本的时间戳，单位秒；没有样本时为 None。
+
+        Returns:
+            map_odom_lag_ok 与 map_odom_lag_unavailable 为 info；
+            map_odom_lag_persistent、map_odom_future 与 map_odom_lag_numeric_range
+            为 warn。证据保留带符号的滞后，不取绝对值。
+
+        Raises:
+            ValueError: now 不是有限内置数值，或 stamp 既不是 None 也不是有限内置数值。
+            OverflowError: 超大整数无法进行浮点有限性检查。
+        """
+        if not _finite(now) or (stamp is not None and not _finite(stamp)):
+            raise ValueError('map->odom lag times must be finite numbers')
+        previous, self._last_now = self._last_now, now
+        if previous is not None and now < previous:
+            self._over = 0
+        if stamp is None:
+            self._over = 0
+            return HealthReport('info', 'map_odom_lag_unavailable', {})
+        lag = now - stamp
+        if not math.isfinite(lag):
+            self._over = 0
+            return HealthReport('warn', 'map_odom_lag_numeric_range', {})
+        if lag < -self.policy.max_tf_age_sec:
+            self._over = 0
+            return HealthReport('warn', 'map_odom_future', {'map_odom_lag_sec': lag})
+        self._over = self._over + 1 if lag > self.policy.max_map_odom_lag_sec else 0
+        values = {'map_odom_lag_sec': lag, 'over_threshold_samples': self._over}
+        if self._over >= self.policy.map_odom_lag_samples:
+            return HealthReport('warn', 'map_odom_lag_persistent', values)
+        return HealthReport('info', 'map_odom_lag_ok', values)

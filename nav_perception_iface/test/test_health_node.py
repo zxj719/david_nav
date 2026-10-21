@@ -1,6 +1,7 @@
 """Exercise the real health-node composition using fake ROS, never a DDS participant."""
 
 import importlib
+import json
 import math
 import sys
 from types import ModuleType, SimpleNamespace as NS
@@ -274,3 +275,83 @@ def test_health_severity_transitions_use_distinct_ros_logging_call_sites(runtime
         assert len(state.publishers['/nav/events']) == 5
     finally:
         node.destroy_node()
+
+
+def _lagging_ticks(state, lag, ticks, start=10.0):
+    for tick in range(ticks):
+        state.now = start + 0.2 * tick
+        state.mono = state.now - 10.0
+        state.transforms['world', 'axle'] = _transform(state.now)
+        state.transforms['world', 'encoder'] = _transform(state.now - lag)
+        state.subscriptions[0].callback(_odom(state.now, child='axle'))
+        state.timers[0][1]()
+
+
+def _lag_events(state):
+    return [e for e in state.publishers['/nav/events'] if e.event_type.startswith('map_odom')]
+
+
+def test_persistent_map_odom_lag_is_one_warn_event_on_its_own_status(runtime):
+    """The latched lag is measured on map->odom itself and reported on a second status."""
+    module, state = runtime
+    state.localized = True
+    node = module.LocalizationMonitor()
+    _lagging_ticks(state, 0.45, 4)
+    events = _lag_events(state)
+    assert [e.event_type for e in events] == ['map_odom_lag_persistent']
+    assert events[0].severity == 'warn'
+    assert json.loads(events[0].data_json)['map_odom_lag_sec'] == pytest.approx(0.45)
+    statuses = state.publishers['/diagnostics'][-1].status
+    assert statuses[0].name == 'localization_health'
+    assert statuses[1].name == 'localization_map_odom_lag'
+    assert statuses[1].level == bytes([1])
+    assert ('world', 'encoder') in [(t, s) for t, s, _ in state.lookups]
+    node.destroy_node()
+
+
+def test_healthy_map_odom_lag_adds_no_events(runtime):
+    """A healthy edge only shows up in diagnostics; the event stream stays unchanged."""
+    module, state = runtime
+    state.localized = True
+    node = module.LocalizationMonitor()
+    _lagging_ticks(state, 0.03, 5)
+    assert not _lag_events(state)
+    assert state.publishers['/diagnostics'][-1].status[1].level == bytes([0])
+    node.destroy_node()
+
+
+def test_lag_recovery_is_reported_once(runtime):
+    """Entering and leaving the persistent state produce exactly one event each."""
+    module, state = runtime
+    state.localized = True
+    node = module.LocalizationMonitor()
+    _lagging_ticks(state, 0.45, 3)
+    _lagging_ticks(state, 0.03, 3, start=10.6)
+    assert [e.event_type for e in _lag_events(state)] == [
+        'map_odom_lag_persistent', 'map_odom_lag_recovered']
+    node.destroy_node()
+
+
+def test_persistent_lag_does_not_mask_divergence(runtime):
+    """A session-long lag state must not hide a 28 m localization jump."""
+    module, state = runtime
+    state.localized = True
+    node = module.LocalizationMonitor()
+    _lagging_ticks(state, 0.45, 3)
+    state.now, state.mono = 10.6, 0.6
+    state.transforms['world', 'axle'] = _transform(10.6, 28)
+    state.transforms['world', 'encoder'] = _transform(10.6 - 0.45)
+    state.subscriptions[0].callback(_odom(10.6, child='axle'))
+    state.timers[0][1]()
+    names = [e.event_type for e in state.publishers['/nav/events']]
+    assert 'map_odom_lag_persistent' in names and names[-1] == 'localization_divergence'
+    node.destroy_node()
+
+
+def test_lag_policy_parameters_are_declared_with_defaults(runtime):
+    """Both lag settings are ordinary node parameters with the offline defaults."""
+    module, state = runtime
+    node = module.LocalizationMonitor()
+    assert state.params['max_map_odom_lag_sec'] == 0.3
+    assert state.params['map_odom_lag_samples'] == 3
+    node.destroy_node()

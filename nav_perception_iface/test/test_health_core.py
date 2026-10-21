@@ -131,3 +131,106 @@ def test_finite_extremes_cannot_produce_nonfinite_evidence():
     report = core.sample(1e308, True, _pose(-1e308), _pose(1e308))
     assert report.severity == 'warn'
     assert all(math.isfinite(value) for value in report.values.values())
+
+
+def _lag(**changes):
+    from nav_perception_iface.health_core import HealthPolicy, MapOdomLagMonitor
+
+    return MapOdomLagMonitor(HealthPolicy(**changes))
+
+
+def test_map_odom_normal_sequence_stays_ok():
+    """Normal lag plus sampling offset (well under 0.3 s) never becomes a warning."""
+    lag = _lag()
+    for tick in range(20):
+        now = 10 + 0.2 * tick
+        report = lag.sample(now, now - 0.03 - (tick % 3) * 0.025)
+        assert report.code == 'map_odom_lag_ok' and report.severity == 'info'
+    assert report.values['over_threshold_samples'] == 0
+
+
+def test_persistent_450ms_lag_needs_three_consecutive_samples():
+    """The latched ~450 ms map->odom lag is reported once it persists for three samples."""
+    lag = _lag()
+    codes = [lag.sample(now, now - 0.45).code for now in (10, 10.2, 10.4, 10.6)]
+    assert codes == ['map_odom_lag_ok', 'map_odom_lag_ok',
+                     'map_odom_lag_persistent', 'map_odom_lag_persistent']
+    report = lag.sample(10.8, 10.8 - 0.45)
+    assert report.severity == 'warn'
+    assert report.values['map_odom_lag_sec'] == pytest.approx(0.45)
+    assert report.values['over_threshold_samples'] == 5
+
+
+def test_single_spike_is_recorded_but_not_persistent():
+    """One late sample stays visible as evidence without becoming a persistent warning."""
+    lag = _lag()
+    lag.sample(10, 9.97)
+    spike = lag.sample(10.2, 9.6)
+    assert spike.code == 'map_odom_lag_ok' and spike.values['over_threshold_samples'] == 1
+    assert spike.values['map_odom_lag_sec'] == pytest.approx(0.6)
+    after = lag.sample(10.4, 10.37)
+    assert after.code == 'map_odom_lag_ok' and after.values['over_threshold_samples'] == 0
+
+
+def test_recovery_after_persistent_lag():
+    """A normal sample ends the persistent state and restarts the count."""
+    lag = _lag()
+    for now in (10, 10.2, 10.4):
+        lag.sample(now, now - 0.45)
+    report = lag.sample(10.6, 10.58)
+    assert report.code == 'map_odom_lag_ok' and report.values['over_threshold_samples'] == 0
+
+
+def test_negative_lag_keeps_its_sign_and_clear_future_is_reported():
+    """A few ms in the future is normal and keeps its sign; a clearly future stamp warns."""
+    lag = _lag()
+    slight = lag.sample(10, 10.003)
+    assert slight.code == 'map_odom_lag_ok'
+    assert slight.values['map_odom_lag_sec'] == pytest.approx(-0.003)
+    future = lag.sample(10.2, 10.8)
+    assert future.code == 'map_odom_future' and future.severity == 'warn'
+    assert future.values['map_odom_lag_sec'] == pytest.approx(-0.6)
+
+
+def test_clock_regression_restarts_the_persistence_count():
+    """Samples from before a clock reset cannot complete a persistence run after it."""
+    lag = _lag()
+    lag.sample(10, 9.55)
+    lag.sample(10.2, 9.75)
+    report = lag.sample(5, 4.55)
+    assert report.code == 'map_odom_lag_ok' and report.values['over_threshold_samples'] == 1
+
+
+def test_missing_edge_is_unavailable_and_restarts_the_count():
+    """Waiting for localization is not lag and does not carry an old count forward."""
+    lag = _lag()
+    lag.sample(10, 9.55)
+    lag.sample(10.2, 9.75)
+    assert lag.sample(10.4, None).code == 'map_odom_lag_unavailable'
+    assert lag.sample(10.6, 10.15).values['over_threshold_samples'] == 1
+
+
+def test_degraded_10hz_signature_is_not_flagged_at_the_default_threshold():
+    """Known gap: the 156 ms / 10 Hz degradation needs a rate metric, not this check."""
+    lag = _lag()
+    for tick in range(10):
+        now = 10 + 0.2 * tick
+        assert lag.sample(now, now - 0.156 - (tick % 2) * 0.1).code == 'map_odom_lag_ok'
+
+
+@pytest.mark.parametrize('key,value', [
+    ('max_map_odom_lag_sec', 0), ('max_map_odom_lag_sec', float('nan')),
+    ('max_map_odom_lag_sec', True), ('map_odom_lag_samples', 0),
+    ('map_odom_lag_samples', 1.5), ('map_odom_lag_samples', True),
+])
+def test_invalid_lag_policy_is_rejected(key, value):
+    """Lag thresholds must be explicit positive numbers, never silently coerced."""
+    with pytest.raises(ValueError):
+        _lag(**{key: value})
+
+
+def test_overflowing_lag_is_a_numeric_warning_with_finite_evidence():
+    """An overflowing difference warns without putting a non-finite value into JSON."""
+    report = _lag().sample(1e308, -1e308)
+    assert report.code == 'map_odom_lag_numeric_range' and report.severity == 'warn'
+    assert all(math.isfinite(value) for value in report.values.values())
