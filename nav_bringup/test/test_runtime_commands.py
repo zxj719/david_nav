@@ -78,8 +78,6 @@ def test_navigation_uses_installed_check_cli_and_independent_dump(tmp_path, mode
     assert selected.record == ()
     assert selected.launch[-1] == 'phase:=core'
     assert selected.executor_launch == ()
-    assert selected.event_flush == (
-        '/fixture/python', '-m', 'nav_bringup.recorder.event_flush')
 
 
 @pytest.mark.parametrize('mode', ['tour', 'precise'])

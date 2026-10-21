@@ -15,7 +15,8 @@ WS协议/ROS Dock入站 → nav_executor同进程组装根
   → 共享Nav2Client / ActionSession → Nav2动作
 
 外部定位/TF + chassis odom → nav_perception_iface健康观察（仅warn）
-任务/Dock/健康/Navrun事件 → /nav/events → 既有monitor → events.jsonl/summary
+任务/Dock/健康事件 → /nav/events → 既有monitor → events.jsonl/summary
+navrun生命周期事件 → 父进程直接写 events.jsonl（不经DDS）
 ```
 
 定位提供方不由导航启动；`frames.body`、`nav_base`、`poi_capture`分别配置。
@@ -53,10 +54,10 @@ ROS入站需要≥2线程的宿主，不能把阻塞Dock流程放到loop或ROS�
 ## 记录和资源
 
 navrun在运行租约下冻结配置、保存manifest/code.diff/实际参数/事件/指标/摘要。
-monitor复用原节点订阅与发布；最终run_stopped晚于原监视器清理，故使用一次受管
-临时publisher补发尾部，租约保留直到它退出。该过程有临时开销，不承诺零成本。
+monitor只订阅/nav/events，把任务、Dock、健康事件落盘；navrun自己的生命周期事件
+（含最终run_stopped）由父进程直接写本地文件，不再向DDS投影或在退出后补发。
 健康观察是PLAN规定的独立5Hz节点；其它事件生产者不新增常驻观察线程。
-游标、DDS ACK和软件所有权事件不是实体停稳或应用持久处理证明，见 [events](events.md)。
+DDS ACK和软件所有权事件不是实体停稳或应用持久处理证明，见 [events](events.md)。
 
 ## 协议与现场验收
 

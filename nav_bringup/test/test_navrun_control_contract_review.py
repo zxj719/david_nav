@@ -5,29 +5,6 @@ import pytest
 from nav_bringup.navrun.control_server import RunControl
 from nav_bringup.navrun.delegated_lock import DelegatedLock
 from nav_bringup.navrun.locking import RunLock
-from nav_bringup.recorder.run_event_stream import RunEventStream
-
-
-def test_sealed_stream_is_idle_and_repeated_close_is_not_an_error(tmp_path):
-    """封存后 pump 恒返回 0；重复 close 不报错，也不再改写游标文件."""
-    (tmp_path / 'events.jsonl').write_bytes(b'')
-    sent, warnings = [], []
-    stream = RunEventStream(tmp_path / 'events.jsonl', sent.append, warnings.append)
-    cursor = tmp_path / 'nav_event_cursor.json'
-    before = cursor.read_bytes()
-    stream.close()
-    stream.close()  # 幂等：已封存时不做任何事。
-    assert stream.closed and stream.pump() == 0
-    assert cursor.read_bytes() == before and not sent and not warnings
-
-
-def test_batch_bound_is_rejected_before_the_sealed_check(tmp_path):
-    """批量上限非法一律抛错，封存与否都不改变该拒绝."""
-    (tmp_path / 'events.jsonl').write_bytes(b'')
-    stream = RunEventStream(tmp_path / 'events.jsonl', lambda message: None, lambda text: None)
-    stream.close()
-    with pytest.raises(ValueError):
-        stream.pump(max_records=0)
 
 
 def test_delegated_close_before_entry_is_a_noop_and_fileno_refuses(tmp_path):

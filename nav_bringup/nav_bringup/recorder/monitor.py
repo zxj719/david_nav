@@ -6,7 +6,8 @@ raw 不反序列化消息，但仍有传输开销，调用方应优先选择轻�
 
 可按动作状态话题的发布者数触发一次参数转储，子进程使用独立会话。
 该图观察不证明动作服务可用、生命周期激活或导航健康。运行目录存在时，
-同一节点还接收 /nav/events，并投射本地运行事件，通过身份前缀避免回写。
+同一节点还接收 /nav/events（任务、Dock、健康事件）并写入本地事件文件；
+navrun 自己的生命周期事件由父进程直接写本地文件，不经 DDS 发布。
 
 ROS 包在 spin 内导入；模块导入本身不创建 DDS 参与者。
 资源清理有初始化及顺序异常边界，不能承诺任意失败下都完整关闭。
@@ -24,7 +25,6 @@ from nav_bringup.recorder import bt_log_watcher
 from nav_bringup.recorder import bt_triggers
 from nav_bringup.recorder import events
 from nav_bringup.recorder.nav_events import NavEventRecorder
-from nav_bringup.recorder.run_event_stream import RunEventStream
 from nav_bringup.recorder import run_dir
 from nav_bringup.recorder import sessions
 from nav_bringup.recorder import topic_stats
@@ -213,7 +213,6 @@ def spin(
             sink.flush()
 
     event_recorder = None
-    event_stream = None
 
     if options.bt_topic:
         reporter = bt_log_watcher.TriggerReporter(
@@ -283,15 +282,13 @@ def spin(
                     EVENT_SOURCE, 'params_dump_start_failed', 'warn', {'error': str(error)})
 
     def sample() -> None:
-        """依次投射事件、检查就绪、补订阅并生成话题/TF 周期行.
+        """依次检查就绪、补订阅并生成话题/TF 周期行.
 
         样本 stamp 用墙钟，计数间隔用 RateCounter 的时钟，
         TF 时间差用节点 ROS 时钟与变换头时间；不构成同步快照。
         TF 查询缺失记为 None，只有配置了 writer 才追加 CSV；
         任何未处理异常都会中断本次回调，未写部分不回滚或补写。
         """
-        if event_stream is not None:
-            event_stream.pump()
         check_ready()
         subscribe_discovered()
         stamp = time.time()
@@ -311,17 +308,7 @@ def spin(
     node.create_timer(options.period_sec, sample)
     try:
         if event_log is not None:
-            prefixes = ()
-            try:
-                from david_nav_msgs.msg import NavEvent
-
-                publisher = node.create_publisher(NavEvent, '/nav/events', 10)
-                event_stream = RunEventStream(
-                    run.events, lambda values: publisher.publish(NavEvent(**values)), say)
-                prefixes = (event_stream.identity_prefix,)
-            except Exception as error:
-                say(f'cannot publish navrun events ({type(error).__name__})')
-            event_recorder = NavEventRecorder(event_log, say, ignored_prefixes=prefixes)
+            event_recorder = NavEventRecorder(event_log, say)
             try:
                 from david_nav_msgs.msg import NavEvent
 
@@ -329,15 +316,10 @@ def spin(
             except Exception as error:
                 event_recorder.close()
                 say(f'cannot subscribe to navigation events ({type(error).__name__})')
-        if event_stream is not None:
-            event_stream.pump()
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        if event_stream is not None:
-            event_stream.pump()
-            event_stream.close()
         if event_recorder is not None:
             event_recorder.close()
         for process in dump_processes:

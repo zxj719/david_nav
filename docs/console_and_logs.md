@@ -75,16 +75,15 @@ sed -E "s/\[[0-9]{10}\.[0-9]+\]//g; s/[0-9]+\.[0-9]+/N/g" ~/nav_runs/latest/logs
 一个容易困惑的点：`executor_launch_exited` 配 `exit 1` 时，执行器**可能是"正常退出"（退出码 0）**的——
 但它在该活着的时候退出了，所以仍按失败记 1。真正的原因要看 `logs/executor_launch.log` 的最后几行。
 
-## 事件文件的最后两行
+## 事件文件的最后一行
 
 ```
-{"source": "navrun",      "type": "run_stopped", "data": {"exit_code": 1, "exit_reason": "executor_launch_exited"}}
-{"source": "event_flush", "type": "failed",      "data": {"exit_code": 1}}
+{"source": "navrun", "type": "run_stopped", "data": {"exit_code": 1, "exit_reason": "executor_launch_exited"}}
 ```
 
-- **看 `run_stopped`**：这才是本次运行的结论。
-- 最后那条 `event_flush` 的 `finished`/`failed` 说的是**末尾事件发布器自己**的结果，不是运行成败；
-  它失败一般只影响"最后几条事件有没有发到 ROS 话题上"，**不影响运行目录里的记录完整性**。
+- **看 `run_stopped`**：这就是本次运行的结论，由 navrun 父进程在清理完之后直接写进本地文件。
+- 2026-10（W46）以前的运行目录里，它后面可能还跟着一条 `source` 为 `event_flush` 的记录。那是当时
+  末尾事件补发器自己的结果，不代表运行成败；这个补发器现在已经删除。
 
 ## 运行目录里哪个文件回答什么问题
 

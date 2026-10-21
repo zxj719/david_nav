@@ -1,6 +1,6 @@
 """Recorded startup uses actual bundles and only private non-ROS child commands."""
 
-from dataclasses import replace
+from dataclasses import fields, replace
 import datetime
 import io
 import os
@@ -78,42 +78,27 @@ def successful_lifecycle(monkeypatch):
     monkeypatch.setattr(startup, 'supervise', run)
 
 
-def test_event_tail_runs_after_true_terminal_record_under_lease(
-        tmp_path, monkeypatch, successful_lifecycle):
-    """Final observations cannot run early or release the navigation lease first."""
-    from nav_bringup.navrun import event_tail
-
-    options = _options(tmp_path)
-    calls = []
-
-    def flush(command, path, environ, events):
-        assert read_events(events.path)[0][-1].event_type == 'run_stopped'
-        assert read_manifest(path / 'manifest.yaml')['ended_at'] is None
-        with pytest.raises(LockBusy):
-            with RunLock(options.lock_path):
-                pass
-        calls.append(command)
-
-    monkeypatch.setattr(event_tail, 'flush_tail', flush)
-    result, _ = _run(options, commands=lambda plan: replace(
-        _commands(plan), event_flush=('fixture-final-events',)))
-    assert calls == [('fixture-final-events',)] and result.exit_code == 130
+def test_run_stopped_is_the_last_local_navrun_record(tmp_path, successful_lifecycle):
+    """The navrun parent writes its terminal record locally; no helper runs or writes after it."""
+    result, _ = _run(_options(tmp_path))
+    events = read_events(result.run.events)[0]
+    assert [e.event_type for e in events if e.source == 'navrun'][-1] == 'run_stopped'
+    assert all(e.source != 'event_flush' for e in events)
+    assert not (result.run.logs / 'event_flush.log').exists()
+    assert 'event_flush' not in {item.name for item in fields(StartupCommands)}
+    assert result.exit_code == 130
 
 
-def test_host_preparation_failure_never_starts_final_ros_helper(tmp_path, monkeypatch):
-    """A rejected preflight cannot cause ROS startup just to publish its own failure."""
-    from nav_bringup.navrun import event_tail
-
-    calls = []
-    monkeypatch.setattr(event_tail, 'flush_tail', lambda argv, *args: calls.append(argv))
-
+def test_host_preparation_failure_never_starts_final_ros_helper(tmp_path):
+    """A rejected preflight is recorded locally without any ROS helper process."""
     def reject(*args):
         raise RuntimeError('preflight rejected')
 
-    result, _ = _run(_options(tmp_path), commands=lambda plan: replace(
-        _commands(plan), event_flush=('fixture-final-events',)),
-        steps=(startup.StartupStep('preflight', reject),))
-    assert calls == [()] and result.exit_reason == 'preflight_failed'
+    result, _ = _run(_options(tmp_path), steps=(startup.StartupStep('preflight', reject),))
+    events = read_events(result.run.events)[0]
+    assert result.exit_reason == 'preflight_failed'
+    assert all(e.source != 'event_flush' for e in events)
+    assert not (result.run.logs / 'event_flush.log').exists()
 
 
 def test_run_record_written_before_prepare_and_finalized_before_unlock(

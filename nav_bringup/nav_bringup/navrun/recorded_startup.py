@@ -23,7 +23,6 @@ from typing import Callable, IO, Mapping, Optional, Sequence, Tuple
 import yaml
 
 from nav_bringup.navcfg import render
-from nav_bringup.navrun import event_tail
 from nav_bringup.navrun.control_server import RunControl
 from nav_bringup.navrun.locking import RunLock
 from nav_bringup.navrun.keyboard_session import KeyboardSession
@@ -214,7 +213,6 @@ def run_recorded_startup(
         linked = None
         link_spec = None
         keyboard = None
-        final_events = ()
         try:
             events.append('navrun', 'run_started')
             observer.start()
@@ -253,7 +251,6 @@ def run_recorded_startup(
                 events.append('navrun', 'startup_step_finished', data={'name': stage})
             _check_signal(stopped)
             stage = 'launch'
-            final_events = selected.event_flush
             if keyboard is None:
                 result = supervise(selected, run.path, events, env, lease, stopped)
             else:
@@ -291,7 +288,6 @@ def run_recorded_startup(
                 _event(events, 'linked_logs_failed', 'warn', {'error': str(error)})
         _event(events, 'run_stopped', 'info', {
             'exit_code': result.exit_code, 'exit_reason': result.exit_reason})
-        event_tail.flush_tail(final_events, run.path, env, events)
         finalized = manifest_lib.finalize_manifest(record, now(), result.exit_code,
                                                    result.exit_reason)
         _write_manifest(run.manifest, finalized)

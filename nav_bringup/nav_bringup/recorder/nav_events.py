@@ -26,7 +26,6 @@ class NavEventRecorder:
 
     def __init__(
         self, log: EventLog, warn: Callable[[str], None], *, capacity: int = 4096,
-        ignored_prefixes: tuple[str, ...] = (),
     ) -> None:
         """绑定某次运行的写入器与一个有界的内存去重窗口.
 
@@ -34,20 +33,15 @@ class NavEventRecorder:
             log: 已存在的运行事件文件，不是新起的记录器进程。
             warn: 诊断输出端，只收到失败类别，绝不收到远端报文内容。
             capacity: 最多记住多少条事件身份；重复出现会刷新其新近度。
-            ignored_prefixes: 自身持久生产者的命名空间，跳过以免把自己的回声写回去。
 
         Raises:
-            ValueError: 容量或生产者命名空间非法。
+            ValueError: 容量非法。
         """
         if type(capacity) is not int or capacity <= 0:
             raise ValueError('event identity capacity must be a positive integer')
-        if (not isinstance(ignored_prefixes, tuple)
-                or any(not isinstance(prefix, str) or not prefix for prefix in ignored_prefixes)):
-            raise ValueError('ignored event namespaces must be nonempty strings')
         self._log = log
         self._warn = warn
         self._capacity = capacity
-        self._ignored = ignored_prefixes
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._lock = threading.Lock()
         self._closed = False
@@ -69,8 +63,6 @@ class NavEventRecorder:
                 return False
             try:
                 identity, event = _decode(message)
-                if identity.startswith(self._ignored):
-                    return False
                 if identity in self._seen:
                     self._seen.move_to_end(identity)
                     return False

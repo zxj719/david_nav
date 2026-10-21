@@ -16,8 +16,7 @@ from nav_bringup.recorder.run_dir import RunDirectory
 def fake_ros(monkeypatch):
     """Replace all ROS entry points; tests cannot create a DDS participant."""
     state = NS(subscriptions=[], timers=[], destroyed=False, shutdown=False,
-               fail_subscription=False, fail_publisher=False,
-               during_spin=lambda node: None, publishers=[])
+               fail_subscription=False, during_spin=lambda node: None, publishers=[])
 
     def subscribe(kind, topic, callback, qos, **kwargs):
         if state.fail_subscription and topic == '/nav/events':
@@ -31,8 +30,6 @@ def fake_ros(monkeypatch):
         raise KeyboardInterrupt
 
     def publish(kind, topic, qos):
-        if state.fail_publisher:
-            raise RuntimeError('publisher unavailable')
         value = NS(topic=topic, qos=qos, messages=[])
         value.publish = value.messages.append
         state.publishers.append(value)
@@ -120,45 +117,26 @@ def test_no_run_directory_has_no_event_recording_subscription(fake_ros):
     assert not fake_ros.subscriptions
 
 
-def test_actual_monitor_publishes_parent_history_and_ticks_without_echo(tmp_path, fake_ros):
-    """One monitor participant handles both directions and retains the old sampling cadence."""
+def test_monitor_creates_no_publisher_and_keeps_navrun_history_local(tmp_path, fake_ros):
+    """The monitor only subscribes: navrun lines stay local, in order, never written twice."""
     run = _run(tmp_path)
     run.path.mkdir()
     log = EventLog(run.events, clock=lambda: 12)
-    log.append('navrun', 'run_started', data={'command': ['private argument']})
+    log.append('navrun', 'run_started')
 
     def deliver(node):
-        assert len(fake_ros.publishers) == 1 and len(fake_ros.timers) == 1
-        publisher = fake_ros.publishers[0]
-        assert publisher.topic == '/nav/events' and publisher.qos == 10
-        assert publisher.messages[0].event_type == 'run_started'
-        receive = fake_ros.subscriptions[0].callback
-        assert not receive(publisher.messages[0])
+        assert not fake_ros.publishers and len(fake_ros.timers) == 1
+        assert fake_ros.subscriptions[0].callback(_event())
         log.append('navrun', 'startup_ready')
         fake_ros.timers[0][1]()
-        assert publisher.messages[-1].event_type == 'startup_ready'
-        assert not receive(publisher.messages[-1])
-        assert len(run.events.read_text().splitlines()) == 2
-        log.append('navrun', 'process_exited', data={'return_code': 3})
 
     fake_ros.during_spin = deliver
     assert monitor.spin(run, monitor.MonitorOptions(base_frame='robot', bt_topic=None),
                         io.StringIO()) == 0
-    assert fake_ros.publishers[0].messages[-1].event_type == 'process_exited'
-    assert 'private argument' not in str(fake_ros.publishers[0].messages)
-    assert len(run.events.read_text().splitlines()) == 3
-
-
-def test_publisher_failure_keeps_incoming_recording_available(tmp_path, fake_ros):
-    """Outward diagnostics are independent from task/Dock ingestion and node cleanup."""
-    fake_ros.fail_publisher = True
-    fake_ros.during_spin = lambda node: fake_ros.subscriptions[0].callback(_event())
-    run, output = _run(tmp_path), io.StringIO()
-    options = monitor.MonitorOptions(base_frame='robot', bt_topic=None)
-    assert monitor.spin(run, options, output) == 0
-    assert json.loads(run.events.read_text())['source'] == 'tasks'
-    assert 'cannot publish navrun events' in output.getvalue()
-    assert fake_ros.destroyed and fake_ros.shutdown
+    rows = [json.loads(line) for line in run.events.read_text().splitlines()]
+    assert [(row['source'], row['type']) for row in rows] == [
+        ('navrun', 'run_started'), ('tasks', 'task_failed'), ('navrun', 'startup_ready')]
+    assert not fake_ros.publishers and fake_ros.destroyed and fake_ros.shutdown
 
 
 def test_dump_start_failure_does_not_retry_on_next_sample(tmp_path, fake_ros, monkeypatch):

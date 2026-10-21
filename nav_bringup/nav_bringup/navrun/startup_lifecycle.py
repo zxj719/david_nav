@@ -52,7 +52,6 @@ class StartupCommands:
         tty_device: 外层捕获并持有的配置终端路径。
         prelaunch_gates: 所有 launch 与 executor 计时器启动前完成的门禁。
         executor_launch: 所有门禁完成后才启动的可选 WS 阶段。
-        event_flush: 清理后由外层记录器执行的可选最终诊断，本监督器不运行它。
     """
 
     launch: Tuple[str, ...]
@@ -65,7 +64,6 @@ class StartupCommands:
     tty_device: str = ''
     prelaunch_gates: Tuple[StartupGate, ...] = ()
     executor_launch: Tuple[str, ...] = ()
-    event_flush: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -278,7 +276,7 @@ class _Supervisor:
 
         prelaunch 门禁最先完成；键盘就绪后启动导航并允许键盘控制，
         后置门禁完成后才启动 WS 阶段。参数导出和监控创建的 OSError
-        只告警，录包创建失败则由外层处理。event_flush 不在本流程执行。
+        只告警，录包创建失败则由外层处理。
 
         Raises:
             _Finished: 正常键盘退出、信号或任一关键阶段结束。
@@ -500,7 +498,7 @@ def validate_commands(
         raise ValueError('expected an absolute existing run directory with logs')
     _timeout(stop_timeout)
     reserved = {'launch', 'executor_launch', 'record', 'monitor', 'parameter_dump', 'keyboard',
-                'zero_before', 'zero_after', 'ros', 'event_flush'}
+                'zero_before', 'zero_after', 'ros'}
     argv_list = [commands.launch, commands.zero]
     for gate in commands.prelaunch_gates + commands.gates:
         if not re.fullmatch('[a-z][a-z0-9_]*', gate.name) or gate.name in reserved:
@@ -511,7 +509,7 @@ def validate_commands(
         argv_list.append(gate.argv)
     argv_list.extend(argv for argv in (
         commands.record, commands.monitor, commands.parameter_dump, commands.keyboard,
-        commands.executor_launch, commands.event_flush) if argv)
+        commands.executor_launch) if argv)
     if bool(commands.keyboard) != bool(commands.tty_device):
         raise ValueError('keyboard and terminal must be selected together')
     if commands.tty_device and (

@@ -1,8 +1,6 @@
 """纯文件边界：不初始化 ROS、不发布、不清理实际运行记录."""
 
-import pytest
-
-from nav_bringup.recorder import event_flush, summary
+from nav_bringup.recorder import summary
 from nav_bringup.recorder.bt_log_watcher import status_changes_from_msg
 
 
@@ -34,19 +32,6 @@ def test_status_changes_preserve_message_order_without_filtering():
         _Change('Spin', 'IDLE', 'RUNNING'),
         _Change('BackUp', 'IDLE', 'RUNNING')]))
     assert [item.node_name for item in changes] == ['Spin', 'Spin', 'BackUp']
-
-
-@pytest.mark.parametrize('timeout,discovery', [
-    (0.0, 0.0), (-1.0, 0.5), (float('inf'), 1.0), (2.0, -0.5), (2.0, 3.0)])
-def test_invalid_budgets_are_refused_before_ros_or_file_ownership(tmp_path, timeout, discovery):
-    """时间预算非法在取得 ROS 或文件归属之前就拒绝，运行目录保持不动."""
-    path = tmp_path / 'events.jsonl'
-    path.write_bytes(b'')
-    with pytest.raises(ValueError):
-        event_flush.publish_tail(path, timeout_sec=timeout, discovery_sec=discovery,
-                                 warn=lambda text: None)
-    assert path.read_bytes() == b'' and [item.name for item in tmp_path.iterdir()] \
-        == ['events.jsonl']
 
 
 def test_summary_writer_overwrites_without_backup(tmp_path):

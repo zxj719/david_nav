@@ -723,70 +723,15 @@ evicted IDs and monitor restarts can admit duplicates, and partial disk writes
 need offline inspection. Persisted IDs let offline consumers identify them.
 The receiver never republishes, so this ingestion path cannot create an echo loop.
 
-Task and Dock publishers are connected in nav_tasks. The same monitor node now
-also publishes local `source=navrun` timeline records, including history written
-before monitor startup. It keeps the recorded timestamp and uses a persistent
-`navrun:<uuid>:<byte-offset>` identity. Incoming records bearing `__nav_event`
-are never forwarded; the receiver suppresses its own persistent namespace even
-outside its LRU window. No event payload, task result or motion policy is changed.
-
-`RunEventStream` acquires a run-local `.nav_event_publisher.lock` lease and
-atomically replaces `nav_event_cursor.json`. It never rewrites the timeline.
-One pump reads at most 128 fragments / 1 MiB, with a 64 KiB record limit. The
-monitor pumps at startup, on its existing sampling timer (default 5 seconds),
-and once during cleanup. Partial trailing lines wait; oversized or invalid
-complete records are skipped with category-only warnings. Detected replacement
-or shrinkage seals the stream. A publication exception leaves that record for
-the next pump; failed checkpoints are retried even while idle. Crash/restart
-may replay IDs: a cursor is not a durable DDS-delivery acknowledgement, and
-volatile subscribers may miss events. File locks are released before publication.
-
-Outward data is a conservative projection: token-like `name/phase/stage/mode/
-robot/site/exit_reason`, integer `pid/exit_code/return_code/signal/bytes/
-removed_bytes`, boolean `found/exited_early/success`, plus `record_offset` and
-`fields_omitted`. Raw commands, argv, environment, paths and exception text are
-not forwarded. The complete local JSONL remains unchanged. This allowlist is
-not a general secret detector for values intentionally placed in allowed fields.
-
-Only one outward publisher may own a run. Publisher failure does not disable
-the independent incoming recorder. This does not promise multi-monitor exactly-once
-ingestion. Do not infer physical stopping, task success or production deployment
-from these diagnostic records.
-
-### Final parent events
-
-Recorded `navrun up` now binds a short-lived final event publisher. After normal
-cleanup has drained the original children and restored the terminal, the parent
-collects linked logs and records the actual `run_stopped` result. Only then does
-it start `python -m nav_bringup.recorder.event_flush`, keeping the navigation lease
-until this helper is also drained and the manifest/summary are finalized.
-The helper's exclusive run-local publisher lease is acquired **before** ROS init;
-it cannot overlap a still-owning original monitor. It creates just one temporary
-NavEvent publisher, no TF listener, subscriptions, timer, motion clients or daemon.
-This is sequential teardown overhead, not another permanent DDS participant.
-
-The helper resumes the monitor's cursor and persistent IDs, allows up to 0.5 s
-for discovery, processes bounded batches toward its initial file-size snapshot,
-and waits for reliable-writer acknowledgements within a total 3 s cooperative
-budget. The parent imposes a separate 5 s execution deadline, then uses its
-owned-process-group cleanup (1 s grace, escalation and retry if still owned).
-Native SDK stalls cannot turn into a detached background process. Cleanup retries
-can exceed the publication budget: ownership is not released on an unproven stop.
-Failures remain diagnostics; the original navigation exit status is unchanged.
-No-subscriber success, cursor progress and DDS acknowledgements still do not prove
-application processing or disk persistence. Failed delivery does not roll back an
-already advanced cursor or promise automatic durable replay.
-
-The helper log is `logs/event_flush.log`. Its own final status is a local-only
-`source=event_flush` event and appears in the summary if it warns; it is not fed
-into another publisher. This explicitly ends the diagnostic lifecycle instead
-of falsely reporting helper termination before it happens. Original local JSONL
-records retain their format. Early configuration/host-preflight rejection keeps
-only the local record and does **not** initialize ROS just to report the rejection.
-
-The managed startup selects this tail after its monitor-stop step and true final
-parent record. `StartupCommands` keeps the event-flush command explicit, and dry
-runs start no helper. The final publisher independently refuses a live publisher
-lease. Volatile early task events before monitor discovery can still
-be missed: this is an observation channel, not an exactly-once audit transport.
+Task, Dock and health publishers are connected in their own packages; the
+monitor only receives `/nav/events` and appends to the run's `events.jsonl`
+(appends are coordinated with navrun's own writes through the file lock).
+navrun's lifecycle records (`source=navrun`, including the final `run_stopped`)
+are written directly by the parent process to the same local file and are **not**
+published to DDS. W46 removed the outward projection, its cursor/lease files and
+the post-run `event_flush` helper: nothing consumed navrun events from the topic,
+and the local record already holds them. Early configuration/host-preflight
+rejection keeps only the local record and does not initialize ROS. Volatile early
+task events before monitor discovery can still be missed: this is an observation
+channel, not an exactly-once audit transport.
 Real ROS delivery/performance acceptance remains a separate safe-site check.
