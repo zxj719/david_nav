@@ -43,7 +43,7 @@ ROS 2 Humble 导航重构工作树，分支 `refactor/nav-system`，目录 `~/ro
 | 改速度、容差、代价图、行为树选择 | `david_config/robot/david.yaml` 或 `david_config/modes/<模式>.yaml`，**不要**直接改生成出来的参数文件 |
 | 加一个新参数 | 先在 `nav_bringup/config/schema.yaml` 声明，再在档案里填值；`navcfg doc` 重新生成 `docs/parameters.md` |
 | 改 Nav2 参数名到档案的映射 | `nav_bringup/config/nav2_bindings.yaml` |
-| 换一台机器人 | 复制一份 `*_config` 包，见 [换机器人](docs/porting.md)；`example_diffdrive_config` 是可运行的样例 |
+| 换一台机器人 | 当前不承诺，见 [多机器人支持现状](docs/porting.md)；`example_diffdrive_config` 只是测试夹具 |
 | 改启动了哪些进程 | `nav_bringup/nav_bringup/launching/graph.py`（纯数据决策，不碰 ROS） |
 | 改任务状态机/技能 | `nav_tasks/`（纯逻辑在 `domain`/`core`/`skills`，ROS 适配在 `adapters/ros`） |
 | 改上位机协议 | `nav_executor/nav_executor/protocol/`；协议文档与金样在 `docs/protocol/`，**不能为测试绿重新生成金样** |
@@ -61,7 +61,8 @@ ROS 2 Humble 导航重构工作树，分支 `refactor/nav-system`，目录 `~/ro
 | `nav_plugins` | 行为树恢复插件与模板 |
 | `nav_sim` | 假底盘/假定位/假上位机与**离线闭环自测**（已跑通，两种模式各一次） |
 | `wheeltec_driver` / `chassis_adapter` / `chassis_teleop` | 驱动、速度适配、键盘遥控 |
-| `david_config` / `example_diffdrive_config` | 机器人/模式/场地数据；后者用于验证"换机器人只改配置" |
+| `david_config` | David 的机器人/模式/场地数据 |
+| `example_diffdrive_config` | 测试夹具：沙箱与真实 Nav2 接线测试用的虚构机器人配置，不是部署目标 |
 | `david_system_env` | 显式加载的共享 ROS/DDS 环境数据，没有自动 hook |
 | `david_nav_msgs` | 事件等消息契约 |
 | `nav2_rotation_shim_controller` / `third_party/serial` | 当前控制链需要的补丁与驱动依赖 |
@@ -124,7 +125,7 @@ cd ~/ros2_ws_refactor/src/nav_bringup && python3 -m pytest test -q
 | [docs/console_and_logs.md](docs/console_and_logs.md) | **操作人员版**：怎么读终端输出、退出码含义、日志去哪找 |
 | [docs/runbook.md](docs/runbook.md) | 现场操作与诊断步骤 |
 | [docs/parameters.md](docs/parameters.md) | 参数目录（由 schema 自动生成，勿手改） |
-| [docs/porting.md](docs/porting.md) | 换机器人 |
+| [docs/porting.md](docs/porting.md) | 多机器人支持现状（当前不承诺） |
 | [docs/behavior_policy.md](docs/behavior_policy.md) | 行为与安全边界 |
 | [docs/events.md](docs/events.md) | 事件契约与交付限制 |
 | [docs/agent_navigation_tools.md](docs/agent_navigation_tools.md) | Agent 可调用的导航工具、事件和任务编排边界 |
