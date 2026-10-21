@@ -1,37 +1,12 @@
-"""全包说明门禁与收尾批的纯对象边界：不启动进程、不发信号、不写运行记录."""
+"""纯对象边界：不启动进程、不发信号、不写运行记录."""
 
-import ast
-from pathlib import Path
-import re
 import subprocess
 import sys
 
 import pytest
 
-import nav_bringup
 from nav_bringup.navrun import recording
 from nav_bringup.recorder import sessions
-
-RUNTIME = Path(nav_bringup.__file__).parent
-
-
-def test_every_runtime_summary_is_chinese():
-    """P7.4 收口门禁：运行代码里每一条说明的摘要行都必须是中文.
-
-    只检查摘要行存在中文字符，不声称语言可以证明说明语义；语义仍靠各模块
-    自己的边界测试与人工审查。测试代码不在门禁范围内。
-    """
-    missing = []
-    for path in sorted(RUNTIME.rglob('*.py')):
-        tree = ast.parse(path.read_text(encoding='utf-8'))
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                doc = ast.get_docstring(node)
-                if doc and re.search(r'[一-鿿]', doc.splitlines()[0]) is None:
-                    missing.append('%s:%d %s' % (path.relative_to(RUNTIME),
-                                                 getattr(node, 'lineno', 1),
-                                                 getattr(node, 'name', '<module>')))
-    assert not missing, missing
 
 
 def test_disabled_recording_plans_nothing_and_says_why(tmp_path):

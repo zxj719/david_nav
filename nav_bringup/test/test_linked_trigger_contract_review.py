@@ -1,26 +1,6 @@
 """关联日志与触发器契约回归，仅使用临时文件和纯 Python 对象."""
 
-import ast
-from pathlib import Path
-import re
-
-import pytest
-
-import nav_bringup
 from nav_bringup.recorder import bt_triggers, linked_process
-
-
-@pytest.mark.parametrize('name', ['linked_process.py', 'bt_triggers.py'])
-def test_reviewed_summaries_are_chinese(name):
-    """摘要语言门禁不能代替完整契约审查."""
-    path = Path(nav_bringup.__file__).parent / 'recorder' / name
-    missing = []
-    for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            doc = ast.get_docstring(node)
-            if doc and re.search(r'[\u4e00-\u9fff]', doc.splitlines()[0]) is None:
-                missing.append(getattr(node, 'name', '<module>'))
-    assert not missing, missing
 
 
 def test_same_size_replaced_log_is_not_detected(tmp_path):

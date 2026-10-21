@@ -1,33 +1,11 @@
-"""本批已审说明对应的纯文件/纯套接字边界，不启动 ROS、不发信号、不动实际运行记录."""
-
-import ast
-from pathlib import Path
-import re
+"""纯文件/纯套接字边界，不启动 ROS、不发信号、不动实际运行记录."""
 
 import pytest
 
-import nav_bringup
 from nav_bringup.navrun.control_server import RunControl
 from nav_bringup.navrun.delegated_lock import DelegatedLock
 from nav_bringup.navrun.locking import RunLock
 from nav_bringup.recorder.run_event_stream import RunEventStream
-
-MODULES = ('recorder/run_event_stream.py', 'navrun/delegated_lock.py',
-           'navrun/control_server.py')
-
-
-@pytest.mark.parametrize('name', MODULES)
-def test_reviewed_summaries_are_chinese(name):
-    """检查本批模块的现有摘要，不声称语言存在性可以证明说明语义."""
-    path = Path(nav_bringup.__file__).parent / name
-    tree = ast.parse(path.read_text(encoding='utf-8'))
-    missing = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            doc = ast.get_docstring(node)
-            if doc and re.search(r'[一-鿿]', doc.splitlines()[0]) is None:
-                missing.append((getattr(node, 'lineno', 1), getattr(node, 'name', '<module>')))
-    assert not missing, missing
 
 
 def test_sealed_stream_is_idle_and_repeated_close_is_not_an_error(tmp_path):

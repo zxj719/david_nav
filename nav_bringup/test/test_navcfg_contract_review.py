@@ -1,30 +1,8 @@
-"""本批已审说明的门禁与纯配置边界：不连 ROS、不启动子进程、不写业务文件."""
-
-import ast
-from pathlib import Path
-import re
+"""纯配置边界：不连 ROS、不启动子进程、不写业务文件."""
 
 import pytest
 
-import nav_bringup
 from nav_bringup.navcfg import cli, validation
-
-MODULES = ('navcfg/validation.py', 'navcfg/cli.py', 'navcfg/interface_check.py',
-           'navcfg/documentation.py', 'navcfg/live_cli.py')
-
-
-@pytest.mark.parametrize('name', MODULES)
-def test_reviewed_summaries_are_chinese(name):
-    """检查本批模块的现有摘要，不声称语言存在性可以证明说明语义."""
-    path = Path(nav_bringup.__file__).parent / name
-    tree = ast.parse(path.read_text(encoding='utf-8'))
-    missing = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            doc = ast.get_docstring(node)
-            if doc and re.search(r'[一-鿿]', doc.splitlines()[0]) is None:
-                missing.append((getattr(node, 'lineno', 1), getattr(node, 'name', '<module>')))
-    assert not missing, missing
 
 
 def test_parser_construction_runs_no_subcommand(capsys):

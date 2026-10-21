@@ -1,33 +1,10 @@
-"""本批已审说明对应的纯数据边界：不启动节点、不创建目录、不接触 ROS."""
-
-import ast
-from pathlib import Path
-import re
+"""纯数据边界：不启动节点、不创建目录、不接触 ROS."""
 
 import pytest
 
-import nav_bringup
 from nav_bringup.launching.bundle import load_options
 from nav_bringup.launching.composition import component_specs
 from nav_bringup.launching.graph import build_graph, exit_decision, GraphOptions, ProcessSpec
-
-MODULES = ('launching/graph.py', 'launching/component_loader.py', 'launching/composition.py',
-           'launching/executables.py', 'launching/ready_exec.py', 'launching/bundle.py',
-           'launching/supervision.py')
-
-
-@pytest.mark.parametrize('name', MODULES)
-def test_reviewed_summaries_are_chinese(name):
-    """检查本批模块的现有摘要，不声称语言存在性可以证明说明语义."""
-    path = Path(nav_bringup.__file__).parent / name
-    tree = ast.parse(path.read_text(encoding='utf-8'))
-    missing = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            doc = ast.get_docstring(node)
-            if doc and re.search(r'[一-鿿]', doc.splitlines()[0]) is None:
-                missing.append((getattr(node, 'lineno', 1), getattr(node, 'name', '<module>')))
-    assert not missing, missing
 
 
 def _process(**changes):

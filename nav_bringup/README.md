@@ -8,7 +8,6 @@ This package is robot independent: robot-specific values live in a
 
 | Component | State | Plan reference |
 |---|---|---|
-| `nav_bringup.lint.docstrings` | available | refactor plan §5.4, RUNBOOK §1 |
 | `nav_bringup.lint.literals`: no robot frame names or robot topic prefixes in package code | available | plan §5.4 |
 | `nav_bringup.navcfg.schema`: per-package `config/schema.yaml` format, catalog aggregation, value and profile checks, schema discovery | available (P2.1) | plan §12.1 |
 | `nav_bringup.recorder`: run directory, manifest, `code.diff`, events, resource samples, summary, retention | available (PROGRESS P1.2a) | plan §13.2 |
@@ -222,9 +221,10 @@ nav_bringup/
 ├── nav_bringup/
 │   ├── __init__.py
 │   └── lint/
-│       └── docstrings.py   # Google-style Args/Returns/Yields/Raises checks
+│       ├── literals.py         # no robot frame names / topic prefixes in package code
+│       ├── node_attributes.py  # ROS Node subclasses must not shadow rclpy attributes
+│       └── architecture.py     # task/executor layering and import direction
 ├── test/
-│   ├── test_docstring_policy.py
 │   ├── test_flake8.py
 │   └── test_pep257.py
 ├── package.xml
@@ -234,27 +234,16 @@ nav_bringup/
 
 ## Code style
 
-New navigation packages follow the Google Python Style Guide:
-
 * `ament_flake8` with the ROS default configuration (99 columns, Google import order).
 * `ament_pep257 --convention google` (summary on the first docstring line).
-* `nav_bringup.lint.docstrings.check_paths` in a unit test, for the sections that
-  pep257 does not check.
 
-To apply the docstring policy to another package, add a test:
-
-```python
-from pathlib import Path
-
-from nav_bringup.lint import docstrings
-
-
-def test_docstring_policy():
-    """Public API documents its arguments, returns and raised exceptions."""
-    package_dir = Path(__file__).resolve().parents[1] / 'my_package'
-    violations = docstrings.check_paths([package_dir])
-    assert not violations, docstrings.format_violations(violations)
-```
+The `lint` checks above are kept because each guards a kind of problem that
+actually happened: `literals` keeps frame names out of Python package code (the
+same mistake in C++ — a costmap plugin hard-coding `base` — made DWB abort after
+the base frame changed); `node_attributes` catches node members such as a method
+named `handle` shadowing rclpy's own attribute; `architecture` keeps the layering
+that lets task logic be tested without ROS. Docstring section and language gates
+were removed in W46; documentation quality is a code-review matter.
 
 ## Testing
 

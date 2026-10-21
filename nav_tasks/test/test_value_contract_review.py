@@ -1,11 +1,9 @@
-"""保护已审领域值对象摘要和构造边界，不替代运行时或实机校验."""
+"""保护领域值对象的构造边界，不替代运行时或实机校验."""
 
-import ast
 import asyncio
 from dataclasses import FrozenInstanceError
 import math
 from pathlib import Path
-import re
 
 import pytest
 
@@ -13,65 +11,6 @@ from nav_tasks.domain.errors import RuntimeAssemblyError
 from nav_tasks.domain.runtime_config import RuntimeConfig
 from nav_tasks.domain.tasks import TaskRequest
 from nav_tasks.domain.types import PoseRecord
-
-
-@pytest.mark.parametrize('path, qualified_name', [
-    ('__init__.py', '<module>'),
-    ('domain/__init__.py', '<module>'),
-    ('domain/errors.py', '<module>'),
-    ('domain/errors.py', 'NavTaskError'),
-    ('domain/errors.py', 'PoseUnavailableError'),
-    ('domain/errors.py', 'PoiNotFoundError'),
-    ('domain/errors.py', 'ConfigError'),
-    ('domain/errors.py', 'RuntimeAssemblyError'),
-    ('domain/errors.py', 'RuntimeAssemblyError.__init__'),
-    ('domain/errors.py', 'BusyError'),
-    ('domain/errors.py', 'ClosedError'),
-    ('domain/errors.py', 'UnknownActionError'),
-    ('domain/runtime_config.py', '<module>'),
-    ('domain/runtime_config.py', 'DockRuntimeConfig'),
-    ('domain/runtime_config.py', 'DockNodeConfig'),
-    ('domain/runtime_config.py', 'RuntimeConfig'),
-    ('domain/types.py', '<module>'),
-    ('domain/types.py', 'PoseRecord'),
-    ('domain/types.py', 'PoseRecord.orientation'),
-    ('domain/types.py', 'StoredPoi'),
-    ('domain/types.py', 'Transform2D'),
-    ('domain/types.py', 'CapturedPose'),
-    ('domain/tasks.py', '<module>'),
-    ('domain/tasks.py', 'NavStatus'),
-    ('domain/tasks.py', 'NavOutcome'),
-    ('domain/tasks.py', 'NavOutcome.succeeded'),
-    ('domain/tasks.py', 'NavGoal'),
-    ('domain/tasks.py', 'TaskCompletion'),
-    ('domain/tasks.py', 'SpinGoal'),
-    ('domain/tasks.py', 'DockGoal'),
-    ('domain/tasks.py', 'ResolvedGoal'),
-    ('domain/tasks.py', 'PreemptPolicy'),
-    ('domain/tasks.py', 'TaskState'),
-    ('domain/tasks.py', 'TaskRequest'),
-    ('domain/tasks.py', 'TaskSnapshot'),
-    ('domain/tasks.py', 'EventKind'),
-    ('domain/tasks.py', 'TaskEvent'),
-])
-def test_reviewed_value_summary(path, qualified_name):
-    """只保护已审中文摘要，不声称静态文字检查能证明运行语义.
-
-    Args:
-        path: 包内源码相对路径。
-        qualified_name: 模块、类或方法的限定名。
-    """
-    root = Path(__file__).resolve().parents[1] / 'nav_tasks'
-    node = ast.parse((root / path).read_text(encoding='utf-8'))
-    if qualified_name != '<module>':
-        for name in qualified_name.split('.'):
-            matches = [child for child in node.body
-                       if isinstance(child, (ast.ClassDef, ast.FunctionDef))
-                       and child.name == name]
-            assert len(matches) == 1
-            node = matches[0]
-    summary = (ast.get_docstring(node) or '').splitlines()[0]
-    assert re.search('[\u4e00-\u9fff]', summary), qualified_name
 
 
 def test_frozen_request_does_not_copy_or_freeze_payload():

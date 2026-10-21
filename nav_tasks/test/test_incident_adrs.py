@@ -1,11 +1,8 @@
 """Preserve incident source text in ADRs without retaining diaries in runtime code."""
 
-import ast
 import hashlib
-import io
 from pathlib import Path
 import re
-import tokenize
 
 import pytest
 
@@ -42,26 +39,6 @@ def test_adr_preserves_exact_historical_source(key, document, digest):
     assert text.count(start) == 1
     raw = text.split(start, 1)[1].split('\n```', 1)[0]
     assert hashlib.sha256(raw.encode()).hexdigest() == digest
-
-
-@pytest.mark.parametrize('relative', [
-    'nav_tasks/nav_tasks/skills/docking/finish.py',
-    'nav_tasks/nav_tasks/skills/docking/settle.py',
-    'nav_executor/nav_executor/protocol/codec.py',
-])
-def test_migrated_runtime_notes_use_invariants_and_adr_links(relative):
-    """Inspect comments/docs only, not wire strings or runtime date parameters."""
-    source = (ROOT / relative).read_text()
-    tree = ast.parse(source)
-    notes = [ast.get_docstring(node) or '' for node in ast.walk(tree)
-             if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
-                                  ast.AsyncFunctionDef))]
-    notes += [token.string for token in tokenize.generate_tokens(io.StringIO(source).readline)
-              if token.type == tokenize.COMMENT]
-    text = '\n'.join(notes)
-    assert '2026-09-10' not in text
-    assert '2026-07-22' not in text
-    assert 'adr-0006-dock-thread.md' in text or 'adr-0012-v1-poi-targets.md' in text
 
 
 @pytest.mark.parametrize('document', sorted({item[1] for item in HISTORY}))

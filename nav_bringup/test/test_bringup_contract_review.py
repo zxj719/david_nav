@@ -1,37 +1,13 @@
 """锁定已审模块说明与诊断/记录读取边界，不创建 ROS 或操纵进程."""
 
-import ast
-from pathlib import Path
-import re
-
 import pytest
 
-import nav_bringup
 from nav_bringup.doctor import live
 from nav_bringup.doctor.checks import Status
 from nav_bringup.navrun import record_reader
 from nav_bringup.recorder.safe_retention import Snapshot
 
-MODULES = (
-    'doctor/live.py', 'launching/runtime.py', 'navcfg/live_inputs.py',
-    'navrun/runtime_host.py', 'navrun/preflight.py', 'navrun/record_reader.py',
-    'recorder/safe_retention.py',
-)
 RUN = '20260917_010203_tour_abcdef0'
-
-
-@pytest.mark.parametrize('relative', MODULES)
-def test_reviewed_modules_have_chinese_doc_summaries(relative):
-    """逐项检查现有模块/类/函数说明摘要，不将存在中文当作语义正确性证明."""
-    path = Path(nav_bringup.__file__).parent / relative
-    tree = ast.parse(path.read_text(encoding='utf-8'))
-    missing = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            doc = ast.get_docstring(node)
-            if doc and re.search(r'[\u4e00-\u9fff]', doc.splitlines()[0]) is None:
-                missing.append((getattr(node, 'lineno', 1), getattr(node, 'name', '<module>')))
-    assert not missing, missing
 
 
 def test_command_cache_retries_exceptions_but_caches_nonzero_results():

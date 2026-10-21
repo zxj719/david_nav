@@ -1,31 +1,8 @@
-"""本批已审说明的门禁与静态检查边界：只解析源码文本，从不导入或执行被检查的代码."""
+"""静态常量检查的边界：只解析源码文本，从不导入或执行被检查的代码."""
 
-import ast
-from pathlib import Path
-import re
 import textwrap
 
-import pytest
-
-import nav_bringup
-from nav_bringup.lint import docstrings, literals
-
-MODULES = ('lint/docstrings.py', 'lint/literals.py', 'lint/architecture.py',
-           'lint/node_attributes.py')
-
-
-@pytest.mark.parametrize('name', MODULES)
-def test_reviewed_summaries_are_chinese(name):
-    """检查本批模块的现有摘要，不声称语言存在性可以证明说明语义."""
-    path = Path(nav_bringup.__file__).parent / name
-    tree = ast.parse(path.read_text(encoding='utf-8'))
-    missing = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            doc = ast.get_docstring(node)
-            if doc and re.search(r'[一-鿿]', doc.splitlines()[0]) is None:
-                missing.append((getattr(node, 'lineno', 1), getattr(node, 'name', '<module>')))
-    assert not missing, missing
+from nav_bringup.lint import literals
 
 
 def test_checking_a_module_never_executes_it(tmp_path):
@@ -38,45 +15,8 @@ def test_checking_a_module_never_executes_it(tmp_path):
 
         pathlib.Path({marker!r}).write_text("executed")
     ''').format(marker=str(marker))
-    assert docstrings.check_source(source) == []
+    assert literals.check_source(source, 'fixture.py', ('base_link',), ()) == []
     assert not marker.exists()
-
-
-def test_sections_are_checked_for_presence_not_truthfulness():
-    """分节齐全即通过：说明与实现是否相符不在本检查范围内."""
-    source = textwrap.dedent('''
-        """Module summary."""
-
-
-        def scale(value):
-            """Return the value unchanged.
-
-            Args:
-                value: Anything at all.
-
-            Returns:
-                The doubled value.
-            """
-            return value
-    ''')
-    assert docstrings.check_source(source) == []
-
-
-def test_missing_sections_are_reported_with_their_location():
-    """缺哪几节就报哪几节，且都带上定义所在行，便于直接定位."""
-    source = textwrap.dedent('''
-        """Module summary."""
-
-
-        def scale(value):
-            """Scale one value."""
-            return value
-    ''')
-    violations = docstrings.check_source(source, 'fixture.py')
-    assert [item.message for item in violations] == [
-        'missing Args: section', 'missing Returns: section']
-    assert all(item.line == 5 for item in violations)
-    assert 'fixture.py' in str(violations[0])
 
 
 def test_only_static_literals_are_found():

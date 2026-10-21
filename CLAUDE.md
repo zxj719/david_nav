@@ -154,9 +154,8 @@ ROS_DOMAIN_ID=99 navrun selftest --mode tour --allow-goals --output-dir /tmp/st_
   每次 100 ms 内 abort），已有不变量测试守着。
 - 清理与取消：取消失败不得假装已释放任务；清理要等自有线程、回调、子进程真正结束，
   不伪报 IDLE。
-- Python 公共 API 要类型注解 ＋ Google 风格中文说明，flake8 行宽 99；
-  运行代码的说明**摘要行必须是中文**，有全包门禁 `test_every_runtime_summary_is_chinese`
-  守着；门禁只证明语言，不证明语义。
+- Python 公共 API 要类型注解，flake8 行宽 99，pep257 用 Google 约定。
+  说明分节和中文摘要的门禁已在 W46 删除；说明写得对不对靠代码审查，不靠门禁。
 
 ## 6. 记录与提交
 

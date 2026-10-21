@@ -1,30 +1,11 @@
-"""本批已审说明对应的边界：只用私有目录与无害命令，不改功耗模式、不清理实际 /dev/shm."""
+"""边界：只用私有目录与无害命令，不改功耗模式、不清理实际 /dev/shm."""
 
-import ast
 import inspect
 from pathlib import Path
-import re
 
 import pytest
 
-import nav_bringup
 from nav_bringup.navrun import dds_hygiene, platform
-
-MODULES = ('navrun/platform.py', 'navrun/dds_hygiene.py')
-
-
-@pytest.mark.parametrize('name', MODULES)
-def test_reviewed_summaries_are_chinese(name):
-    """检查本批模块的现有摘要，不声称语言存在性可以证明说明语义."""
-    path = Path(nav_bringup.__file__).parent / name
-    tree = ast.parse(path.read_text(encoding='utf-8'))
-    missing = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            doc = ast.get_docstring(node)
-            if doc and re.search(r'[一-鿿]', doc.splitlines()[0]) is None:
-                missing.append((getattr(node, 'lineno', 1), getattr(node, 'name', '<module>')))
-    assert not missing, missing
 
 
 def test_missing_program_is_a_bounded_result_not_an_exception():

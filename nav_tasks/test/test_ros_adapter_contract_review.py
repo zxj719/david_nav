@@ -1,9 +1,6 @@
 """按名保护ROS适配器契约，并记录观察与销毁的纯内存边界."""
 
-import ast
 import asyncio
-from pathlib import Path
-import re
 from types import SimpleNamespace as NS
 
 import pytest
@@ -11,80 +8,6 @@ import pytest
 from nav_tasks.adapters.ros.grid_source import RosGridSource
 from test_dock_observations import _source
 from test_pose_grid_sources import _Node, _odom, _poses
-
-
-@pytest.mark.parametrize('path, qualified_name', [
-    ('adapters/ros/dock_motion.py', '<module>'),
-    ('adapters/ros/dock_motion.py', '_DockMotion'),
-    ('adapters/ros/dock_motion.py', '_DockMotion.navigate'),
-    ('adapters/ros/dock_motion.py', '_DockMotion.spin'),
-    ('adapters/ros/dock_motion.py', '_DockMotion.request_cancel'),
-    ('adapters/ros/dock_worker.py', '<module>'),
-    ('adapters/ros/dock_worker.py', '_WorkerStopped'),
-    ('adapters/ros/dock_worker.py', 'DockWorker'),
-    ('adapters/ros/dock_worker.py', 'DockWorker.__init__'),
-    ('adapters/ros/dock_worker.py', 'DockWorker.busy'),
-    ('adapters/ros/dock_worker.py', 'DockWorker.dock'),
-    ('adapters/ros/dock_worker.py', 'DockWorker.execute'),
-    ('adapters/ros/dock_worker.py', 'DockWorker.cancel'),
-    ('adapters/ros/dock_worker.py', 'DockWorker.close'),
-    ('adapters/ros/dock_ingress.py', '<module>'),
-    ('adapters/ros/dock_ingress.py', 'DockIngress'),
-    ('adapters/ros/dock_ingress.py', 'DockIngress.__init__'),
-    ('adapters/ros/dock_ingress.py', 'DockIngress.open'),
-    ('adapters/ros/dock_ingress.py', 'DockIngress.stop'),
-    ('adapters/ros/dock_ingress.py', 'DockIngress.destroy'),
-    ('adapters/ros/dock_ingress.py', 'DockIngress.on_feedback'),
-    ('adapters/ros/dock_observations.py', '<module>'),
-    ('adapters/ros/dock_observations.py', 'DockObservations'),
-    ('adapters/ros/dock_observations.py', 'DockObservations.__init__'),
-    ('adapters/ros/dock_observations.py', 'DockObservations.pose'),
-    ('adapters/ros/dock_observations.py', 'DockObservations.check_approach'),
-    ('adapters/ros/dock_observations.py', 'DockObservations.close'),
-    ('adapters/ros/dock_parameters.py', '<module>'),
-    ('adapters/ros/dock_parameters.py', 'declare_parameters'),
-    ('adapters/ros/event_publisher.py', '<module>'),
-    ('adapters/ros/event_publisher.py', 'NavigationEvents'),
-    ('adapters/ros/event_publisher.py', 'NavigationEvents.__init__'),
-    ('adapters/ros/event_publisher.py', 'NavigationEvents.open'),
-    ('adapters/ros/event_publisher.py', 'NavigationEvents.task'),
-    ('adapters/ros/event_publisher.py', 'NavigationEvents.dock'),
-    ('adapters/ros/event_publisher.py', 'NavigationEvents.close'),
-    ('adapters/ros/grid_source.py', '<module>'),
-    ('adapters/ros/grid_source.py', 'RosGridSource'),
-    ('adapters/ros/grid_source.py', 'RosGridSource.__init__'),
-    ('adapters/ros/grid_source.py', 'RosGridSource.snapshot'),
-    ('adapters/ros/grid_source.py', 'RosGridSource.close'),
-    ('adapters/ros/tf_pose_source.py', '<module>'),
-    ('adapters/ros/tf_pose_source.py', 'TfPoseSource'),
-    ('adapters/ros/tf_pose_source.py', 'TfPoseSource.__init__'),
-    ('adapters/ros/tf_pose_source.py', 'TfPoseSource.current_map_pose'),
-    ('adapters/ros/tf_pose_source.py', 'TfPoseSource.capture_for_poi'),
-    ('adapters/ros/tf_pose_source.py', 'TfPoseSource.current_slam_session_id'),
-    ('adapters/ros/tf_pose_source.py', 'TfPoseSource.current_map_from_odom'),
-    ('adapters/ros/tf_pose_source.py', 'TfPoseSource.close'),
-    ('adapters/ros/dock_motion.py', '_DockMotion.__init__'),
-    ('adapters/ros/dock_worker.py', '_WorkerAttempt'),
-    ('adapters/ros/dock_ingress.py', '_Entry'),
-])
-def test_reviewed_adapter_contract_summary(path, qualified_name):
-    """检查已审说明有中文摘要，不以语言检查替代语义或行为证明.
-
-    Args:
-        path: 包内模块路径。
-        qualified_name: 模块或类方法的限定名称。
-    """
-    root = Path(__file__).resolve().parents[1] / 'nav_tasks'
-    node = ast.parse((root / path).read_text(encoding='utf-8'))
-    if qualified_name != '<module>':
-        for name in qualified_name.split('.'):
-            matches = [child for child in node.body
-                       if isinstance(child, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-                       and child.name == name]
-            assert len(matches) == 1
-            node = matches[0]
-    doc = ast.get_docstring(node) or ''
-    assert doc and re.search('[\\u4e00-\\u9fff]', doc.splitlines()[0]), qualified_name
 
 
 @pytest.mark.parametrize('kind', ['dock', 'poi'])

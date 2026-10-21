@@ -1,61 +1,11 @@
 """核验启动所有权说明及既有退出边界，不创建ROS或进程."""
 
-import ast
 from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
 
 from nav_bringup.navrun import startup_lifecycle, zero_command
-
-
-@pytest.mark.parametrize('path, qualified_name', [
-    ('navrun/startup_lifecycle.py', '<module>'),
-    ('navrun/startup_lifecycle.py', 'StartupGate'),
-    ('navrun/startup_lifecycle.py', 'StartupCommands'),
-    ('navrun/startup_lifecycle.py', 'LifecycleResult'),
-    ('navrun/startup_lifecycle.py', 'supervise'),
-    ('navrun/startup_lifecycle.py', 'validate_commands'),
-    ('navrun/zero_command.py', '<module>'),
-    ('navrun/zero_command.py', 'main'),
-    ('navrun/startup_lifecycle.py', '_Finished'),
-    ('navrun/startup_lifecycle.py', '_Finished.__init__'),
-    ('navrun/startup_lifecycle.py', '_Supervisor'),
-    ('navrun/startup_lifecycle.py', '_Supervisor.__init__'),
-    ('navrun/startup_lifecycle.py', '_Supervisor.emit'),
-    ('navrun/startup_lifecycle.py', '_Supervisor.start'),
-    ('navrun/startup_lifecycle.py', '_Supervisor.check'),
-    ('navrun/startup_lifecycle.py', '_Supervisor.gate'),
-    ('navrun/startup_lifecycle.py', '_Supervisor.execute'),
-    ('navrun/startup_lifecycle.py', '_Supervisor.close'),
-    ('navrun/startup_lifecycle.py', '_Supervisor.zero'),
-    ('navrun/startup_lifecycle.py', '_Supervisor.cleanup'),
-    ('navrun/zero_command.py', '_RosZeros'),
-    ('navrun/zero_command.py', '_RosZeros.__init__'),
-    ('navrun/zero_command.py', '_RosZeros.__enter__'),
-    ('navrun/zero_command.py', '_RosZeros.__exit__'),
-    ('navrun/zero_command.py', '_RosZeros.spin'),
-    ('navrun/zero_command.py', '_RosZeros.publish'),
-    ('navrun/zero_command.py', '_RosZeros.receiver_count'),
-])
-def test_reviewed_startup_contract(path, qualified_name):
-    """保护已审说明，语言断言不代替实际语义核对.
-
-    Args:
-        path: 包内模块相对路径。
-        qualified_name: 模块、类或方法的限定名称。
-    """
-    root = Path(__file__).resolve().parents[1] / 'nav_bringup'
-    node = ast.parse((root / path).read_text(encoding='utf-8'))
-    if qualified_name != '<module>':
-        for name in qualified_name.split('.'):
-            matches = [child for child in node.body
-                       if isinstance(child, (ast.ClassDef, ast.FunctionDef))
-                       and child.name == name]
-            assert len(matches) == 1
-            node = matches[0]
-    doc = ast.get_docstring(node) or ''
-    assert doc and any('一' <= char <= '鿿' for char in doc.splitlines()[0])
 
 
 def test_zero_help_is_frozen_before_ros_initialization(monkeypatch, capsys):

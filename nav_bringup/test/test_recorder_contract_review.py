@@ -1,31 +1,11 @@
-"""记录器已审说明与纯文件/假端口边界，不清理实际运行记录."""
+"""记录器的纯文件/假端口边界，不清理实际运行记录."""
 
-import ast
 import datetime
 import math
-from pathlib import Path
-import re
 
 import pytest
 
-import nav_bringup
 from nav_bringup.recorder import events, manifest, resources, retention, run_dir
-
-MODULES = ('run_dir.py', 'manifest.py', 'events.py', 'resources.py', 'retention.py')
-
-
-@pytest.mark.parametrize('name', MODULES)
-def test_reviewed_recorder_summaries_are_chinese(name):
-    """检查现有摘要，不声称语言存在性可以证明说明语义."""
-    path = Path(nav_bringup.__file__).parent / 'recorder' / name
-    tree = ast.parse(path.read_text(encoding='utf-8'))
-    missing = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            doc = ast.get_docstring(node)
-            if doc and re.search(r'[\u4e00-\u9fff]', doc.splitlines()[0]) is None:
-                missing.append((getattr(node, 'lineno', 1), getattr(node, 'name', '<module>')))
-    assert not missing, missing
 
 
 def test_git_info_does_not_promote_later_query_errors_to_failure():
