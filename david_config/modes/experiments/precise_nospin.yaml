@@ -1,0 +1,16 @@
+# Explicit experiment only; never selected by the default five mode names.
+#
+# 2026-09-21 用户要求：dock 阶段2 的直线进场走完就直接结束，末端不再做原地旋转，
+# 判定阈值暂时放宽（尤其是角度）。做法是不覆盖机器人档案的 yaw_tolerance(2π)，
+# 也不把 RotateToGoal critic 加回 FollowPath —— 这正是生产基线的做法，
+# modes/precise.yaml 的 25°+RotateToGoal 才是末端旋转的来源。
+schema_version: 1
+mode: precise
+description: 入位不做末端旋转：仅收紧 xy，朝向不约束，判定暂时放宽
+profile:
+  goal:
+    xy_tolerance: 0.10
+    yaw_tolerance: 6.2832           # 2π：不约束朝向 -> DWB 到 xy 即停
+  dock:
+    yaw_ok: 1.5708                  # 90°，暂时放宽（原 25°）
+    max_yaw_retries: 0              # 本来就是 0，显式写死防回归

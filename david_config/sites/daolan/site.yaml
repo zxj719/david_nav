@@ -23,4 +23,4 @@ pois:
   dock_poi_ids: [POI_017]
 
 agent_server:
-  uri: ws://192.168.123.186:8101
+  uri: ws://192.168.55.1:8101
