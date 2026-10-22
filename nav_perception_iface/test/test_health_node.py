@@ -295,6 +295,7 @@ def test_persistent_map_odom_lag_is_one_warn_event_on_its_own_status(runtime):
     """The latched lag is measured on map->odom itself and reported on a second status."""
     module, state = runtime
     state.localized = True
+    state.params['map_odom_lag_samples'] = 3
     node = module.LocalizationMonitor()
     _lagging_ticks(state, 0.45, 4)
     events = _lag_events(state)
@@ -324,6 +325,7 @@ def test_lag_recovery_is_reported_once(runtime):
     """Entering and leaving the persistent state produce exactly one event each."""
     module, state = runtime
     state.localized = True
+    state.params['map_odom_lag_samples'] = 3
     node = module.LocalizationMonitor()
     _lagging_ticks(state, 0.45, 3)
     _lagging_ticks(state, 0.03, 3, start=10.6)
@@ -336,6 +338,7 @@ def test_persistent_lag_does_not_mask_divergence(runtime):
     """A session-long lag state must not hide a 28 m localization jump."""
     module, state = runtime
     state.localized = True
+    state.params['map_odom_lag_samples'] = 3
     node = module.LocalizationMonitor()
     _lagging_ticks(state, 0.45, 3)
     state.now, state.mono = 10.6, 0.6
@@ -353,5 +356,5 @@ def test_lag_policy_parameters_are_declared_with_defaults(runtime):
     module, state = runtime
     node = module.LocalizationMonitor()
     assert state.params['max_map_odom_lag_sec'] == 0.3
-    assert state.params['map_odom_lag_samples'] == 3
+    assert state.params['map_odom_lag_samples'] == 25
     node.destroy_node()

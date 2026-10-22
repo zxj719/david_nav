@@ -151,7 +151,7 @@ def test_map_odom_normal_sequence_stays_ok():
 
 def test_persistent_450ms_lag_needs_three_consecutive_samples():
     """The latched ~450 ms map->odom lag is reported once it persists for three samples."""
-    lag = _lag()
+    lag = _lag(map_odom_lag_samples=3)
     codes = [lag.sample(now, now - 0.45).code for now in (10, 10.2, 10.4, 10.6)]
     assert codes == ['map_odom_lag_ok', 'map_odom_lag_ok',
                      'map_odom_lag_persistent', 'map_odom_lag_persistent']
@@ -227,6 +227,18 @@ def test_invalid_lag_policy_is_rejected(key, value):
     """Lag thresholds must be explicit positive numbers, never silently coerced."""
     with pytest.raises(ValueError):
         _lag(**{key: value})
+
+
+def test_default_window_ignores_field_transients_but_flags_the_latch():
+    """2026-10-22 field data: ~0.8 s lags that clear within ~1 s are normal; the latch is not."""
+    lag = _lag()
+    for tick in range(6):  # 0.81 s lag held for 1.2 s at 5 Hz, then back to normal
+        now = 10 + 0.2 * tick
+        assert lag.sample(now, now - 0.81).code == 'map_odom_lag_ok'
+    assert lag.sample(11.2, 11.2 - 0.03).values['over_threshold_samples'] == 0
+    codes = [lag.sample(20 + 0.2 * tick, 20 + 0.2 * tick - 0.45).code for tick in range(25)]
+    assert codes[:24] == ['map_odom_lag_ok'] * 24
+    assert codes[24] == 'map_odom_lag_persistent'
 
 
 def test_overflowing_lag_is_a_numeric_warning_with_finite_evidence():

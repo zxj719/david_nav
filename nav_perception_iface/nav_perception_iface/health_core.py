@@ -24,7 +24,8 @@ class HealthPolicy:
         action: 只接受 warn；即使报告等级为 error 也不自动触发停车。
         max_map_odom_lag_sec: map→odom 最新样本允许的滞后，单位 ROS 秒；
             严格超过才计入连续超阈次数。
-        map_odom_lag_samples: 连续超阈多少次才报告持续滞后，单个尖峰不告警。
+        map_odom_lag_samples: 连续超阈多少次才报告持续滞后；默认 25 次（5 Hz 下约 5 s），
+            2026-10-22 实测正常运行会有约 0.8 s、1 s 内恢复的短时滞后，不应告警。
     """
 
     max_tf_age_sec: float = 0.5
@@ -32,7 +33,7 @@ class HealthPolicy:
     divergence_window_sec: float = 2.0
     action: str = 'warn'
     max_map_odom_lag_sec: float = 0.3
-    map_odom_lag_samples: int = 3
+    map_odom_lag_samples: int = 25
 
     def __post_init__(self) -> None:
         """在分配观察资源前校验策略，不接受隐式开启停车行为.

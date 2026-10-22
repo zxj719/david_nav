@@ -87,7 +87,7 @@ class LocalizationMonitor(Node):
                             chassis_odom_frame='',
                             max_tf_age_sec=0.5, max_divergence_m=1.0,
                             divergence_window_sec=2.0, action='warn',
-                            max_map_odom_lag_sec=0.3, map_odom_lag_samples=3)
+                            max_map_odom_lag_sec=0.3, map_odom_lag_samples=25)
             for name, value in defaults.items():
                 self.declare_parameter(name, value)
             values = {name: self.get_parameter(name).value for name in defaults}
