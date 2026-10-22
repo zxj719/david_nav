@@ -13,7 +13,8 @@ tail -60 ~/codex_handoff_david_nav_refactor/refactor_loop/LOG.md             # �
 cat ~/codex_handoff_david_nav_refactor/REVIEW_PENDING.md                     # 需要人判断的事
 cd ~/ros2_ws/src && git status --porcelain | md5sum   # 生产指纹，应为 2b46c35450efb573317140c44f5c1f12
 md5sum ~/.bashrc                                      # 应为 415c0a8144aa27740205c8cf46d60083
-cd ~/ros2_ws_refactor/src && git status --porcelain && git log --oneline -5
+cd ~/ros2_ws_refactor/src && git log --oneline -1   # 部署树（快捷键 20/24/21），只读
+cd ~/ros2_ws_slim/src && git status --porcelain && git log --oneline -5   # main 的验证工作区
 ps -eo pid,etimes,cmd | grep -E "[l]ightning|[l]slidar|[w]it_imu|[m]ove_group"  # 现场在跑什么
 ```
 
@@ -22,7 +23,10 @@ ps -eo pid,etimes,cmd | grep -E "[l]ightning|[l]slidar|[w]it_imu|[m]ove_group"  
 
 ## 1. 硬边界（不可协商）
 
-- 只在 `~/ros2_ws_refactor/src` 的 `refactor/nav-system` 分支改，**本地提交，永不 push**。
+- 改动只在**隔离工作区**里做：从 `main` 克隆、单独构建，例如 `~/ros2_ws_slim`。**部署树 `~/ros2_ws_refactor` 只读**，
+  它是 symlink-install，改它就等于改现场。只做本地提交；推送、合并到 `main`、切换快捷键都要用户明确同意。
+- 重构、删减类任务按 [refactor-task 技能](.claude/skills/refactor-task/SKILL.md) 执行，**禁止用定时循环自动推进**；
+  原因见 [重构手册](docs/refactor_playbook.md)。
 - 生产 `~/ros2_ws/{src,build,install}`、`~/.bashrc`、`/etc`、别人的工作区**只读**，
   除非用户直接点名要改。
 - **不碰 `3`**：Lightning/uslam、雷达、IMU 的代码、配置、启停一律不动。定位侧问题只记录。
@@ -71,15 +75,16 @@ Nav2 侧保留的键是 `/lightning/odometry`，目前**无发布者**，是已�
 
 **⑧ 帧。** `frames.nav_base` 是 `base_footprint`，`frames.body` 是 `base_link`，
 两者差 0.165 m（URDF 固定关节），POI 采集用 `frames.poi_capture`。三者永不合并。
-OA 只使用标准 `nav2_costmap_2d::ObstacleLayer`，输入为
-`/lightning/loc/aligned_scan`；不要重新引入扫描桥或自定义代价图层。
+OA 目前使用标准 `nav2_costmap_2d::ObstacleLayer`，输入是 `/lightning/loc/aligned_scan`。
+但 09-23 现场实测这个数据源有 1.3 s 时延并且会闪烁，改用原始雷达还是保持现状，要等现场选型（W46 D1）。
+改数据源必须附上现场数据并单独提交；不要再引入自定义代价图层。
 
 **⑨ 同一个终端里混过两个工作区，启动会以奇怪的方式失败。** 2026-09-20 实测：终端若**先 source 过重构、之后又 source 过生产**（例如先跑 `20`、后来又跑过 `0`/`4`），生产的 `david_nav_msgs` 会排在 `PYTHONPATH` 前面，而**生产那份没有 `msg` 子包**；再敲 `20` 也救不回来——ROS 的 setup 脚本发现该前缀已在路径里就不再前置。
 后果：执行器起来后打完配置就死于 `ModuleNotFoundError: No module named david_nav_msgs.msg`，整次启动判为 `executor_launch_exited`、退出码 1。
 判别一条命令：
 
 ```bash
-python3 -c "import david_nav_msgs as m; print(m.__file__)"   # 必须落在 ros2_ws_refactor 下
+python3 -c "import david_nav_msgs as m; print(m.__file__)"   # 必须落在你正在用的工作区下
 ```
 
 **开一个新终端**（或 `exec bash`）再跑，不要在一个终端里换着跑两个工作区的入口。
