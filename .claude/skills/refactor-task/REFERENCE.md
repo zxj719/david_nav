@@ -50,9 +50,10 @@ SANDBOX_INSTALL_SETUP=$W/install/setup.bash SANDBOX_ROS_ENV_FILE=$ENVF bash $W/s
 
 The runner refuses to start while a navigation/localization/chassis stack runs.
 Pass `--basetemp=<dir>` to keep run directories (pytest prunes all but the last 3 sessions).
-Known pre-existing issues as of 2026-10-22: `navigation_provider_fixture.py` reads the removed
-`nav2.scan_topic` (8 failures); `nav_sim/_ros.py` does not catch `ExternalShutdownException`
-(load-dependent exit code 1 at shutdown). Reproduce on a pristine build before blaming a change.
+The two pre-existing sandbox defects (fixture reading the removed `nav2.scan_topic`;
+`nav_sim/_ros.py` not catching `ExternalShutdownException`) were fixed on 2026-10-23 (R4-0):
+nav_bringup 73/73, nav_sim startup and coordinator checks green twice. If a sandbox check fails,
+reproduce it on a pristine build before blaming a change.
 
 ## 5. Test inventory for deletions
 

@@ -22,7 +22,7 @@ David 的 ROS 2 Humble 导航栈。`main` 自 2026-10-22 起是 **W46 减法之�
 | 测试 | 以当前提交的全量 `colcon build/test` 为准（W46 时为 2572 个，0 失败）；沙箱另跑，见 [重构手册](docs/refactor_playbook.md) |
 | 实机 | 10-22 `tour` 三次短距离导航都是 SUCCEEDED，关停干净；09-18 精准入位与取消通过（旧版本） |
 | 部署 | 快捷键 20/24/21 仍指向 `~/ros2_ws_refactor`（`cd7d463`），尚未切到 `main` |
-| 已知问题 | 避障（OA）数据源仍是 aligned_scan（待现场选型）；沙箱有两个改动前就存在的缺陷，见重构手册 2.6 节 |
+| 已知问题 | 避障（OA）数据源仍是 aligned_scan（待现场选型）；底盘驱动指令超时 `cmd_timeout_sec` 仍为 0.0（关闭），要等实车冒烟后再开启 |
 
 ## 三十秒看懂数据流
 
