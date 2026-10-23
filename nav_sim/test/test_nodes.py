@@ -84,6 +84,25 @@ def test_actual_context_is_checked_before_creating_endpoints():
     assert destroyed == [True]
 
 
+def test_external_shutdown_is_a_normal_stop_like_ctrl_c(monkeypatch):
+    """SIGINT from launch may surface as ExternalShutdownException; it must not exit 1."""
+    from rclpy.executors import ExternalShutdownException
+
+    calls = []
+
+    def spin(node):
+        raise ExternalShutdownException()
+
+    monkeypatch.setenv('ROS_DOMAIN_ID', '99')
+    monkeypatch.setattr(_ros.rclpy, 'init', lambda args=None: calls.append('init'))
+    monkeypatch.setattr(_ros.rclpy, 'spin', spin)
+    monkeypatch.setattr(_ros.rclpy, 'ok', lambda: False)
+    monkeypatch.setattr(_ros.rclpy, 'shutdown', lambda: calls.append('shutdown'))
+    node = SimpleNamespace(destroy_node=lambda: calls.append('destroyed'))
+    _ros.run(lambda: node)
+    assert calls == ['init', 'destroyed']
+
+
 def test_chassis_emits_only_integrated_odom_and_ignores_lateral_speed():
     """Callbacks use the legacy integration rule with configured message frames."""
     messages, warnings = [], []

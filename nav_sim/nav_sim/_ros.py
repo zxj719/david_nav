@@ -4,6 +4,7 @@ import os
 from typing import Callable, Optional, Sequence
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 from nav_sim.model import require_sandbox
@@ -42,7 +43,9 @@ def run(factory: Callable[[], Node], args: Optional[Sequence[str]] = None) -> No
     try:
         node = factory()
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
+        # launch 发出的 SIGINT 可能先关掉 rclpy 上下文，spin 随后抛出的是
+        # ExternalShutdownException 而不是 KeyboardInterrupt；两者都是正常停止。
         pass
     finally:
         if node is not None:
